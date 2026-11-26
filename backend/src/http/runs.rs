@@ -206,7 +206,7 @@ pub(super) async fn files(
 }
 
 /// The digital employees a chat proposed and the person has not acted on yet (`null`: none),
-/// numbered and marked like a folder's role files, so the app shows them in its import sheet.
+/// numbered and marked with a saved one of the same name.
 // @project-doc docs/interfaces/20261031-http_api.md#proposed_employees
 pub(super) async fn proposal(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     stored_run(&app, &id)?;
@@ -217,12 +217,12 @@ pub(super) async fn proposal(State(app): State<Arc<App>>, UrlPath(id): UrlPath<S
 pub(super) struct Proposed {
     proposal: i64,
     #[serde(default)]
-    files: Vec<String>,
+    picks: Vec<String>,
     #[serde(default)]
     connection: String,
 }
 
-/// Create the picked employees (`files`, their numbers) of the chat's open proposal on one agent.
+/// Create the picked employees (`picks`, their numbers) of the chat's open proposal on one agent.
 // @project-doc docs/interfaces/20261031-http_api.md#proposed_employees
 pub(super) async fn create_proposed(
     State(app): State<Arc<App>>,
@@ -230,7 +230,7 @@ pub(super) async fn create_proposed(
     Json(p): Json<Proposed>,
 ) -> ApiResult {
     stored_run(&app, &id)?;
-    reply(app.create_proposed(&id, p.proposal, &p.files, &p.connection)?)
+    reply(app.create_proposed(&id, p.proposal, &p.picks, &p.connection)?)
 }
 
 /// Create none of the chat's open proposal.

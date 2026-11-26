@@ -6,7 +6,7 @@
 // @project-doc docs/domains/20261120-chats.md#chat_model
 
 use super::*;
-use crate::agents::{Candidate, Found, RoleFile, picked};
+use crate::agents::RoleFile;
 use crate::lang::{Lang, tr};
 
 impl App {
@@ -98,12 +98,21 @@ impl App {
 const MAX_PROPOSED: usize = 20;
 
 /// The digital employees a chat proposed that the person has not created or declined yet: the
-/// chat's latest proposal (each new one replaces the one before), by its event's seq. The
-/// employees come numbered from 1 (`Found::file`), each marked with a saved one of the same name.
+/// chat's latest proposal (each new one replaces the one before), by its event's seq.
 #[derive(Serialize)]
 pub struct Proposal {
     pub proposal: i64,
-    pub roles: Vec<Found>,
+    pub roles: Vec<ProposedRole>,
+}
+
+/// One employee of a proposal, numbered from 1 (`n`, what the person ticks), and the saved
+/// digital employee of the same name, if any, which the app leaves unticked.
+#[derive(Serialize)]
+pub struct ProposedRole {
+    pub n: String,
+    #[serde(flatten)]
+    pub role: RoleFile,
+    pub existing: Option<String>,
 }
 
 impl App {
@@ -169,12 +178,15 @@ impl App {
         }
         let employees: Vec<RoleFile> =
             asked.data.as_ref().and_then(|d| serde_json::from_value(d["employees"].clone()).ok()).unwrap_or_default();
-        let mut roles: Vec<Found> = employees
+        let saved = self.db.list::<Role>()?;
+        let roles = employees
             .into_iter()
             .enumerate()
-            .map(|(i, role)| Found { file: (i + 1).to_string(), role, picture: false, existing: None })
+            .map(|(i, role)| {
+                let existing = saved.iter().find(|r| r.name == role.name).map(|r| r.id.clone());
+                ProposedRole { n: (i + 1).to_string(), role, existing }
+            })
             .collect();
-        self.mark_existing(&mut roles)?;
         Ok(Some(Proposal { proposal: asked.seq, roles }))
     }
 
@@ -188,12 +200,15 @@ impl App {
         picks: &[String],
         connection: &str,
     ) -> Result<Vec<Role>> {
-        let open = self.still_open(run_id, proposal)?;
-        let picked = picked(open.roles, picks, |n| anyhow!("这一批里没有第 {n} 位"))?;
-        let made = self.make_roles(
-            picked.into_iter().map(|f| Candidate { role: f.role, stem: String::new(), picture: None }),
-            connection,
-        )?;
+        let mut open = self.still_open(run_id, proposal)?.roles;
+        let picked = picks
+            .iter()
+            .map(|n| {
+                let at = open.iter().position(|r| &r.n == n).ok_or_else(|| anyhow!("这一批里没有第 {n} 位"))?;
+                Ok(open.swap_remove(at).role)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let made = self.make_roles(picked, connection)?;
         let names = made.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join("、");
         let created: Vec<Value> = made.iter().map(|r| json!({ "id": r.id, "name": r.name })).collect();
         let e = ev(EventKind::RolesCreated, "user", format!("创建了 {} 位数字员工：{names}", made.len()))

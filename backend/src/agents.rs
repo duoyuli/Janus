@@ -41,7 +41,7 @@ pub(crate) use connections::{is_sandbox_var, sandbox_vars};
 pub(crate) use environment::{private_env_value, protect_claude_env, read_secrets, write_secrets};
 pub use local_config::local_preview;
 use local_config::*;
-pub(crate) use role_files::{Candidate, Found, RoleFile, picked};
+pub(crate) use role_files::RoleFile;
 pub use roles::Role;
 pub(crate) use roles::{RoleSeed, SEEDS, text_hash};
 pub use runtime::{InstructionChannel, Runtime};

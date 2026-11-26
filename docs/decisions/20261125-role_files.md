@@ -1,6 +1,6 @@
 # ADR：数字员工按分组管理，用文件导入导出，招聘顾问写文件交付
 
-- 状态：部分被取代（superseded），记录于 2026-11-25。2026-11-26 起，第 5 条（招聘顾问把文件写进对话目录、对话提示导入）和取舍「文件而不是工具」已被 [ADR：招聘顾问在对话里用工具交出数字员工，用户确认后创建](20261126-propose_employees_in_chat.md) 取代；分组、数字员工文件、导入和不开管理 MCP 仍然有效。
+- 状态：部分被取代（superseded），记录于 2026-11-25。2026-11-26 起，第 5 条（招聘顾问把文件写进对话目录、对话提示导入）和取舍「文件而不是工具」已被 [ADR：招聘顾问在对话里用工具交出数字员工，用户确认后创建](20261126-propose_employees_in_chat.md) 取代；分组、数字员工文件、导入和不开管理 MCP 仍然有效。 第 3 条（导入）和随之而来的取舍、`/api/roles/import*` 接口已被 [ADR：不做从文件导入数字员工](20261126-no_role_import.md) 取代（2026-11-26）。
 - 相关文档：[角色](../domains/20261031-agents_and_roles.md#roles)、[分组](../domains/20261031-agents_and_roles.md#role_groups)、[数字员工文件](../domains/20261031-agents_and_roles.md#role_files)、[对话](../domains/20261120-chats.md#chat_app)、[安全边界](../operations/20261031-security.md#role_files)、[ADR：Janus 只注入协作规则](20261125-collaboration_only_injection.md)。
 
 ## 背景

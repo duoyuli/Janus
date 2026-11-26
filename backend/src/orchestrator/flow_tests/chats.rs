@@ -169,8 +169,8 @@ async fn a_hiring_chat_proposes_employees_the_person_creates() {
         call("propose_employees", json!({ "employees": [employee("合伙人", true), employee("m1", false)] })).await;
     assert!(!err && text.contains("已交给用户：2 位"), "{text}");
     let open = h.app.open_proposal(&id).unwrap().unwrap();
-    let files: Vec<&str> = open.roles.iter().map(|f| f.file.as_str()).collect();
-    assert_eq!(files, ["1", "2"]);
+    let numbers: Vec<&str> = open.roles.iter().map(|r| r.n.as_str()).collect();
+    assert_eq!(numbers, ["1", "2"]);
     assert_eq!(open.roles[1].existing.as_deref(), Some("m1"), "a taken name is marked");
 
     // Replaced before the person acts: the earlier one can no longer be acted on.

@@ -1,4 +1,4 @@
-"""Digital employees by group, as role files in and out, and 招聘顾问 proposing a team in a chat
+"""Digital employees by group, exported as role files, and 招聘顾问 proposing a team in a chat
 (docs/domains/20261031-agents_and_roles.md#role_groups, #role_files)."""
 
 import json
@@ -7,107 +7,35 @@ import os
 from lib import drawn, wait
 from scenarios import scenario
 
-COUNSEL = """---
-name: 法务顾问
-desc: 审合同、找风险条款；需要逐条审阅合同时交给它
-group: 律所
-color: "#11845a"
-init: 法
-lead: true
----
-
-逐条读合同，标出风险。
-"""
-
-PARALEGAL = """---
-id: paralegal
-name: 律师助理
-desc: 整理案卷和证据目录
-group: 律所
----
-
-整理材料，列出缺什么。
-"""
-
-# A Claude Code subagent as it is shared: a long description with examples, its own tools and model.
-SUBAGENT = """---
-name: code-reviewer
-description: Reviews diffs for bugs and risky changes.\\n\\n<example>Context: a pull request</example>
-tools: Read, Grep
-model: sonnet
-color: blue
----
-
-You review code and report what could break.
-"""
-
-
-def write(root, rel, text):
-    path = os.path.join(root, rel)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        f.write(text)
+def employee(ctx, **fields):
+    """Save a digital employee as the editor does; returns it."""
+    body = dict({"name": "", "desc": "", "group": "", "prompt": "", "connection": "", "model": "", "effort": "",
+                 "session": {}, "lead": False, "hires": False, "color": "", "init": ""}, **fields)
+    return ctx.api("POST", "/api/setup/roles", body)
 
 
 @scenario("roles")
 def roles(ctx, c):
-    """数字员工按分组列出：默认数字员工各在自己的组；从文件夹导入（带 subagent 文件）、整组改名和换 Agent、导出成文件；招聘顾问在对话里用工具交出团队，用户在对话里勾选后创建"""
+    """数字员工按分组列出：默认数字员工各在自己的组；整组改名和换 Agent、导出成文件；招聘顾问在对话里用工具交出团队，用户在对话里勾选后创建"""
     t = ctx.team("roles", members=("m1",))
     setup = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
     groups = {rid: setup[rid]["group"] for rid in ("pmo", "generalist", "friend", "recruiter", t.member("m1"))}
     c(groups == {"pmo": "产品上线", "generalist": "通用", "friend": "对话", "recruiter": "对话", t.member("m1"): ""},
       f"默认数字员工各在自己的组，自己建的不分组（{groups}）")
 
-    # A folder of role files: two by hand under legal/, a Claude Code subagent, a README.
-    src = ctx.path("roles", "files")
-    write(src, "legal/counsel.md", COUNSEL)
-    write(src, "legal/paralegal.md", PARALEGAL)
-    write(src, "subagents/code-reviewer.md", SUBAGENT)
-    write(src, "README.md", "# 这些是数字员工\n")
-    scan = ctx.api("POST", "/api/roles/import/scan", {"path": src})
-    found = {f["file"]: f for f in scan["roles"]}
-    c(sorted(found) == ["legal/counsel.md", "legal/paralegal.md", "subagents/code-reviewer.md"], f"扫描找到三个数字员工文件，README 不算（{sorted(found)}）")
-    reviewer = found["subagents/code-reviewer.md"]
-    c(reviewer["desc"] == "Reviews diffs for bugs and risky changes." and reviewer["group"] == "subagents" and reviewer["color"] == "",
-      f"subagent 文件的职责取描述第一段、去掉示例，没写分组时取文件夹名（{reviewer['desc']} / {reviewer['group']}）")
-    code, _ = ctx.api_error("POST", "/api/roles/import", {"path": src, "files": ["../elsewhere.md"], "connection": ""})
-    c(code == 400, f"只能导入扫描列出的文件（{code}）")
+    # Two of the person's own in a group, saved as the editor saves them.
+    counsel = employee(ctx, name="法务顾问", desc="审合同、找风险条款", group="律所", color="#11845a", init="法", lead=True,
+                       prompt="逐条读合同，标出风险。", connection=t.member_conn["id"])
+    paralegal = employee(ctx, name="律师助理", desc="整理案卷和证据目录", group="律所", prompt="整理材料，列出缺什么。",
+                         connection=t.member_conn["id"])
+    made = {"法务顾问": counsel, "律师助理": paralegal}
 
-    files = ["legal/counsel.md", "legal/paralegal.md", "subagents/code-reviewer.md"]
-    if ctx.app:
-        st = ctx.app.do(f"roles-import {src}", "shot roles-import")
-        im = st["roleImport"]
-        c([(f["file"], f["name"], f["group"]) for f in im["found"]] == [(f["file"], f["name"], f["group"]) for f in scan["roles"]]
-          and im["picked"] == files, "应用：导入表单列出的文件、名字和分组与服务扫描的一致，全部默认勾选")
-        c(drawn(ctx.app.picture("roles-import")), "应用：导入表单画出来了（roles-import.png）")
-        st = ctx.app.do("roles-import-toggle subagents/code-reviewer.md", f"roles-import-agent {t.member_conn['id']}", "roles-import-go")
-        c(st["roleImport"] is None, "应用：导入后表单关闭")
-    else:
-        ctx.api("POST", "/api/roles/import", {"path": src, "files": files[:2], "connection": t.member_conn["id"]})
-    after = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
-    made = {r["name"]: r for r in after.values() if r["id"] not in setup}
-    c(sorted(made) == ["律师助理", "法务顾问"], f"只导入勾选的两位（{sorted(made)}）")
-    counsel, paralegal = made["法务顾问"], made["律师助理"]
-    c(counsel["lead"] and counsel["group"] == "律所" and counsel["color"] == "#11845a" and counsel["prompt"] == "逐条读合同，标出风险。",
-      "导入的数字员工带着文件里的负责人、分组、颜色和指令")
-    c(paralegal["id"] == "paralegal" and all(r["connection"] == t.member_conn["id"] for r in made.values()), "文件里的 id 照用，整批绑定选的 Agent")
-
-    # Importing again never replaces anyone: the names are taken, so nothing is ticked; forced, it gets a new id.
-    again = ctx.api("POST", "/api/roles/import/scan", {"path": os.path.join(src, "legal")})
-    c(all(f["existing"] for f in again["roles"]), "再扫描时同名的标为已有")
-    second = ctx.api("POST", "/api/roles/import", {"path": os.path.join(src, "legal"), "files": ["paralegal.md"], "connection": ""})
-    c(second[0]["id"] == "paralegal-2" and ctx.api("GET", "/api/setup")["roles"] and
-      {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}["paralegal"]["connection"] == t.member_conn["id"],
-      "已有的 id 不被覆盖，新导入的另取 id")
-    ctx.api("DELETE", f"/api/setup/roles/{second[0]['id']}")
-
-    # Export writes what import reads back.
+    # Export writes one Markdown file per employee: its name, duty, group and look, then its instructions.
     status, body, _ = ctx.api("GET", f"/api/roles/{counsel['id']}/file", raw=True)
-    out = ctx.path("roles", "export", "律所")
-    write(out, f"{counsel['id']}.md", body.decode())
-    back = ctx.api("POST", "/api/roles/import/scan", {"path": out})["roles"][0]
-    c(status == 200 and (back["name"], back["desc"], back["group"], back["lead"], back["prompt"]) ==
-      (counsel["name"], counsel["desc"], counsel["group"], counsel["lead"], counsel["prompt"]), "导出的文件再扫描，内容和数字员工一致")
+    text = body.decode()
+    c(status == 200 and text.startswith("---\n") and all(f"{k}: " in text for k in ("name", "desc", "group", "color", "init", "lead"))
+      and "lead: true" in text and text.rstrip().endswith("逐条读合同，标出风险。") and "connection" not in text,
+      "导出的文件有名字、职责、分组、颜色、负责人和指令，没有 Agent 设置")
 
     # A group renamed and put on another agent, as its menu does.
     if ctx.app:
@@ -141,7 +69,8 @@ def roles(ctx, c):
     team = [{"name": "店铺负责人", "desc": "统筹店铺运营", "group": "电商运营", "color": "#c2410c", "init": "店", "lead": True, "instructions": "你负责店铺运营。"},
             {"name": "文案", "desc": "写商品详情和活动文案", "group": "电商运营", "color": "#11845a", "init": "文", "instructions": "你写文案。"},
             {"name": "客服", "desc": "回答买家的问题", "group": "电商运营", "color": "#2563eb", "init": "客", "instructions": "你做客服。"}]
-    write(t.fake.dir, "team.json", json.dumps(team, ensure_ascii=False))
+    with open(os.path.join(t.fake.dir, "team.json"), "w") as f:
+        json.dump(team, f, ensure_ascii=False)
     if ctx.app:
         # Adding someone by hand offers 招聘顾问 instead; editing someone does not.
         st = ctx.app.do("role new", "shot role-editor-new")
@@ -162,26 +91,26 @@ def roles(ctx, c):
          "招聘顾问的会话打开", 60)
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "开一家网店 [team]"})
     proposal = wait(lambda: ctx.api("GET", f"/api/runs/{chat}/proposal"), "招聘顾问用工具交出三位数字员工", 60)
-    c([r["name"] for r in proposal["roles"]] == ["店铺负责人", "文案", "客服"] and [r["file"] for r in proposal["roles"]] == ["1", "2", "3"],
+    c([r["name"] for r in proposal["roles"]] == ["店铺负责人", "文案", "客服"] and [r["n"] for r in proposal["roles"]] == ["1", "2", "3"],
       "服务端记下这一批，按顺序编号")
     c(not any(r["group"] == "电商运营" for r in ctx.api("GET", "/api/setup")["roles"]), "用户确认之前一个也没有创建")
     if ctx.app:
         ctx.ui(c, chat, lambda r, s: [x["name"] for x in (r.get("proposal") or {}).get("roles", [])] == ["店铺负责人", "文案", "客服"],
                "对话页显示服务端给的这一批：店铺负责人、文案、客服", pages=("density detail",))
-        st = ctx.app.do("proposal-open", f"roles-import-agent {t.member_conn['id']}", "roles-import-toggle 3", "shot proposal-sheet")
-        im = st["roleImport"]
-        c(im["chat"] == chat and [f["name"] for f in im["found"]] == ["店铺负责人", "文案", "客服"] and im["picked"] == ["1", "2"],
+        st = ctx.app.do("proposal-open", f"proposal-agent {t.member_conn['id']}", "proposal-toggle 3", "shot proposal-sheet")
+        sheet = st["proposalSheet"]
+        c(sheet["chat"] == chat and [r["name"] for r in sheet["roles"]] == ["店铺负责人", "文案", "客服"] and sheet["picked"] == ["1", "2"],
           "应用：确认表单列出这一批，去掉客服后勾选两位")
         c(drawn(ctx.app.picture("proposal-sheet")), "应用：确认表单画出来了（proposal-sheet.png）")
-        ctx.app.do("roles-import-go")
-        ctx.ui(c, chat, lambda r, s: r.get("proposal") is None and s.get("roleImport") is None, "创建后对话页的提议消失，表单关闭")
+        ctx.app.do("proposal-create")
+        ctx.ui(c, chat, lambda r, s: r.get("proposal") is None and s.get("proposalSheet") is None, "创建后对话页的提议消失，表单关闭")
     else:
-        ctx.api("POST", f"/api/runs/{chat}/proposal", {"proposal": proposal["proposal"], "files": ["1", "2"], "connection": t.member_conn["id"]})
+        ctx.api("POST", f"/api/runs/{chat}/proposal", {"proposal": proposal["proposal"], "picks": ["1", "2"], "connection": t.member_conn["id"]})
     shop = [r for r in ctx.api("GET", "/api/setup")["roles"] if r["group"] == "电商运营"]
     c(sorted(r["name"] for r in shop) == ["店铺负责人", "文案"], "勾选的两位成为「电商运营」组，没勾选的客服没有创建")
     c(all(r["connection"] == t.member_conn["id"] and not r["hires"] for r in shop) and any(r["lead"] for r in shop),
       "创建的人用选定的 Agent，负责人保留，没有提议数字员工的能力")
-    code, text = ctx.api_error("POST", f"/api/runs/{chat}/proposal", {"proposal": proposal["proposal"], "files": ["3"], "connection": t.member_conn["id"]})
+    code, text = ctx.api_error("POST", f"/api/runs/{chat}/proposal", {"proposal": proposal["proposal"], "picks": ["3"], "connection": t.member_conn["id"]})
     c(code == 400 and "已经处理过" in text, "同一批不能再创建一次")
     # A chat with someone who may not propose has no such tool.
     other = ctx.api("POST", "/api/chats", {"role": t.member("m1")})["id"]

@@ -1,6 +1,6 @@
 # ADR：招聘顾问在对话里用工具交出数字员工，用户确认后创建
 
-- 状态：已采纳（accepted），记录于 2026-11-26。取代 [ADR：数字员工按分组管理，用文件导入导出，招聘顾问写文件交付](20261125-role_files.md) 的第 5 条和取舍「文件而不是工具」；分组、数字员工文件、导入和「不开管理 MCP」仍按那份 ADR。
+- 状态：已采纳（accepted），记录于 2026-11-26。取代 [ADR：数字员工按分组管理，用文件导入导出，招聘顾问写文件交付](20261125-role_files.md) 的第 5 条和取舍「文件而不是工具」；分组、数字员工文件、导入和「不开管理 MCP」仍按那份 ADR。 第 4、5 条里「用导入表单确认」「从文件导入仍在设置里」已被 [ADR：不做从文件导入数字员工](20261126-no_role_import.md) 取代：确认用自己的表单，导入已删除。
 - 相关文档：[对话里提议的数字员工](../domains/20261120-chats.md#proposed_employees)、[角色](../domains/20261031-agents_and_roles.md#roles)、[对话的工具](../interfaces/20261031-board_mcp.md#chat_tools)、[接口](../interfaces/20261031-http_api.md#proposed_employees)、[安全边界](../operations/20261031-security.md#role_files)、[ADR：协作者用工具交结果和提问](20261125-hand_in_with_tools.md)。
 
 ## 背景

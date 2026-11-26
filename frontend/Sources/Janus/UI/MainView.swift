@@ -17,9 +17,9 @@ struct MainView: View {
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: store.showingSettings)
-        // From the settings pane or from a chat's folder, so it sits over both.
-        .sheet(isPresented: Binding(get: { store.roleImport != nil }, set: { if !$0 { store.roleImport = nil } })) {
-            RoleImportSheet(store: store)
+        // A chat's proposal of digital employees, created once the person has looked.
+        .sheet(isPresented: Binding(get: { store.proposalSheet != nil }, set: { if !$0 { store.proposalSheet = nil } })) {
+            ProposalSheetView(store: store)
         }
         .tint(Color.accent)
         .disclosureGroupStyle(.row)

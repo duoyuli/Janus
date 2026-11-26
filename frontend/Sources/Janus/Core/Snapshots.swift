@@ -154,17 +154,15 @@ enum Snapshots {
                 let png = p[1] == "none" ? nil : (try? Data(contentsOf: URL(fileURLWithPath: p[1]))).flatMap { AvatarImages.square($0) }
                 if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
             }
-        // The import sheet for role files, driven as the person does: `roles-import <path>` opens and
-        // reads it, `roles-import-toggle <file>` ticks or unticks one, `roles-import-agent <id>`
-        // picks the agent, `roles-import-go` imports.
-        case "roles-import": await store.openRoleImport(arg)
-        case "roles-import-toggle":
-            if store.roleImport?.picked.contains(arg) == true { store.roleImport?.picked.remove(arg) } else { store.roleImport?.picked.insert(arg) }
-        case "roles-import-agent": store.roleImport?.connection = arg
-        case "roles-import-go": await store.finishRoleImport()
-        // The open chat's proposal of digital employees: `proposal-open` opens it in the import
-        // sheet (then the `roles-import-*` commands), `proposal-decline` creates none.
+        // The open chat's proposal of digital employees, driven as the person does:
+        // `proposal-open` opens the sheet, `proposal-toggle <n>` ticks or unticks one,
+        // `proposal-agent <id>` picks the agent, `proposal-create` creates the ticked ones,
+        // `proposal-decline` creates none.
         case "proposal-open": if let r = store.run { await store.openProposal(r) }
+        case "proposal-toggle":
+            if store.proposalSheet?.picked.contains(arg) == true { store.proposalSheet?.picked.remove(arg) } else { store.proposalSheet?.picked.insert(arg) }
+        case "proposal-agent": store.proposalSheet?.connection = arg
+        case "proposal-create": await store.createProposed()
         case "proposal-decline": if let r = store.run { await store.declineProposal(r) }
         // A group's menu: `group-bind <group>|<agent>`, `group-rename <from>|<to>`.
         case "group-bind":
@@ -176,7 +174,7 @@ enum Snapshots {
         // Settings › 数字员工 › 找招聘顾问….
         case "recruiter-chat": await store.chatWithRecruiter()
         case "close-sheet":
-            store.closeRoleEditor(); store.roleImport = nil; store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
+            store.closeRoleEditor(); store.proposalSheet = nil; store.editingWorkspace = nil; store.editingBrief = nil; store.editingLoop = nil; store.editingMemory = nil; store.editingMcp = nil; store.showingSettings = false
             model.permissions.dismissReview()
         case "snooze-first":
             if let e = store.inbox.open.first(where: \.canWait) { store.inbox.snooze(e.key, until: Date().addingTimeInterval(3600)) }
@@ -230,12 +228,12 @@ enum Snapshots {
                 "roleGroups": JSON.array(store.roleSections.map { section in
                     ["group": JSON(section.group), "title": JSON(AppStore.groupTitle(section.group)), "roles": JSON.array(section.roles.map { JSON($0.id) })]
                 }),
-                // The import sheet as shown: where it reads, each file found (name, group, lead,
+                // The proposal sheet as shown: whose chat, each employee (number, name, group, lead,
                 // whether the name is taken) and which are ticked.
-                "roleImport": store.roleImport.map { im in
-                    ["path": JSON(im.path), "chat": im.chat.map(JSON.init) ?? .null, "error": im.error.map(JSON.init) ?? .null, "connection": JSON(im.connection),
-                     "picked": JSON.array(im.picked.sorted().map(JSON.init)),
-                     "found": JSON.array(im.found.map { ["file": $0["file"], "name": $0["name"], "group": $0["group"], "lead": $0["lead"], "existing": $0["existing"]] })]
+                "proposalSheet": store.proposalSheet.map { p in
+                    ["chat": JSON(p.chat), "error": p.error.map(JSON.init) ?? .null, "connection": JSON(p.connection),
+                     "picked": JSON.array(p.picked.sorted().map(JSON.init)),
+                     "roles": JSON.array(p.roles.map { ["n": $0["n"], "name": $0["name"], "group": $0["group"], "lead": $0["lead"], "existing": $0["existing"]] })]
                 } ?? .null,
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
