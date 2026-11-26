@@ -324,6 +324,8 @@ impl App {
             };
             self.put_source(&s)?;
         }
+        // The periodic check runs with nobody asking: the app hears of it and shows any update.
+        let _ = self.changes.send(crate::orchestrator::Change::Library);
         let sources: Vec<Value> = self.sources()?.iter().map(|s| self.source_json(s)).collect::<Result<_>>()?;
         Ok(json!({ "sources": sources }))
     }

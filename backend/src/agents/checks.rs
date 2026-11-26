@@ -18,7 +18,7 @@ impl App {
         let started = now_ms();
         set_check(&mut c, ConnCheck::Testing { started });
         c["check"] = json!([]);
-        self.db.put_config(ConfigKind::Connection, id, &c, now_ms())?;
+        self.put_connection(id, &c)?;
         running.insert(id.to_string(), started);
         drop(running);
         let app = self.clone();
@@ -48,7 +48,7 @@ impl App {
             if logging_in {
                 set_login(&mut c, LoginState::Failed);
             }
-            self.db.put_config(ConfigKind::Connection, str_of(&c, "id"), &c, now_ms())?;
+            self.put_connection(str_of(&c, "id"), &c)?;
         }
         Ok(())
     }
@@ -61,7 +61,7 @@ impl App {
             && check.owns(&c)
         {
             c["check"] = json!(check.steps);
-            let _ = self.db.put_config(ConfigKind::Connection, id, &c, now_ms());
+            let _ = self.put_connection(id, &c);
         }
     }
 
@@ -298,7 +298,7 @@ impl App {
                 );
             }
         }
-        self.db.put_config(ConfigKind::Connection, id, &c, now_ms())?;
+        self.put_connection(id, &c)?;
         Ok(())
     }
 
@@ -331,7 +331,7 @@ impl App {
             .spawn()
             .context("启动登录命令失败")?;
         set_login(&mut c, LoginState::Running);
-        self.db.put_config(ConfigKind::Connection, id, &c, now_ms())?;
+        self.put_connection(id, &c)?;
         let app = self.clone();
         let id = id.to_string();
         tokio::spawn(async move {
@@ -347,7 +347,7 @@ impl App {
             if let Ok(mut c) = app.connection(&id) {
                 set_login(&mut c, state);
                 set_check(&mut c, ConnCheck::Untested);
-                let _ = app.db.put_config(ConfigKind::Connection, &id, &c, now_ms());
+                let _ = app.put_connection(&id, &c);
             }
         });
         Ok(())
@@ -412,7 +412,14 @@ mod tests {
             app.db.put_config(ConfigKind::Connection, id, &c, 1).unwrap();
         }
 
+        let mut heard = app.changes.subscribe();
         app.reset_stale_checks().unwrap();
+        let mut changed = vec![];
+        while let Ok(crate::orchestrator::Change::Connection(id)) = heard.try_recv() {
+            changed.push(id);
+        }
+        changed.sort();
+        assert_eq!(changed, ["logging-in", "testing"], "the app hears of each connection that changed");
 
         let all = app.connections().unwrap();
         let get = |id: &str| all.iter().find(|c| c["id"] == id).unwrap().clone();

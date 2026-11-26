@@ -1176,8 +1176,13 @@ pub enum Change {
     /// A workspace's team memory: a note, its consolidation.
     Memory { workspace: String },
     /// The library changed without the app asking: an agent saved a script as a skill
-    /// (`run_code`'s `save_as`).
+    /// (`run_code`'s `save_as`), a server finished being prepared, a check of the Git sources
+    /// came back.
     Library,
+    /// An Agent connection's record: its check or login moved on.
+    Connection(String),
+    /// An adapter's install or update started or ended, or a newer version became known.
+    Adapters,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.

@@ -182,8 +182,16 @@ impl App {
             secrets["importedEnv"] = Value::Object(env);
         }
         write_secrets(&secrets_file, &secrets)?;
-        self.db.put_config(ConfigKind::Connection, &id, &config, now_ms())?;
+        self.put_connection(&id, &config)?;
         Ok(config)
+    }
+
+    /// Write a connection's record and tell the app it changed: a check or a login moves on in
+    /// the background, and the app reads the connection again when it hears.
+    pub(super) fn put_connection(&self, id: &str, c: &Value) -> Result<()> {
+        self.db.put_config(ConfigKind::Connection, id, c, now_ms())?;
+        let _ = self.changes.send(crate::orchestrator::Change::Connection(id.to_string()));
+        Ok(())
     }
 
     /// "复制本机配置": copy the agent's own setup into its isolated home. Returns the credential

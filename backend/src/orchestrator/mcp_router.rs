@@ -267,6 +267,7 @@ impl App {
             let mut warm = app.library.warm.lock().unwrap();
             if warm.get(&item.id).is_some_and(|w| w.revision() == revision) {
                 warm.insert(item.id.clone(), done);
+                let _ = app.changes.send(Change::Library);
             }
         });
     }

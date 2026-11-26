@@ -19,7 +19,7 @@
 //! asking anyone. A version the person switched to by hand is pinned in
 //! `cache/adapters/<id>/pinned`: automatic updates leave it alone until they resume them.
 
-use crate::orchestrator::App;
+use crate::orchestrator::{App, Change};
 use crate::util::now_ms;
 use crate::wire::wire_enum;
 use anyhow::{Context, Result, anyhow, bail};
@@ -269,14 +269,27 @@ impl App {
     /// Start installing in the background: a version (the body's, else the newest). When the person
     /// had pinned an older version, this resumes automatic updates: the pin goes first, and the
     /// newest version already on disk becomes current without downloading it again.
+    /// An adapter's job starts; the app hears of it on the global stream.
+    fn adapter_begin(&self, id: &str, action: JobAction) -> Result<()> {
+        self.adapter_state.begin(id, action)?;
+        let _ = self.changes.send(Change::Adapters);
+        Ok(())
+    }
+
+    /// An adapter's job ends, with what it came to.
+    fn adapter_finish(&self, id: &str, r: Result<String>) {
+        self.adapter_state.finish(id, r);
+        let _ = self.changes.send(Change::Adapters);
+    }
+
     pub fn start_adapter_install(self: &Arc<Self>, id: &str, version: Option<String>) -> Result<()> {
         def(id)?;
-        self.adapter_state.begin(id, JobAction::Install)?;
+        self.adapter_begin(id, JobAction::Install)?;
         let app = self.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
             let r = app.install_requested(&id, version.as_deref());
-            app.adapter_state.finish(&id, r.map(|v| format!("已安装 {v}")));
+            app.adapter_finish(&id, r.map(|v| format!("已安装 {v}")));
         });
         Ok(())
     }
@@ -364,9 +377,9 @@ impl App {
         if self.adapter_current(id).is_some() {
             return Ok(None);
         }
-        self.adapter_state.begin(id, JobAction::Install)?;
+        self.adapter_begin(id, JobAction::Install)?;
         let r = self.install_adapter(id, None);
-        self.adapter_state.finish(id, r.as_ref().map(|v| format!("已安装 {v}")).map_err(|e| anyhow!("{e:#}")));
+        self.adapter_finish(id, r.as_ref().map(|v| format!("已安装 {v}")).map_err(|e| anyhow!("{e:#}")));
         r.map(Some)
     }
 
@@ -385,6 +398,7 @@ impl App {
         let d = def(id)?;
         let v = npm_latest(d)?;
         self.adapter_state.latest.lock().unwrap().insert(id.to_string(), (v.clone(), now_ms()));
+        let _ = self.changes.send(Change::Adapters);
         Ok(v)
     }
 
@@ -409,14 +423,15 @@ impl App {
             match newest(d) {
                 Ok(v) => {
                     self.adapter_state.latest.lock().unwrap().insert(d.id.to_string(), (v.clone(), now_ms()));
+                    let _ = self.changes.send(Change::Adapters);
                     if self.adapter_pinned(d.id).is_some() || !newer(&v, &current) {
                         continue;
                     }
-                    if self.adapter_state.begin(d.id, JobAction::Auto).is_err() {
+                    if self.adapter_begin(d.id, JobAction::Auto).is_err() {
                         continue;
                     }
                     let done = install(d.id, &v);
-                    self.adapter_state.finish(d.id, done.map(|v| format!("已自动更新到 {v}")));
+                    self.adapter_finish(d.id, done.map(|v| format!("已自动更新到 {v}")));
                 }
                 Err(err) => crate::config::log(format!("janus: {} adapter not checked for updates: {err:#}", d.id)),
             }
@@ -709,6 +724,7 @@ mod tests {
         std::fs::remove_file(app.adapters_dir().join("codex").join("current")).unwrap();
         let asked = Mutex::new(vec![]);
         let installed = Mutex::new(vec![]);
+        let mut heard = app.changes.subscribe();
         app.check_adapter_updates_with(
             |d| {
                 asked.lock().unwrap().push(d.id);
@@ -726,6 +742,11 @@ mod tests {
         assert!(claude["checkedAt"].is_i64());
         assert_eq!((claude["job"]["action"].as_str(), claude["job"]["state"].as_str()), (Some("auto"), Some("ok")));
         assert!(claude["job"]["ended"].is_i64());
+        let mut notices = 0;
+        while let Ok(Change::Adapters) = heard.try_recv() {
+            notices += 1;
+        }
+        assert_eq!(notices, 3, "the app hears of the newer version, the update's start and its end");
 
         // The installed version is the newest: nothing starts.
         app.check_adapter_updates_with(
@@ -802,7 +823,7 @@ mod tests {
             |_, _| panic!("a running job is left alone"),
         );
         assert_eq!(*asked.lock().unwrap(), ["codex"], "the busy adapter is skipped");
-        app.adapter_state.finish("claude", Ok("完成".into()));
+        app.adapter_finish("claude", Ok("完成".into()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

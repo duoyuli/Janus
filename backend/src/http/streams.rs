@@ -80,6 +80,10 @@ pub(super) async fn all(
             Ok(SseEvent::default().event("memory").data(json!({ "workspace": workspace }).to_string()))
         }
         Ok(Change::Library) => Ok(SseEvent::default().event("library").data("{}")),
+        Ok(Change::Connection(id)) => {
+            Ok(SseEvent::default().event("connection").data(json!({ "connection": id }).to_string()))
+        }
+        Ok(Change::Adapters) => Ok(SseEvent::default().event("adapters").data("{}")),
         Err(_) => lagged(),
     });
     let ready = tokio_stream::once(Ok(SseEvent::default().event("ready").data("{}")));
