@@ -114,8 +114,9 @@ def build_old(tag, tmp):
 def old_member(id_, name, runtime, lead, role_id, version):
     """A run member as a release at data `version` wrote it. Before data version 23 the agent
     connection was `runtime` and the runtime was `kind`; from 23 on they are `connection`,
-    `connection_name` and `runtime` (migration `rename_member_connection`). Data version 0 still
-    had the role label and the model label."""
+    `connection_name` and `runtime` (migration `rename_member_connection`). From 27 on a member
+    says whether it proposes digital employees (`hires`). Data version 0 still had the role label
+    and the model label."""
     m = {
         "id": id_, "name": name, "desc": "旧职责", "lead": lead, "color": "#5452e8",
         "init": "LD", "model": "", "effort": "", "session": {}, "permission": "Auto",
@@ -125,6 +126,8 @@ def old_member(id_, name, runtime, lead, role_id, version):
         m.update({"connection": runtime, "connection_name": "Claude", "runtime": "claude"})
     else:
         m.update({"runtime": runtime, "kind": "claude", "runtime_name": "Claude"})
+    if version >= 27:
+        m["hires"] = False
     if version == 0:
         m.update({"role": "旧定位", "model_label": "Opus（Agent 默认）"})
     return m
