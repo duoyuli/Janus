@@ -316,6 +316,8 @@ struct ChatScroll: View {
     @Local private var position = ScrollPosition(edge: .bottom)
     /// Flips with each scroll to the end, so the next one is a new position (`toNewest`).
     @Local private var nudge = false
+    /// The content offset that shows the end, from the last measurement.
+    @Local private var endOffset: CGFloat = 0
     /// The person is scrolling: dragging, swiping, or the swipe running on.
     @Local private var person = false
 
@@ -351,6 +353,10 @@ struct ChatScroll: View {
         }
         // How much content lies below the visible area, reported on every scroll and every change
         // of the content's size; the state changes only when the answer does.
+        // Where the end is, as an offset of the content: what the scroll to the end goes to.
+        .onScrollGeometryChange(for: CGFloat.self) { g in
+            g.contentOffset.y + g.contentSize.height - g.visibleRect.maxY
+        } action: { _, end in endOffset = end }
         .onScrollGeometryChange(for: CGFloat.self) { g in
             g.contentSize.height - g.visibleRect.maxY
         } action: { _, below in
@@ -457,9 +463,10 @@ struct ChatScroll: View {
     /// estimate put it, short of the end, and the same position again did nothing.
     private func toNewest() {
         // The same position again does nothing: alternate two ways of saying the end, so a try
-        // after rows above were measured (which moves the end) is a scroll too.
+        // after rows above were measured (which moves the end) is a scroll too. The offset is the
+        // measured end, never an out-of-range number: macOS 15 does not clamp one to the end.
         nudge.toggle()
-        if nudge { position.scrollTo(edge: .bottom) } else { position.scrollTo(y: .greatestFiniteMagnitude) }
+        if nudge { position.scrollTo(edge: .bottom) } else { position.scrollTo(y: max(0, endOffset)) }
     }
 
     private func update(_ change: (inout ChatFollow) -> Void) {

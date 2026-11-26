@@ -56,6 +56,13 @@ private var screenLocked: Bool {
     let chat = try #require(scrollViews(host).max { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
     let clip = chat.contentView
     func gapBelow() -> CGFloat { (chat.documentView?.frame.height ?? 0) - clip.bounds.maxY }
+    /// Settles until the end is in view, for as long as the view keeps going after it
+    /// (`ChatFollow.landingTime`): a slow machine measures the rows over more passes.
+    func settleAtEnd() async {
+        let deadline = Date().addingTimeInterval(ChatFollow.landingTime + 1)
+        repeat { await settle() } while gapBelow() >= 2 && Date() < deadline
+    }
+    await settleAtEnd()
     #expect(gapBelow() < 2, "a conversation opens at its newest item")
 
     // The person's own scrolling: one trackpad swipe of `dy` points (positive is up), sent as the
@@ -82,5 +89,6 @@ private var screenLocked: Bool {
     for _ in 0..<60 where gapBelow() > 1 { try await swipe(-400) }
     #expect(gapBelow() < 2)
     for n in 205...208 { events.append(reply(n)); host.rootView = view(); await settle() }
+    await settleAtEnd()
     #expect(gapBelow() < 2, "at the bottom, new replies are followed")
 }
