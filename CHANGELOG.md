@@ -4,6 +4,16 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26
+
+- 招聘顾问聊完后直接交出它设计的数字员工，不再写成 Markdown 文件：对话上方出现「招聘顾问提议了 N 位数字员工」，点「查看并创建…」逐个看指令、勾选要的人、选好由哪个 Agent 来做，点「创建」才保存；不要就点「不用了」。让它调整后再交一批，会替换还没处理的那一批。
+
+- 数字员工编辑器多一个开关「可以在对话里提议数字员工」：打开后，和它的对话里它能交出数字员工给你确认。默认只有招聘顾问打开，升级后自动设好；导入的文件和对话里创建的人都不会带上它。
+
+- Recruiter now hands over the digital employees it designs instead of writing Markdown files: the chat shows "Recruiter proposed N digital employees"; choose Review and Create… to read each one's instructions, tick the ones you want and pick the Agent that runs them, and they are saved only when you choose Create. No Thanks drops them. Ask it to adjust and it hands over a new set, which replaces the one you have not acted on.
+
+- The digital employee editor has a new switch, "Can propose digital employees in a chat": with it on, that employee can hand you digital employees to confirm in its chats. Only the Recruiter has it on by default, set for you when you upgrade; imported files and employees created from a chat never carry it.
+
 ## 2026.11.25.7
 
 - 修复：负责人交给你拍板的问题，它没等到回答就交付了，卡片却一直留在收件箱；服务重启后点卡片上的任何选项，都只提示「这个子任务已经中断」。现在负责人交付（或交付后的一轮结束）时撤回它没得到回答的提问，你想补充的话直接给负责人发消息；服务启动时也会撤回重启前留下、已经没人在等的提问、审批和表单，已经卡住的卡片升级后重启一次就会消失。值班的提问不受影响，回答照样会唤醒它。对已经不在进行的任务操作时，提示改为说明这个任务已经不在进行。
