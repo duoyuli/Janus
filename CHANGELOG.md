@@ -4,6 +4,32 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.14
+
+- 收件箱的「稍后」和「忽略」记在 Janus 服务里，不再只存在这台 Mac 上：在别处推迟、拿回或忽略一项，这里不用刷新就跟上。升级后，之前推迟或忽略过的事项会回到「待处理」，需要再处理一次。
+
+- 任务页、收件箱、交付审阅和每个会话显示的状态，改由 Janus 服务统一算出、写好文字，应用只负责显示。收件箱和任务页的「待处理」出自同一份结果，不会再各说各的；这也是以后网页版和 Mac 应用对齐的基础。
+
+- 性能：打开长任务、事件很多的任务时，应用不再每来一批事件就把整个任务从头推一遍，而是由服务只算新事件；收件箱也只读有变化的任务。
+
+- 收件箱不再每分钟检查一次推迟的事项，到推迟的时间点才重新读取。
+
+- 修复：同一个任务有两处同时写记录时可能拿到同一个序号，后写的那条记录丢失。例如服务重启时，已经领出队列、还没准备好的任务偶尔回不到队列。
+
+- 收件箱和任务页里审批的按钮文字（允许一次、始终允许、拒绝、始终拒绝）由服务按界面语言给出，两处一致。
+
+- "Later" and "Ignore" in the inbox are now kept by the Janus service instead of only on this Mac: putting an item off, bringing it back or ignoring it elsewhere shows here without a refresh. After upgrading, items you had put off or ignored come back to "Pending" once.
+
+- What the run page, the inbox, the delivery review and each conversation show is now worked out and worded by the Janus service; the app only draws it. The inbox and the run page's "Pending" come from one result and cannot disagree, and a future web version can show the same.
+
+- Performance: on long runs with many events, the app no longer re-derives the whole run from the start for every batch of events; the service folds in only the new ones, and the inbox reads only the runs that changed.
+
+- The inbox no longer checks put-off items every minute; it reads again when the next one is due.
+
+- Fixed: two writers of one run's record could take the same sequence number, and the later record was lost. For example, a run taken off the queue but not yet set up sometimes did not go back to the queue after a restart.
+
+- Approval buttons (Allow Once, Always Allow, Deny, Always Deny) in the inbox and on the run page are worded by the service in the app's language, the same in both places.
+
 ## 2026.11.26.13
 
 - 修复：在 macOS 15 上打开一段较长的会话，有时停在离底部一屏左右的地方，看起来已经到底、新回复也不跟。
