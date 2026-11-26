@@ -5,8 +5,9 @@
 //! tasks that may run at the same time cannot be given the same files; the conflict detection in
 //! `record_edits` stays as the backstop for what was not declared. A verification task
 //! (`verifies`) is done by another member, starts after the task it checks, changes no files,
-//! and its failure cannot be waved through with `amend`: the lead orchestrates a fix and a new
-//! verification, or cancels obsolete downstream work on the record. None of this adds task states or
+//! and its failure cannot be waved through with `amend`: the lead retries the task it checks with
+//! the findings (`retry` with `from`), which has the verification check the new result again, or
+//! cancels obsolete downstream work on the record. None of this adds task states or
 //! event types; it is the orchestration's own data, checked when it is submitted.
 // @project-doc docs/domains/20261031-goal_mode.md#team_structure
 

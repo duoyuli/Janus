@@ -40,7 +40,8 @@ impl App {
         self.spawn_conversation(run);
     }
 
-    /// A digital employee as the one member of a run's main session (a chat, a Loop's session),
+    /// A digital employee as the one member of a run's main session (a chat, a Loop's session, a
+    /// consolidation),
     /// with the library as it is now, pinned like for a run's team; its agent must be able to run.
     // @project-doc docs/domains/20261116-resource_library.md#delivery
     pub(super) fn single_member(&self, role: &Role) -> Result<Member> {

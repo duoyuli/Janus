@@ -1138,11 +1138,6 @@ fn has_controls(controls: &Value) -> bool {
         || controls["controls"].as_array().is_some_and(|a| !a.is_empty())
 }
 
-/// Where each subtask on the board stands as a run continues after a restart, as the lead reads
-/// it: what is done, what was at work and carries on in its own session, what the lead had sent
-/// back and with what note, and the last thing the lead told the ones still open. A result from an
-/// earlier attempt is marked as such, so it is not taken for the current state.
-// @project-doc docs/domains/20261031-run_lifecycle.md#recovery
 /// The lead's agent turned `/goal` down: going back into the session would only hear it again.
 #[derive(Debug)]
 struct GoalRefused(String);
@@ -1165,6 +1160,11 @@ impl App {
     }
 }
 
+/// Where each subtask on the board stands as a run continues after a restart, as the lead reads
+/// it: what is done, what was at work and carries on in its own session, what the lead had sent
+/// back and with what note, and the last thing the lead told the ones still open. A result from an
+/// earlier attempt is marked as such, so it is not taken for the current state.
+// @project-doc docs/domains/20261031-run_lifecycle.md#recovery
 fn board_on_resume(run: &Run, events: &[Event]) -> String {
     let lang = run.lang;
     let st = run.st.lock().unwrap();

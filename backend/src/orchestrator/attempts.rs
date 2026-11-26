@@ -399,14 +399,12 @@ impl App {
             let mut resumed: Option<BrokeOff> = None;
             let mut followup_from: Option<String> = None;
             let mut continuation: Option<Value> = None;
-            // Collaborators write progress and blockers to the shared board. The board is an HTTP
-            // MCP server; an agent that declares no HTTP MCP works without it and reports through
-            // its result and questions.
-            let board: Vec<Value> = if conn.capabilities["mcpCapabilities"]["http"] == true {
-                vec![self.mcp_server(run, &SessionKey::Task(id.to_string()))]
-            } else {
-                vec![]
-            };
+            // Collaborators hand in their result and questions with the board's tools, an HTTP MCP
+            // server: an agent that cannot reach one could never hand anything in.
+            if conn.capabilities["mcpCapabilities"]["http"] != true {
+                bail!("{agent} 的 Agent 不支持 HTTP MCP，没法用 janus.submit 交结果");
+            }
+            let board = vec![self.mcp_server(run, &SessionKey::Task(id.to_string()))];
             let opening = self.opening(run, &SessionKey::Task(id.to_string()), &member, &conn.capabilities, board, system);
             let session = match resume {
                 // A session a failure broke off is only worth going back to with room left in it;

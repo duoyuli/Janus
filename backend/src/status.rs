@@ -35,9 +35,11 @@ wire_enum! {
 
 wire_enum! {
     /// What a Run is: a goal the lead pursues with its team, a conversation with one digital
-    /// employee, or a workspace Loop's session (`runs.kind`). A chat has one member, no board, no
-    /// goal and no delivery; it works in its own scratch directory under Janus home. A Loop's
-    /// session is the workspace lead alone, in the workspace's directory, waking on a rhythm.
+    /// employee, a workspace Loop's session, or a consolidation of a workspace's team memory
+    /// (`runs.kind`). A chat has one member, no board, no goal and no delivery; it works in its own
+    /// scratch directory under Janus home. A Loop's session is the workspace lead alone, in the
+    /// workspace's directory, waking on a rhythm. A consolidation is the lead alone too, in its
+    /// own directory, with the memory tools only.
     // @project-doc docs/domains/20261120-chats.md#chat_model
     // @project-doc docs/domains/20261121-loops.md#loop_model
     #[derive(Default)]

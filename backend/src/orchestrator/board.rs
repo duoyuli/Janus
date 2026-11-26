@@ -215,7 +215,7 @@ impl Caller {
 }
 
 impl App {
-    /// The Janus MCP server one session reaches: the lead's board tools, or a collaborator's.
+    /// The Janus MCP server one session reaches, with the tools its caller has (`Caller`).
     pub(super) fn mcp_server(&self, run: &Run, seat: &SessionKey) -> Value {
         self.session_server(run, seat, "janus", "")
     }
