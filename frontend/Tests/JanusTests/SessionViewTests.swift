@@ -245,20 +245,40 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
 }
 
 /// Sent to the newest item, the view keeps going while the lazy list measures the rows on the
-/// way, a few times at most; an end it never reaches is let go, and the button takes the person back.
+/// way; an end it never reaches is let go after a few scrolls and seconds, and the button takes the
+/// person back. Many quick passes (a busy Mac measuring a tall reply) do not use the time up.
 @Test func aJumpToTheNewestLandsBeforeLettingGo() {
     var f = ChatFollow()
-    _ = f.measured(below: 0, last: 5, person: false)
-    _ = f.measured(below: 3000, last: 5, person: true)
+    _ = f.measured(below: 0, last: 5, person: false, now: 0)
+    _ = f.measured(below: 3000, last: 5, person: true, now: 0)
     #expect(!f.following)
     f.jumped()
-    var again = f.measured(below: 70, last: 5, person: false)
+    var again = f.measured(below: 70, last: 5, person: false, now: 1)
     #expect(again && f.following, "the end moved while the rows were measured: go again")
-    again = f.measured(below: 0, last: 5, person: false)
+    again = f.measured(below: 0, last: 5, person: false, now: 1)
     #expect(!again && f.following && f.landing == 0)
-    var tries = 0
-    while f.measured(below: 5000, last: 5, person: false) { tries += 1 }
-    #expect(tries == ChatFollow.landingTries && !f.following)
+    // Forty passes within a second: still going.
+    var going = true
+    for i in 0..<40 { going = f.measured(below: 5000, last: 5, person: false, now: 2 + Double(i) / 40) && going }
+    #expect(going && f.following)
+    // Then the end is reached: done, following.
+    again = f.measured(below: 0, last: 5, person: false, now: 3)
+    #expect(!again && f.following)
+    // An end it never reaches is let go once both the scrolls and the seconds are spent.
+    var t = 10.0, tries = 0
+    while f.measured(below: 5000, last: 5, person: false, now: t) { tries += 1; t += 0.5 }
+    #expect(!f.following && tries == ChatFollow.landingTries && t - 10 > ChatFollow.landingTime)
+    // A scroll that stopped short reports nothing more: a look a moment later scrolls again.
+    var g = ChatFollow()
+    _ = g.measured(below: 600, last: 7, person: false, now: 0)
+    var more = g.retry(now: 0.2)
+    #expect(more && g.following)
+    // Within the slack but not at the very end: the view still goes all the way.
+    more = g.measured(below: 13, last: 7, person: false, now: 0.3)
+    #expect(more && g.atEnd)
+    _ = g.measured(below: 0, last: 7, person: false, now: 0.4)
+    more = g.retry(now: 0.6)
+    #expect(!more, "at the end: nothing to do")
 }
 
 /// An attempt's header says which session it is in when it is not a plain new one, and why it

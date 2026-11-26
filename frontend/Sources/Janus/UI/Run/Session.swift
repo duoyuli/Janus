@@ -314,18 +314,29 @@ struct ChatScroll: View {
     let toggle: (Int, Bool) -> Void
     @Local private var follow = ChatFollow()
     @Local private var position = ScrollPosition(edge: .bottom)
+    /// Flips with each scroll to the end, so the next one is a new position (`toNewest`).
+    @Local private var nudge = false
     /// The person is scrolling: dragging, swiping, or the swipe running on.
     @Local private var person = false
 
     var body: some View {
+        let all = lines
+        let split = max(0, all.count - Self.tail)
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
-                // The rows, then what the agent is writing right now (its own view, so only it
-                // redraws per frame). One `ForEach`: a lazy list scrolls to ids it lists.
-                ForEach(lines) { line($0) }
+            VStack(alignment: .leading, spacing: 0) {
+                // Older rows are built lazily: a lead's session runs to thousands of events.
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
+                    ForEach(all[..<split]) { line($0) }
+                }
+                // The newest rows and what the agent is writing right now are always built: their
+                // heights are known, not estimated, so the bottom edge is where the end really is.
+                // A lazy list's estimate of a tall reply it had not built left the view short of the
+                // end, or past it on nothing.
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(all[split...]) { line($0) }
+                }
             }
-            .scrollTargetLayout()
         }
         // A margin of the scroll view, not padding around the rows, so that scrolling to the newest
         // row leaves the margin below it in view.
@@ -352,21 +363,23 @@ struct ChatScroll: View {
         .onChange(of: last) { if follow.following && !person { toEnd() } }
         .onChange(of: sent) { toEnd() }
         .onChange(of: density) { if follow.following { toEnd() } }
+        // A scroll that stopped short of the end moves nothing more, so nothing above asks again:
+        // look once more a moment later while following.
+        .task(id: follow) {
+            guard follow.following, !follow.landed, !person else { return }
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard !Task.isCancelled, !person else { return }
+            var again = false
+            update { again = $0.retry() }
+            if again { toNewest() }
+        }
         .overlay(alignment: .bottom) { if !follow.following { back } }
     }
 
     /// The live preview's row, always last.
     static let liveId = Int.min / 2
-
-    /// The agent is writing or thinking right now: the newest line is its preview.
-    private var previewing: Bool {
-        let s: ChatLive.Session?
-        switch target {
-        case .task(let t): s = run.preview.of(task: t, agent: nil)
-        case .agent(let a): s = run.preview.of(task: nil, agent: a)
-        }
-        return !run.isReplaying && !(s.map { $0.text.isEmpty && $0.thought.isEmpty } ?? true)
-    }
+    /// How many of the newest lines are always built (`body`).
+    static let tail = 8
 
     /// One line of the list: a conversation row at its place, or the live preview after them all.
     struct Line: Identifiable {
@@ -439,14 +452,14 @@ struct ChatScroll: View {
         toNewest()
     }
 
-    /// The newest row, by its id: the lazy list builds and measures it and puts its bottom at the
-    /// bottom of the view. An offset (or the bottom edge) comes from the list's estimate of the rows
-    /// it has not built, which can be far off for long Markdown messages: it scrolled past every
-    /// row and the conversation showed nothing.
+    /// To the end: the bottom edge. The newest rows are always built (`tail`), so the edge is
+    /// measured, not estimated; scrolling to a row of a lazy list by its id landed where its
+    /// estimate put it, short of the end, and the same position again did nothing.
     private func toNewest() {
-        // The live preview when the agent is writing, else the newest row: scrolling to a row the
-        // list has nothing in (the empty preview) lands where its estimate puts it, not at the end.
-        if previewing || rows.isEmpty { position.scrollTo(id: Self.liveId, anchor: .bottom) } else { position.scrollTo(id: rows[rows.count - 1].id, anchor: .bottom) }
+        // The same position again does nothing: alternate two ways of saying the end, so a try
+        // after rows above were measured (which moves the end) is a scroll too.
+        nudge.toggle()
+        if nudge { position.scrollTo(edge: .bottom) } else { position.scrollTo(y: .greatestFiniteMagnitude) }
     }
 
     private func update(_ change: (inout ChatFollow) -> Void) {
@@ -486,30 +499,40 @@ struct ChatFollow: Equatable {
     var following = true
     /// Something arrived while the person was reading further up.
     var unseen = false
-    /// Scrolls to the end still allowed before giving up. A lazy list only estimates the rows it
-    /// has not built, and on macOS 15 SwiftUI moves the offset while it measures them, so the end
+    /// Scrolls to the end made since the view set out for it. A lazy list only estimates the rows
+    /// it has not built, and on macOS 15 SwiftUI moves the offset while it measures them, so the end
     /// moves while the view goes there.
     var landing = 0
+    /// When the view set out for the end (seconds), while it has not got there.
+    var landingSince: Double?
     /// The session's newest event at the last measurement.
     var seen = 0
     /// The last measurement found the end in view.
     var atEnd = true
+    /// How far the content went on below the view at the last measurement.
+    var below: CGFloat = 0
     /// How close to the bottom still counts as being there.
     static let slack: CGFloat = 32
+    /// Giving up takes both this many scrolls and `landingTime`: a busy Mac measures a tall row
+    /// (a long reply with a table) over many more passes than an idle one, and a count alone ran out
+    /// before the row had its height, leaving the view short of the end.
     static let landingTries = 8
+    static let landingTime: Double = 3
 
     /// `below` points of content lie under the visible area, the session's newest event is
     /// `last`, and `person` says whether the person is scrolling. True when the view should
     /// scroll to the end.
-    mutating func measured(below: CGFloat, last: Int, person: Bool) -> Bool {
+    mutating func measured(below: CGFloat, last: Int, person: Bool, now: Double = Date.timeIntervalSinceReferenceDate) -> Bool {
         let atEnd = below <= Self.slack
         let new = last != seen
         self.atEnd = atEnd
+        self.below = below
         seen = last
         if person {
             following = atEnd
             if atEnd { unseen = false } else if new { unseen = true }
             landing = 0
+            landingSince = nil
             return false
         }
         if !following {
@@ -517,12 +540,33 @@ struct ChatFollow: Equatable {
             return false
         }
         // Following, and not the person: new content, rows measured or the offset adjusted moved
-        // the end. Go after it, a few times at most.
-        if atEnd { landing = 0; return false }
-        if landing == 0 { landing = Self.landingTries; return true }
-        landing -= 1
+        // the end. Go after it until it is reached, or for a few scrolls and seconds at most. The
+        // slack says whether the person is at the end; going there, the view goes all the way.
+        if landed { landing = 0; landingSince = nil; return false }
+        return land(now: now)
+    }
+
+    /// At the very end, not only within the slack.
+    var landed: Bool { below <= 1 }
+
+    /// Still short of the end a moment after the last scroll, with nothing moved since (a scroll
+    /// that stopped short reports no further change): true to scroll again.
+    mutating func retry(now: Double = Date.timeIntervalSinceReferenceDate) -> Bool {
+        guard following, !landed else { return false }
+        return land(now: now)
+    }
+
+    private mutating func land(now: Double) -> Bool {
+        let since = landingSince ?? now
+        landingSince = since
+        landing += 1
         // Never got there: let go, and the button takes the person back.
-        if landing == 0 { following = false; return false }
+        if landing > Self.landingTries && now - since > Self.landingTime {
+            following = false
+            landing = 0
+            landingSince = nil
+            return false
+        }
         return true
     }
 
@@ -531,6 +575,7 @@ struct ChatFollow: Equatable {
         following = true
         unseen = false
         landing = 0
+        landingSince = nil
     }
 }
 
