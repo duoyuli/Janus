@@ -4,6 +4,52 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.12
+
+- 修复：Agent 工作时，跟着最新内容的会话一直上下抖动。回复逐字出现的每一帧，视图都在相差十来点的两个「底部」之间来回弹；现在落在同一处，内容变高时底边由系统钉住。
+
+- 修复：名字恰好是 `lead` 的子任务被当成负责人：它记下的团队记忆算在负责人名下，资源库路由给它负责人的资源，它派出子任务后的工具调用被当作负责人的；应用里它的草稿、贴的图片、折叠状态和收件箱条目也和负责人共用。
+
+- 修复：英文的任务里，协作者按验证意见返工时被要求在回复末尾写 JSON 结果（应当用工具交）。
+
+- 修复：协作者提问时建议的选项，负责人的看板和转给你的提问卡片上都看不到。
+
+- 修复：上下文用量显示成「2000.0k」这类写法；token 数和费用在各处的写法统一。
+
+- 配置检查、账号登录、运行组件的安装和自动升级、资源库 MCP 服务器的准备和 GitHub 来源的检查，进度都由 Janus 服务推给应用，不再每隔一两秒轮询：结果出现得更快，开着设置页时也不再一直发请求。
+
+- 确认招聘顾问提议的数字员工时，「由谁来做」只列出检查通过的 Agent。
+
+- Janus 给协作者和值班的提示更精简：交结果、被唤醒这类机制只在一个地方说一次，返工、续接、回答之后的提示只说新的内容。
+
+- 不支持 HTTP MCP 的 Agent 被派为协作者时当场失败并说明原因，不再白跑一轮后报「没有交结果」。
+
+- 交付里 Janus 查出来的风险标明是哪个子任务的，审阅卡片按它打开对应的子任务（以前靠切文字，只认中文）。
+
+- 内部：一轮架构治理。看板、负责人两个近 1700 行的文件按职责拆开；重复的实现收成一处（文字截断和时长、时钟 id、整文件写入、token 计数、会话加载、MCP 工具结果）；产物、看板消息种类、停滞原因等改用类型；`runs.loop_id` 只表示派出它的值班（数据版本 30）；删除没人用的 `GET /api/prices`、交付里没人读的用量行和 26 条没人用的界面翻译；补齐模块和接口文档。新的 ADR 记下由事件推导的状态迁到服务端的方向和顺序，以及负责人的交付报告仍写在回复里的理由。
+
+- Fixed: while an agent worked, a conversation following the newest output kept jittering up and down. Each frame of a streaming reply bounced the view between two "ends" a dozen points apart; they are now the same place, and the bottom stays pinned as the content grows.
+
+- Fixed: a subtask whose id happened to be `lead` was taken for the lead: its team-memory notes were filed as the lead's, the library router served it the lead's resources, and its tool calls after planning counted as the lead's; in the app it shared the lead's draft, pasted images, folds and inbox item.
+
+- Fixed: in English runs, a collaborator reworking after a verification's findings was asked to end its reply with a JSON result (results are handed in with a tool).
+
+- Fixed: the option a collaborator recommended with its question showed neither on the lead's board nor on the question card handed to you.
+
+- Fixed: context usage read like "2000.0k"; token counts and costs are now written the same way everywhere.
+
+- Agent checks, account logins, runtime installs and automatic updates, preparing a library MCP server and checking GitHub sources now report their progress from the Janus service instead of the app polling every second or two: results show up sooner, and an open settings page no longer keeps sending requests.
+
+- When creating the digital employees the recruiter proposed, the agent picker lists only agents that passed their checks.
+
+- What Janus tells collaborators and Loops is shorter: how to hand in and what wakes a Loop are said once, and follow-up prompts (rework, continuing, after an answer) say only what is new.
+
+- A collaborator whose agent cannot reach HTTP MCP servers now fails at once with the reason, instead of working a whole turn and ending with "did not hand in a result".
+
+- Risks Janus found in a delivery now name their subtask, which the review card opens (it used to split the text, which only worked in Chinese).
+
+- Internal: an architecture clean-up. The board and lead modules, both near 1,700 lines, are split by job; repeated code is kept in one place (cutting text and durations, clock ids, whole-file writes, token counts, loading sessions, MCP tool results); artifacts, board post kinds and stall reasons are typed; `runs.loop_id` now only names the Loop that dispatched a run (data version 30); the unused `GET /api/prices`, the usage line nobody read in deliveries and 26 unused UI translations are gone; module and API docs are complete again. New ADRs record moving event-derived state to the service (its direction and order) and why the lead's delivery report stays in its reply.
+
 ## 2026.11.26.11
 
 - 新增更新渠道：「设置 › 通用 › 更新」可以选「稳定版」或「测试版（RC）」，默认稳定版。日常版本发到稳定版；还在测试的功能先以测试版（例如 2026.11.27-rc.1）发出，只有选了测试版的 Janus 会更新到它，也照样收到更新的稳定版。从测试版切回稳定版不会退回旧版本，下一个稳定版发布后自动升过去。测试版的版本号在应用里标着「测试版」。
