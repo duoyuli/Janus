@@ -42,13 +42,20 @@ impl McpServer {
         }
     }
 
+    /// A server reached at `url` by `transport`: `http` (also written `streamable-http`) or `sse`.
+    pub fn remote(transport: &str, url: String, header_keys: Vec<String>) -> Result<McpServer> {
+        check_url(&url)?;
+        Ok(match transport {
+            "http" | "streamable-http" => McpServer::Http { url, header_keys },
+            "sse" => McpServer::Sse { url, header_keys },
+            other => bail!("不支持的传输方式：{other}"),
+        })
+    }
+
     /// The values the server is started or called with: those of its declared keys that are set,
     /// environment variables for a command and headers for a URL.
     pub fn set_values(&self, values: &McpValues) -> Vec<(String, String)> {
-        let from = match self {
-            McpServer::Stdio { .. } => &values.env,
-            _ => &values.headers,
-        };
+        let from = values.for_server(self);
         self.keys()
             .iter()
             .filter_map(|k| from.get(k).filter(|v| !v.is_empty()).map(|v| (k.clone(), v.clone())))
@@ -67,6 +74,14 @@ pub struct McpValues {
 
 impl McpValues {
     /// The map that holds this server's values.
+    pub fn for_server(&self, server: &McpServer) -> &BTreeMap<String, String> {
+        match server {
+            McpServer::Stdio { .. } => &self.env,
+            _ => &self.headers,
+        }
+    }
+
+    /// The map that holds this server's values, to change them.
     pub fn of(&mut self, server: &McpServer) -> &mut BTreeMap<String, String> {
         match server {
             McpServer::Stdio { .. } => &mut self.env,
@@ -149,11 +164,9 @@ fn parse_server(name: &str, def: &Value) -> Result<Found> {
         let server = McpServer::Stdio { command, args, env_keys: env.keys().cloned().collect() };
         (server, McpValues { env, ..Default::default() })
     } else {
-        check_url(&url)?;
         let headers = pairs(def, "headers");
         let header_keys = headers.keys().cloned().collect();
-        let server =
-            if ty == "sse" { McpServer::Sse { url, header_keys } } else { McpServer::Http { url, header_keys } };
+        let server = McpServer::remote(if ty == "sse" { "sse" } else { "http" }, url, header_keys)?;
         (server, McpValues { headers, ..Default::default() })
     };
     let description = def["description"].as_str().unwrap_or("").trim().to_string();

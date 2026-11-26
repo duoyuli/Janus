@@ -133,8 +133,6 @@ fn resolve_skill_folder(path: &str) -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// The board MCP's and the router's names are reserved, in any case and with any punctuation
-/// around them.
 /// The file beside a skill's SKILL.md that `run_code` runs as `skills.<name>(args)`, and the
 /// largest one read: a script, not a bundle.
 pub const SKILL_CODE: &str = "code.js";
@@ -142,6 +140,8 @@ const SKILL_CODE_MAX: u64 = 256 * 1024;
 /// The id of the MCP router's one row of settings.
 const ROUTER: &str = "settings";
 
+/// The board MCP's and the router's names are reserved, in any case and with any punctuation
+/// around them.
 pub(crate) fn reserved_mcp_name(name: &str) -> bool {
     ["janus", MCP_ROUTER]
         .iter()
@@ -494,16 +494,7 @@ impl App {
                 let command = expand_home(&parts.remove(0));
                 McpServer::Stdio { command, args: parts, env_keys: keys }
             }
-            t @ ("http" | "sse") => {
-                let url = str_of(body, "url").to_string();
-                mcp::check_url(&url)?;
-                if t == "http" {
-                    McpServer::Http { url, header_keys: keys }
-                } else {
-                    McpServer::Sse { url, header_keys: keys }
-                }
-            }
-            other => bail!("不支持的传输方式：{other}"),
+            transport => McpServer::remote(transport, str_of(body, "url").to_string(), keys)?,
         };
         let mut item = match prev {
             Some(p) => p,
@@ -630,13 +621,7 @@ impl App {
         }
         if let Body::Mcp { server } = &item.body {
             let values = self.mcp_values(&item.id);
-            let set = |k: &String| {
-                match server {
-                    McpServer::Stdio { .. } => values.env.get(k),
-                    _ => values.headers.get(k),
-                }
-                .is_some_and(|v| !v.is_empty())
-            };
+            let set = |k: &String| values.for_server(server).get(k).is_some_and(|v| !v.is_empty());
             v["vars"] = json!(server.keys().iter().map(|k| json!({ "name": k, "set": set(k) })).collect::<Vec<_>>());
             if let Some(w) = self.library.warm.lock().unwrap().get(&item.id).filter(|w| w.revision() == item.revision) {
                 v["warm"] = json!(w);
