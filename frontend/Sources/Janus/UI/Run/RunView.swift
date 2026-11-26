@@ -632,12 +632,15 @@ struct RunInspector: View {
         // The whole run's diff first: it is what accepting brings back, the lead's own edits included.
         let diffs = latest(st.artifacts.filter(\.isDiff)).sorted { $0.ofRun && !$1.ofRun }
         let files = latest(st.artifacts.filter { !$0.isDiff })
+        // What the deliveries hand over, as the 文档 menu lists it: the documents the rounds
+        // changed and the replies they delivered, minus those already listed as task artifacts.
+        let delivered = run.documents.filter { d in d.source == .deliverable && !files.contains { $0.path == d.path } }
         let tab = self.tab
         Card(padding: 12) {
             Picker(L.text("查看"), selection: tabBinding) {
                 Text(verbatim: L.text("子任务 \(st.order.count)")).tag("tasks")
                 Text(verbatim: L.text("改动 \(diffs.count)")).tag("changes")
-                Text(verbatim: L.text("产物 \(files.count)")).tag("files")
+                Text(verbatim: L.text("产物 \(files.count + delivered.count)")).tag("files")
                 Text(L.text("团队")).tag("team")
             }
             .pickerStyle(.segmented).labelsHidden()
@@ -645,7 +648,9 @@ struct RunInspector: View {
                 VStack(alignment: .leading, spacing: 0) {
                     switch tab {
                     case "changes": artifacts(diffs, empty: L.text("还没有改动。"))
-                    case "files": artifacts(files, empty: L.text("还没有产物。"))
+                    case "files":
+                        deliverables(delivered)
+                        artifacts(files, empty: delivered.isEmpty ? L.text("还没有产物。") : "")
                     case "team": AgentsPanel(run: run, st: st)
                     default: tasks
                     }
@@ -707,8 +712,29 @@ struct RunInspector: View {
         }
     }
 
+    /// The documents the deliveries hand over, above the tasks' own artifacts.
+    @ViewBuilder private func deliverables(_ docs: [RunDocs.Doc]) -> some View {
+        if !docs.isEmpty {
+            Text(L.text("交付物")).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 8)
+            ForEach(Array(docs.enumerated()), id: \.element.path) { i, d in
+                if i > 0 { Divider() }
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text((d.path as NSString).lastPathComponent).font(.callout.weight(.medium)).lineLimit(1)
+                        Text(L.tilde((d.path as NSString).deletingLastPathComponent)).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                    }
+                    .help(L.tilde(d.path))
+                    Spacer()
+                    Button(L.text("查看")) { ArtifactWindow.open(run: run, path: d.path, title: (d.path as NSString).lastPathComponent) }.buttonStyle(.link)
+                }
+                .padding(.vertical, 8)
+            }
+            Divider().padding(.bottom, 4)
+        }
+    }
+
     @ViewBuilder private func artifacts(_ list: [Artifact], empty: String) -> some View {
-        if list.isEmpty { Text(empty).font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
+        if list.isEmpty && !empty.isEmpty { Text(empty).font(.callout).foregroundStyle(.secondary).padding(.vertical, 8) }
         ForEach(Array(list.enumerated()), id: \.element.seq) { i, a in
             if i > 0 { Divider() }
             HStack(alignment: .top) {

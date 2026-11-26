@@ -37,6 +37,9 @@ enum RunDocs {
             switch e.type {
             case .runDelivered:
                 for a in e.data["deliverables"].array { add(a["path"].str, .deliverable, e.seq) }
+                // The files the round changed are what it delivers too, Git or not: without Git
+                // they are the only record of what the team wrote (a report in the work folder).
+                for p in e.data["changed"].strings { add(p, .deliverable, e.seq) }
             case .artifactCreated:
                 add(e.data["path"].str, .artifact, e.seq)
                 continue

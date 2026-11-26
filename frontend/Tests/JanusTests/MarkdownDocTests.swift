@@ -87,3 +87,15 @@ import Testing
     #expect(docs[0].source == .deliverable && docs[0].seq == 6)
     #expect(DocumentsMenu.label("/w/docs/设计说明.md", cwd: "/w") == "docs/设计说明.md")
 }
+
+/// A delivery in a folder without Git delivers no diff and maybe no reply (its last task was
+/// cancelled): the documents the round changed are its deliverables, relative to the run's folder.
+@Test func theFilesADeliveryChangedAreItsDeliverables() {
+    let delivered = Event(["seq": 9, "ts": 9, "type": "run.delivered", "actor": "janus", "text": "",
+                           "data": ["deliverables": [], "changed": ["FINAL_REPORT.md", "data/raw/README.md", "calc.py"]]])
+    var found: [String: RunDocs.Doc] = [:]
+    RunDocs.scan([delivered], cwd: "/w", into: &found)
+    let docs = RunDocs.existing(found) { _ in true }
+    #expect(docs.map(\.path) == ["/w/FINAL_REPORT.md", "/w/data/raw/README.md"], "documents only")
+    #expect(docs.allSatisfy { $0.source == .deliverable })
+}

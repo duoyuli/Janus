@@ -511,8 +511,10 @@ impl App {
                     lead_tools.iter().cloned().collect::<Vec<_>>().join("、")
                 ));
             }
-            if let Some(last) = tasks.last()
-                && let Some(report) = last.artifacts.iter().rev().find(|a| a["kind"] == "report")
+            // The newest final reply of the round: a last task the lead cancelled, or one that
+            // never answered, leaves none of its own, and the delivery must not come out empty.
+            if let Some(report) =
+                tasks.iter().rev().find_map(|t| t.artifacts.iter().rev().find(|a| a["kind"] == "report"))
             {
                 deliverables.push(report.clone());
             }

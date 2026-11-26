@@ -271,3 +271,26 @@ async fn questions_nobody_waits_on_are_withdrawn() {
     }
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// The round's last task was cancelled by the lead and left no reply: the delivery still carries
+/// the newest reply of the round instead of no deliverable at all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_last_task_leaves_the_newest_reply_delivered() {
+    let h = harness(
+        "deliver-cancelled",
+        &[("lead", false), ("m1", false), ("m2", false)],
+        json!({ "T1": ["ok"], "T2": ["hold:go"] }),
+    );
+    let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m2", json!({ "deps": ["T1"] }))])).await;
+    wait_until(&h.app, &run, "T2 started", |e| task_event(e, "attempt.started", "T2")).await;
+    let (cancelled, err) = tool(&h.app, &run, "lead", "cancel", json!({ "tasks": ["T2"], "reason": "换个做法" })).await;
+    assert!(!err, "{cancelled}");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    let evs = events(&h.app, &run);
+    let d = evs.iter().find(|e| e.kind.as_str() == "run.delivered").unwrap().data.clone().unwrap();
+    let names: Vec<&str> = d["deliverables"].as_array().unwrap().iter().filter_map(|a| a["name"].as_str()).collect();
+    assert!(names.iter().any(|n| n.starts_with("T1-") && n.ends_with("-report.md")), "{names:?}");
+    std::fs::write(h.dir.join("fake/go"), "").unwrap();
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

@@ -313,6 +313,8 @@ enum Snapshots {
                     // Whether the chat shows a proposal at all: `proposal` reads null both for none and
                     // for a proposal that is `JSON.null`.
                     "proposalShown": .bool(r.proposal != nil),
+                    // The inspector's 交付物 under 产物 (the 文档 menu's deliverables).
+                    "deliverables": JSON.array(r.documents.filter { $0.source == .deliverable }.map { JSON($0.path) }),
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.events.last { $0.type == .memoryConsolidated }.map { $0.data } ?? .null,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.
