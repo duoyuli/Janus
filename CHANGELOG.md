@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.8
+
+- 修复：工作目录不是 Git 仓库时，交付的文件（例如负责人说的 `FINAL_REPORT.md`）在任务页右侧哪里都看不到；这一轮最后一个子任务被负责人取消时，交付里连子任务的回复也没有。现在右侧「产物」最上面列出「交付物」：交付的回复和这一轮改了的文档，点「查看」打开；工具栏「文档」菜单的交付物也包括它们。
+
+- 修复：对话里在某一轮上手动展开或收起后，再切换「详细 / 摘要」看起来没反应。现在切换档位会作用于所有的轮。
+
+- 修复：没有提议数字员工的对话（例如和研发工程师的对话）顶上也显示「提议了 0 位数字员工」和「查看并创建…」按钮。
+
+- Fixed: when the work folder is not a Git repository, the files a run delivered (such as the `FINAL_REPORT.md` the lead named) showed nowhere on the right of the run page; when the round's last subtask had been cancelled by the lead, the delivery had no subtask reply either. The Artifacts tab on the right now lists the deliverables first: the delivered reply and the documents the round changed, each opened with View; the Documents menu lists them as deliverables too.
+
+- Fixed: after opening or folding a turn by hand, switching between Detail and Summary seemed to do nothing. Switching now applies to every turn.
+
+- Fixed: chats with no proposed digital employees (for example with the developer) showed "proposed 0 digital employees" with a "Review and Create…" button at the top.
+
 ## 2026.11.26.7
 
 - 会话边做边显示：Agent 的回复逐字出现，运行中的命令直接显示输出的最后 16 行，不用等这一轮写完或命令跑完。思考也实时可见。任务记录的写法不变，回放和用量与以前一样。
