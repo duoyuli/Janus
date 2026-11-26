@@ -567,6 +567,25 @@ fn each_caller_lists_its_own_tools_once() {
     assert_eq!(names(Caller::of(RunKind::Chat, &lead, true).unwrap()), ["propose_employees"], "nor team memory");
 }
 
+/// A lead that packs every subtask's long instructions into one `orchestrate` call can run past
+/// its model's output limit, and the call is lost whole before Janus sees it: the tool says to
+/// split the submission and to point to material already in the working directory, in both
+/// languages.
+#[test]
+fn orchestrate_says_to_keep_one_call_within_one_reply() {
+    use crate::lang::Lang;
+    for (lang, split, point) in [
+        (Lang::Zh, "分几次提交", "写路径，不要整段抄进来"),
+        (Lang::En, "submit them over several calls", "by its path instead of copying it in"),
+    ] {
+        let d = LeadTool::Orchestrate.definition(lang);
+        assert!(d["description"].as_str().unwrap().contains(split), "{lang:?}");
+        let instructions =
+            &d["inputSchema"]["properties"]["tasks"]["items"]["properties"]["instructions"]["description"];
+        assert!(instructions.as_str().unwrap().contains(point), "{lang:?}");
+    }
+}
+
 /// The board speaks the run's language: every tool description and parameter description, and
 /// the board entries the lead reads, come in Chinese or English.
 #[test]
@@ -587,7 +606,7 @@ fn the_board_speaks_the_runs_language() {
         }
     }
     let cjk = |s: &str| s.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c));
-    for caller in [Caller::Lead, Caller::Member] {
+    for caller in [Caller::Lead, Caller::Member, Caller::Hiring] {
         for (lang, chinese) in [(Lang::Zh, true), (Lang::En, false)] {
             let mut all = vec![];
             texts(&json!(caller.tools(lang)), &mut all);

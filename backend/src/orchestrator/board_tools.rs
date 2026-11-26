@@ -46,8 +46,8 @@ impl LeadTool {
             }),
             LeadTool::Orchestrate => json!({
                 "description": t(
-                    "提交一份编排：一组交给协作者的子任务。Janus 先校验整份编排（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的子任务负责的文件不重叠、验证者不是被验证子任务的执行者），不通过时返回全部错误，不执行任何子任务；通过后写入共享看板，按依赖执行：执行者不同、相互没有依赖的子任务同时执行，同一个协作者一次做一个子任务，其余排队。可以多次提交，后提交的子任务可以依赖之前提交的子任务。",
-                    "Submit an orchestration: a set of subtasks for collaborators. Janus checks the whole orchestration first (assignees are collaborators, ids are unique, dependencies exist and form no cycle, subtasks that may run at the same time own no overlapping files, a verifier is not the assignee of the subtask it verifies); if anything fails, every error comes back and no subtask starts. Otherwise the subtasks go on the shared board and run by dependency: subtasks with different assignees and no dependency between them run at the same time, and a collaborator works on one subtask at a time while the rest queue. You can submit more than once; later subtasks may depend on earlier ones."
+                    "提交一份编排：一组交给协作者的子任务。Janus 先校验整份编排（执行者是协作者、id 不重复、依赖存在且无环、可能同时执行的子任务负责的文件不重叠、验证者不是被验证子任务的执行者），不通过时返回全部错误，不执行任何子任务；通过后写入共享看板，按依赖执行：执行者不同、相互没有依赖的子任务同时执行，同一个协作者一次做一个子任务，其余排队。可以多次提交，后提交的子任务可以依赖之前提交的子任务。一次调用的内容太长会被模型的单次输出上限截断、整份作废：子任务多或说明长时分几次提交。",
+                    "Submit an orchestration: a set of subtasks for collaborators. Janus checks the whole orchestration first (assignees are collaborators, ids are unique, dependencies exist and form no cycle, subtasks that may run at the same time own no overlapping files, a verifier is not the assignee of the subtask it verifies); if anything fails, every error comes back and no subtask starts. Otherwise the subtasks go on the shared board and run by dependency: subtasks with different assignees and no dependency between them run at the same time, and a collaborator works on one subtask at a time while the rest queue. You can submit more than once; later subtasks may depend on earlier ones. A call too long to fit in one model reply is cut off and lost whole: with many subtasks or long instructions, submit them over several calls."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -66,8 +66,8 @@ impl LeadTool {
                                     ) },
                                     "title": { "type": "string" },
                                     "instructions": { "type": "string", "description": t(
-                                        "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。",
-                                        "Complete instructions for the assignee: context, what to do, what to watch for. The assignee cannot see your conversation."
+                                        "给执行者的完整说明：背景、要做什么、注意什么。执行者看不到你的对话。工作目录里已有的资料写路径，不要整段抄进来。",
+                                        "Complete instructions for the assignee: context, what to do, what to watch for. The assignee cannot see your conversation. Point to material already in the working directory by its path instead of copying it in."
                                     ) },
                                     "assignee": { "type": "string", "description": t("协作者 id", "Collaborator id") },
                                     "deps": { "type": "array", "items": { "type": "string" }, "description": t(
