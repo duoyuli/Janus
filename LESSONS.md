@@ -369,7 +369,7 @@ Agent 分析出四项改进后提议先做第一项，其余以后再做（其�
 
 清理中发现但没有在当次处理的问题。处理后从本节删除，并在清理记录中注明。
 
-- 后端测试 `a_run_that_never_got_set_up_queues_again`（`flow_tests/queue.rs`）在 `just e2e` 满载并行时偶发失败（2026-11-26 一次）：期望没能开始的 Run 回到 `queued`，实际是 `planning`；同一时刻日志里有 `failed to persist event <run>#4: UNIQUE constraint failed: events.run_id, events.seq`，说明这个 Run 有两处用同一个序号写事件，可能是重新排队和启动之间的竞争。单独重跑连续通过。要在负载下复现，查清两个写入方是谁。
+- 后端测试 `a_run_that_never_got_set_up_queues_again`（`flow_tests/queue.rs`）在 `just e2e` 满载并行时偶发失败（2026-11-26 一次）：期望没能开始的 Run 回到 `queued`，实际是 `planning`；同一时刻日志里有 `failed to persist event <run>#4: UNIQUE constraint failed: events.run_id, events.seq`，说明这个 Run 有两处用同一个序号写事件，可能是重新排队和启动之间的竞争。单独重跑连续通过。同一天 CI（Linux）上 `worktrees::runs_work_apart_and_delivering_brings_the_result_back_to_the_branch` 也失败过一次，重启后的第二个 `App` 写事件失败（「任务 … 的事件没有写入」），本机连跑 15 次都通过；这个测试在同一个数据库上先后起两个 `App`，前一个没有关掉，可能是它还在写事件、序号和后一个撞上，和上面是同一类问题。要在负载下复现，查清两个写入方是谁。
 
 - 应用仍从事件推导业务状态（`Derive.swift` 的 `derive` / `boardFacts`、`Inbox.swift`、`Review.swift`），和服务端各自算一份：2026-11-25 负责人交出的提问在交付后没被撤回，服务重启后待处理决定只剩应用推导出的卡片，点哪个选项都被拒绝。当次的修复在服务端撤回这类提问（离开看板时、重启时），但两份状态的根源还在。用户要求事件和由事件推导的状态都在后端 Rust 计算、存进 SQLite，应用只展示；这推翻了 [ADR：用原生 macOS 应用做展示层](docs/decisions/20261101-native_macos_app.md) 的第 4 条，先写新的 ADR，从收件箱和待处理决定开始迁移。
 
