@@ -1,5 +1,8 @@
-//! Text cut to fit where it goes: a line of a list, an event's summary, a commit in a message.
-//! One rule everywhere: lengths are in characters, and a cut is marked with `…`.
+//! Text cut to fit where it goes: a line of a list, an event's summary, a commit in a message;
+//! and durations in words. One rule everywhere: lengths are in characters, and a cut is marked
+//! with `…` (a tail of output, which is the latest part, is not marked).
+
+use crate::lang::{Lang, tr};
 
 /// `s` trimmed, at most `n` characters of it, marked with `…` when cut.
 pub fn clip(s: &str, n: usize) -> String {
@@ -13,7 +16,35 @@ pub fn clip(s: &str, n: usize) -> String {
 
 /// `s` on one line (every run of whitespace a single space), clipped to `n` characters.
 pub fn one_line(s: &str, n: usize) -> String {
-    clip(&s.split_whitespace().collect::<Vec<_>>().join(" "), n)
+    clip(&squash(s), n)
+}
+
+/// `s` on one line, every run of whitespace a single space, nothing cut.
+pub fn squash(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `s` in at most `n` characters, cut at a word (anywhere in a script without spaces) and
+/// marked with `…`: for prose read by an agent, where half a word reads worse than a shorter line.
+pub fn cut_at_word(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let c: String = s.chars().take(n.saturating_sub(1)).collect();
+    let c = match c.rfind(' ') {
+        Some(i) if i > 0 => c[..i].to_string(),
+        _ => c,
+    };
+    format!("{}…", c.trim_end_matches([' ', ',', '，', '、']))
+}
+
+/// The end of `s`: at most its last `n` characters, as a terminal shows the latest output.
+pub fn tail(s: &str, n: usize) -> String {
+    let count = s.chars().count();
+    if count <= n {
+        return s.to_string();
+    }
+    s.chars().skip(count - n).collect()
 }
 
 /// The first line of a reply with any text, for a one-line summary of it.
@@ -26,9 +57,24 @@ pub fn short_sha(commit: &str) -> &str {
     commit.get(..8).unwrap_or(commit)
 }
 
-/// A duration in words: seconds under a minute, minutes after that.
-pub fn span(ms: i64) -> String {
-    if ms < 60_000 { format!("{} 秒", ms / 1000) } else { format!("{} 分钟", ms / 60_000) }
+/// A rough duration in words: seconds under a minute, whole minutes after that.
+pub fn span(ms: i64, lang: Lang) -> String {
+    let (s, m) = (ms / 1000, ms / 60_000);
+    if ms < 60_000 { tr!(lang, "{s} 秒", "{s} s") } else { tr!(lang, "{m} 分钟", "{m} min") }
+}
+
+/// A wall-clock duration to the second, as the app writes it (`L.dur`).
+pub fn duration(ms: i64, lang: Lang) -> String {
+    if ms < 1000 {
+        return lang.pick("不到 1 秒", "under 1 s").into();
+    }
+    let s = (ms + 500) / 1000;
+    let (h, m, sec) = (s / 3600, s % 3600 / 60, s % 60);
+    match s {
+        0..60 => tr!(lang, "{s} 秒", "{s} s"),
+        60..3600 => tr!(lang, "{m} 分 {sec:02} 秒", "{m} min {sec:02} s"),
+        _ => tr!(lang, "{h} 小时 {m} 分", "{h} h {m} min"),
+    }
 }
 
 /// A name made for a file or an id: lowercase ASCII letters, digits and single `-`, at most `max`
@@ -62,7 +108,18 @@ mod tests {
         assert_eq!(first_line(""), "（空回复）");
         assert_eq!(short_sha("0123456789"), "01234567");
         assert_eq!(short_sha("abc"), "abc");
-        assert_eq!(span(59_000), "59 秒");
-        assert_eq!(span(120_000), "2 分钟");
+        assert_eq!(span(59_000, Lang::Zh), "59 秒");
+        assert_eq!(span(120_000, Lang::Zh), "2 分钟");
+        assert_eq!(span(120_000, Lang::En), "2 min");
+        assert_eq!(squash(" a \n b "), "a b");
+        assert_eq!(cut_at_word("one two three four", 10), "one two…");
+        assert_eq!(tail("负责人回复", 2), "回复");
+        assert_eq!(tail("ok", 5), "ok");
+        assert_eq!(duration(192_000, Lang::Zh), "3 分 12 秒");
+        assert_eq!(duration(65_000, Lang::Zh), "1 分 05 秒");
+        assert_eq!(duration(44_600, Lang::Zh), "45 秒");
+        assert_eq!(duration(3_840_000, Lang::Zh), "1 小时 4 分");
+        assert_eq!(duration(400, Lang::Zh), "不到 1 秒");
+        assert_eq!(duration(65_000, Lang::En), "1 min 05 s");
     }
 }

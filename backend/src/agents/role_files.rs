@@ -211,7 +211,7 @@ impl App {
 
 /// A group name as saved: one line, trimmed, at most `MAX_GROUP` characters.
 pub fn group_name(raw: &str) -> Result<String> {
-    let name = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name = crate::text::squash(raw);
     if name.chars().count() > MAX_GROUP {
         bail!("分组名最多 {MAX_GROUP} 个字");
     }

@@ -309,19 +309,27 @@ impl App {
             let SessionKey::Task(task) = session else {
                 self.emit(
                     run,
-                    ev(EventKind::LeadStalled, "janus", format!("负责人已有 {} 没有任何动静", span(idle)))
-                        .to("user")
-                        .data(json!({ "reason": "idle", "idleMs": idle })),
+                    ev(
+                        EventKind::LeadStalled,
+                        "janus",
+                        format!("负责人已有 {} 没有任何动静", span(idle, crate::lang::Lang::Zh)),
+                    )
+                    .to("user")
+                    .data(json!({ "reason": "idle", "idleMs": idle })),
                 );
                 continue;
             };
             self.emit(
                 run,
-                ev(EventKind::TaskStalled, "janus", format!("{task} 已有 {} 没有任何动静", span(idle)))
-                    .task(&task)
-                    .attempt(n)
-                    .to("lead")
-                    .data(json!({ "reason": "idle", "idleMs": idle })),
+                ev(
+                    EventKind::TaskStalled,
+                    "janus",
+                    format!("{task} 已有 {} 没有任何动静", span(idle, crate::lang::Lang::Zh)),
+                )
+                .task(&task)
+                .attempt(n)
+                .to("lead")
+                .data(json!({ "reason": "idle", "idleMs": idle })),
             );
         }
     }

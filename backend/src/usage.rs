@@ -649,7 +649,7 @@ impl Ledger {
         let waited = scope
             .wait_ms
             .map(|ms| {
-                let ms = duration_in(ms, lang);
+                let ms = crate::text::duration(ms, lang);
                 tr!(lang, "（其中等待用户 {ms}）", " (of which waiting for the user {ms})")
             })
             .unwrap_or_default();
@@ -825,24 +825,10 @@ fn context_text(context: &Context, lang: Lang) -> Option<String> {
 fn duration_text(ms: Option<i64>, lang: Lang) -> String {
     match ms {
         Some(ms) => {
-            let d = duration_in(ms, lang);
+            let d = crate::text::duration(ms, lang);
             tr!(lang, "{d}（总时长）", "{d} (total)")
         }
         None => lang.pick("没有时长记录", "no time recorded").into(),
-    }
-}
-
-/// A wall-clock duration in `lang`.
-pub fn duration_in(ms: i64, lang: Lang) -> String {
-    if ms < 1000 {
-        return lang.pick("不到 1 秒", "under 1 s").into();
-    }
-    let s = (ms + 500) / 1000;
-    let (h, m, sec) = (s / 3600, s % 3600 / 60, s % 60);
-    match s {
-        0..60 => tr!(lang, "{s} 秒", "{s} s"),
-        60..3600 => tr!(lang, "{m} 分 {sec:02} 秒", "{m} min {sec:02} s"),
-        _ => tr!(lang, "{h} 小时 {m} 分", "{h} h {m} min"),
     }
 }
 

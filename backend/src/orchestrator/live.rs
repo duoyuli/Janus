@@ -44,7 +44,7 @@ impl App {
             self.live(
                 run,
                 ctx,
-                json!({ "kind": "say", "text": clip(unshown, 8000), "thought": tail(&turn.thought, TAIL_CHARS) }),
+                json!({ "kind": "say", "text": clip(unshown, 8000), "thought": crate::text::tail(&turn.thought, TAIL_CHARS) }),
             );
         }
         for id in std::mem::take(&mut turn.live_tools) {
@@ -81,15 +81,6 @@ pub(super) fn live_due(turn: &crate::acp_view::Turn) -> Option<tokio::time::Inst
     Some(tokio::time::Instant::now() + Duration::from_millis(wait))
 }
 
-/// The end of `s`: at most `n` characters, cut at a character boundary.
-fn tail(s: &str, n: usize) -> String {
-    let count = s.chars().count();
-    if count <= n {
-        return s.to_string();
-    }
-    s.chars().skip(count - n).collect()
-}
-
 /// A running tool's output so far, from its content or raw output, as its last lines.
 fn tool_tail(entry: &Value) -> String {
     let mut text = String::new();
@@ -112,7 +103,7 @@ fn tool_tail(entry: &Value) -> String {
     }
     let lines: Vec<&str> = text.trim_end().lines().collect();
     let start = lines.len().saturating_sub(TAIL_LINES);
-    tail(&lines[start..].join("\n"), TAIL_CHARS)
+    crate::text::tail(&lines[start..].join("\n"), TAIL_CHARS)
 }
 
 #[cfg(test)]
@@ -139,11 +130,5 @@ mod tests {
         assert!(due > tokio::time::Instant::now() + Duration::from_millis(50));
         turn.live_at = 0;
         assert!(live_due(&turn).unwrap() <= tokio::time::Instant::now());
-    }
-
-    #[test]
-    fn tail_cuts_at_characters() {
-        assert_eq!(tail("负责人回复", 2), "回复");
-        assert_eq!(tail("ok", 5), "ok");
     }
 }

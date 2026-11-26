@@ -179,18 +179,6 @@ pub(crate) fn connection_phase(c: &Value) -> &'static str {
     }
 }
 
-/// Lowercase ASCII words joined by `-`, or None when nothing usable is left (e.g. an all-Chinese name).
-pub(crate) fn slug(s: &str) -> Option<String> {
-    let words: Vec<String> = s
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(|w| w.to_ascii_lowercase())
-        .collect();
-    let out: String = words.join("-").chars().take(32).collect();
-    let out = out.trim_matches('-').to_string();
-    (!out.is_empty()).then_some(out)
-}
-
 /// The ids of agents, roles and workspaces: they name folders and files under Janus home, so only
 /// lowercase letters, digits and `-`, starting with a letter or digit.
 pub fn check_id(id: &str) -> Result<()> {

@@ -434,11 +434,6 @@ fn numbers_and_durations_read_the_way_the_app_writes_them() {
         (num(0), num(999), num(15400), num(-1234567)),
         ("0".into(), "999".into(), "15,400".into(), "-1,234,567".into())
     );
-    assert_eq!(duration_in(192_000, Lang::Zh), "3 分 12 秒");
-    assert_eq!(duration_in(65_000, Lang::Zh), "1 分 05 秒");
-    assert_eq!(duration_in(44_600, Lang::Zh), "45 秒");
-    assert_eq!(duration_in(3_840_000, Lang::Zh), "1 小时 4 分");
-    assert_eq!(duration_in(400, Lang::Zh), "不到 1 秒");
 }
 
 /// Live aggregation stays linear on a large log (measured instead of adding an index).

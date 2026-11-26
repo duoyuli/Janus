@@ -226,11 +226,11 @@ impl App {
         let taken = |id: &str| -> Result<bool> {
             Ok(self.db.get_config(ConfigKind::Connection, id)?.is_some() || self.agent_dir(id).exists())
         };
-        let base = slug(kind).unwrap_or_else(|| "agent".into());
+        let base = crate::text::slug(kind, 32).unwrap_or_else(|| "agent".into());
         if !taken(&base)? {
             return Ok(base);
         }
-        if let Some(n) = slug(name).filter(|n| n != &base) {
+        if let Some(n) = crate::text::slug(name, 32).filter(|n| n != &base) {
             let id = if n.starts_with(&base) { n } else { format!("{base}-{n}") };
             if check_id(&id).is_ok() && !taken(&id)? {
                 return Ok(id);

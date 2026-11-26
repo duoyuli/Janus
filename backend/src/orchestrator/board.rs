@@ -1661,7 +1661,7 @@ fn running_pulse(run: &Run) -> String {
         let edited = st.traces.files(&t.def.id).len();
         let detail = match watches.get(&SessionKey::task(&t.def.id)) {
             Some((started, phase, tool)) => {
-                let elapsed = span_in((now - *started).max(0), lang);
+                let elapsed = span((now - *started).max(0), lang);
                 let tool_part = if tool.is_empty() {
                     String::new()
                 } else {

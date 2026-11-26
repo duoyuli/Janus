@@ -553,15 +553,6 @@ pub(super) fn post_label(lang: Lang, kind: Option<&str>) -> &'static str {
     }
 }
 
-/// A duration in words, as the board writes how long something has been quiet.
-pub(super) fn span_in(ms: i64, lang: Lang) -> String {
-    match lang {
-        Lang::Zh => span(ms),
-        Lang::En if ms < 60_000 => format!("{} s", ms / 1000),
-        Lang::En => format!("{} min", ms / 60_000),
-    }
-}
-
 /// The paths of a board event (`data.paths`), as one list.
 fn paths(d: &Value, lang: Lang) -> String {
     d["paths"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).collect::<Vec<_>>().join(list_sep(lang))
@@ -760,7 +751,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                         tr!(lang, " · 会话上下文 {pct}", " · session context {pct}")
                     })
                     .unwrap_or_default();
-                let took = crate::usage::duration_in(ms, lang);
+                let took = crate::text::duration(ms, lang);
                 msg.push_str(&tr!(lang, "\n  用时：{took}{context}", "\n  Time: {took}{context}"));
             }
             let (criteria, passed) = (totals.criteria, totals.passed);
@@ -1008,7 +999,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             )
         }
         EventKind::TaskStalled => {
-            let idle = span_in(d["idleMs"].as_i64().unwrap_or(0), lang);
+            let idle = span(d["idleMs"].as_i64().unwrap_or(0), lang);
             tr!(
                 lang,
                 "- [停滞] {it}· {name} 已有 {idle} 没有输出或工具调用，可能在做耗时的操作，也可能卡住了。",

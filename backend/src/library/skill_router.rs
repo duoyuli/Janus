@@ -47,9 +47,10 @@ pub(super) struct Entry {
 impl Entry {
     /// From a skill's SKILL.md as the agent gets it (`place_skill`).
     pub(super) fn read(item: &Item, md: &str) -> Entry {
-        let field = |key| crate::front_matter::field(md, key).map(|v| one_line(&v)).filter(|v| !v.is_empty());
+        let field =
+            |key| crate::front_matter::field(md, key).map(|v| crate::text::squash(&v)).filter(|v| !v.is_empty());
         let when = field("when_to_use");
-        let about = [field("description").or_else(|| Some(one_line(&item.description))), when.clone()]
+        let about = [field("description").or_else(|| Some(crate::text::squash(&item.description))), when.clone()]
             .into_iter()
             .flatten()
             .filter(|v| !v.is_empty())
@@ -190,10 +191,6 @@ pub fn skills_read(call: &str) -> Vec<String> {
         }
     }
     out
-}
-
-pub(super) fn one_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@
 // @project-doc docs/domains/20261116-resource_library.md#mcp_router
 
 use crate::lang::{Lang, tr};
+use crate::text::{cut_at_word, squash};
 
 /// How much of the first line, naming every server, an agent is sure to show: Pi shows a server
 /// as its instructions' first line cut at 250 characters, and magpie keeps to it.
@@ -32,28 +33,10 @@ fn len(s: &str) -> usize {
     s.chars().count()
 }
 
-/// `s` on one line.
-fn one_line(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// `s` in at most `n` characters, cut at a word (or anywhere in a script without spaces) with `…`.
-pub(super) fn cut(s: &str, n: usize) -> String {
-    if len(s) <= n {
-        return s.to_string();
-    }
-    let c: String = s.chars().take(n.saturating_sub(1)).collect();
-    let c = match c.rfind(' ') {
-        Some(i) if i > 0 => c[..i].to_string(),
-        _ => c,
-    };
-    format!("{}…", c.trim_end_matches([' ', ',', '，', '、']))
-}
-
 /// The first part of a description: up to its first comma, colon, semicolon or full stop outside
 /// brackets, so a line keeps what a thing is and not how it is used.
 pub(super) fn clause(s: &str) -> String {
-    let s = one_line(s);
+    let s = squash(s);
     let mut depth = 0usize;
     for (i, c) in s.char_indices() {
         match c {
@@ -72,12 +55,12 @@ pub(super) fn clause(s: &str) -> String {
 /// What a tool does, in a few words: the first clause of its description, a router's own
 /// `[<server>] ` before it left out.
 pub(super) fn tool_clause(d: &str) -> String {
-    let d = one_line(d);
+    let d = squash(d);
     let d = match d.strip_prefix('[').and_then(|r| r.split_once("] ")) {
         Some((_, rest)) => rest.to_string(),
         None => d,
     };
-    cut(&clause(&d), 80)
+    cut_at_word(&clause(&d), 80)
 }
 
 /// One line naming every server, each with what it is for cut to fit `LINE_MAX`: as many names as
@@ -120,7 +103,7 @@ pub(super) fn line(servers: &[Server], lang: Lang) -> String {
         if share < 12 {
             continue;
         }
-        abouts[i] = cut(&short[i], share);
+        abouts[i] = cut_at_word(&short[i], share);
         left = left.saturating_sub(len(&abouts[i]) + wrap);
     }
     format!("{}{end}", build(&abouts, kept))
@@ -152,11 +135,11 @@ pub(super) fn details(servers: &[Server], max: usize, lang: Lang) -> String {
 fn server_line(s: &Server, room: usize, lang: Lang) -> String {
     let (open, close) = (lang.pick("（", " ("), lang.pick("）", ")"));
     let mut head = format!("- {}", s.name);
-    let title = one_line(&s.title);
+    let title = squash(&s.title);
     if !title.is_empty() && !title.eq_ignore_ascii_case(&s.name) {
         head += &format!("{open}{title}{close}");
     }
-    let about = one_line(&s.about).trim_end_matches(['.', '。']).to_string();
+    let about = squash(&s.about).trim_end_matches(['.', '。']).to_string();
     if about.is_empty() && s.tools.is_empty() {
         return String::new();
     }
@@ -199,14 +182,14 @@ fn server_line(s: &Server, room: usize, lang: Lang) -> String {
     }
     // Too long: what it is for in half the room at most, then as many names as fit.
     let budget = (room / 2).saturating_sub(len(&head) + len(colon) + 1);
-    let about = if about.is_empty() || budget < 12 { String::new() } else { cut(&about, budget) };
+    let about = if about.is_empty() || budget < 12 { String::new() } else { cut_at_word(&about, budget) };
     for kept in (0..=names.len()).rev() {
         let l = say(&about, &names[..kept], names.len() - kept);
         if len(&l) <= room {
             return l;
         }
     }
-    if about.is_empty() { String::new() } else { cut(&say(&about, &[], 0), room) }
+    if about.is_empty() { String::new() } else { cut_at_word(&say(&about, &[], 0), room) }
 }
 
 /// How the agent reaches the tools, said once at the end of the instructions; `code` is whether
@@ -324,6 +307,6 @@ mod tests {
         assert_eq!(clause("Search issues (by repo, label). Returns a list."), "Search issues (by repo, label)");
         assert_eq!(clause("网页搜索，返回结果"), "网页搜索");
         assert_eq!(tool_clause("[github] Create an issue: give a title"), "Create an issue");
-        assert_eq!(cut("one two three four", 10), "one two…");
+        assert_eq!(cut_at_word("one two three four", 10), "one two…");
     }
 }

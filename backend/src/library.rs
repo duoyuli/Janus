@@ -145,7 +145,7 @@ const ROUTER: &str = "settings";
 pub(crate) fn reserved_mcp_name(name: &str) -> bool {
     ["janus", MCP_ROUTER]
         .iter()
-        .any(|r| name.eq_ignore_ascii_case(r) || crate::agents::slug(name).is_some_and(|s| s == *r))
+        .any(|r| name.eq_ignore_ascii_case(r) || crate::text::slug(name, 32).is_some_and(|s| s == *r))
 }
 
 fn mcp_revision(server: &McpServer) -> String {
