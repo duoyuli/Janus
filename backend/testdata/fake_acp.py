@@ -38,7 +38,8 @@ a prompt is logged ("steer <text>") and answered "injected".
 A prompt that is not a task's and names "[write <file>]" appends to that file in the session's directory, reports the
 edit as a tool call and ends the turn (a lead asked for more work after delivery); with "[commit]" in it too, the agent commits everything there first.
 A chat with one digital employee (a session in a `/chats/` directory) logs "chat session <cwd>" and answers every
-prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled; "[team]" first proposes the
+prompt "回复：<prompt>" ("[slow]" in it keeps the turn going until it is cancelled; "[stream]" writes the reply in 40
+lines, one chunk every 0.15 s, as an agent writing a long answer does; "[team]" first proposes the
 employees in FAKE_DIR/team.json with janus.propose_employees, as 招聘顾问 hands over the team it designed, and logs
 "propose taken|refused").
 A workspace Loop's session (its system layer opens "You are the Loop of the workspace", or 「你是工作区…的值班」 in Chinese) logs "loop wake <n>" for each wake
@@ -403,6 +404,11 @@ def prompt(msg):
     if sid in CHATS:
         if "[slow]" in text and wait_cancel(600):
             return {"stopReason": "cancelled"}
+        if "[stream]" in text:
+            for i in range(40):
+                say(sid, f"第 {i + 1} 行：一边写一边出现在会话里，视图跟着往下走。\n\n")
+                if wait_cancel(0.15):
+                    return {"stopReason": "cancelled"}
         if "[team]" in text and os.path.isfile(os.path.join(DIR, "team.json")):
             # As 招聘顾问 does: the team it designed, handed to the person to create.
             with open(os.path.join(DIR, "team.json")) as f:

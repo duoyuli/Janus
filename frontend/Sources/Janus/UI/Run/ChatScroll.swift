@@ -59,15 +59,20 @@ struct ChatScroll: View {
         .contentMargins(12, for: .scrollContent)
         .modifier(ChatProbe.Scroll(following: follow.following))
         .scrollPosition($position)
-        // Opens at the newest item; later changes of content leave the place to `follow`.
+        // Opens at the newest item. While following, content that grows or shrinks keeps the
+        // bottom where it is, so a streaming reply needs no scroll of its own; scrolled up, the
+        // person's place stays put.
         .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(follow.following ? .bottom : nil, for: .sizeChanges)
         .onScrollPhaseChange { _, phase in
             let now = phase == .tracking || phase == .interacting || phase == .decelerating
             if now != person { person = now }
         }
-        // Where the end is, as an offset of the content: what the scroll to the end goes to.
+        // Where the end is, as an offset of the content: what the scroll to the end goes to. The
+        // largest offset there is, margin included, which is where the bottom edge puts the view
+        // too: two ends a few points apart had the view bounce between them as a reply streamed.
         .onScrollGeometryChange(for: CGFloat.self) { g in
-            g.contentOffset.y + g.contentSize.height - g.visibleRect.maxY
+            g.contentSize.height + g.contentInsets.bottom - g.containerSize.height
         } action: { _, end in endOffset = end }
         // How much content lies below the visible area, reported on every scroll and every change
         // of the content's size; the state changes only when the answer does.

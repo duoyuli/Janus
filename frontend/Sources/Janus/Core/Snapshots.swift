@@ -526,13 +526,18 @@ enum ChatProbe {
     static var visible: CGRect = .zero
     static var content: CGFloat = 0
     static var following = true
+    /// Where the view was each time it moved or the content changed size, oldest first, with the
+    /// time (ms), the content's height and whether it was following: a view that bounces while it
+    /// follows a reply that only grows shows here as an offset that goes back up.
+    static var trail: [(at: Double, offset: CGFloat, content: CGFloat, following: Bool)] = []
 
     /// Rows in the conversation's order (`order`; a row's id is its first event's sequence number,
     /// negative for a turn's own rows). A row the lazy list keeps aside after it scrolled away may
     /// report where it last was, so only the rows in view are sure to be where they are drawn.
     static var json: JSON {
         let built = rows.sorted { (order[$0.key] ?? 0) < (order[$1.key] ?? 0) }
-        return ["following": .bool(following), "content": JSON(Int(content.rounded())),
+        let trail = JSON.array(trail.map { JSON.array([JSON(Int($0.at)), JSON(Int($0.offset.rounded())), JSON(Int($0.content.rounded())), .bool($0.following)]) })
+        return ["following": .bool(following), "content": JSON(Int(content.rounded())), "trail": trail,
                 "offset": JSON(Int(visible.minY.rounded())), "height": JSON(Int(visible.height.rounded())),
                 "rows": JSON.array(built.map { ["id": JSON($0.key), "top": JSON(Int($0.value.minY.rounded())), "bottom": JSON(Int($0.value.maxY.rounded()))] })]
     }
@@ -563,6 +568,8 @@ enum ChatProbe {
                     .onScrollGeometryChange(for: CGRect.self) { g in CGRect(x: 0, y: g.contentOffset.y, width: g.contentSize.height, height: g.visibleRect.height) } action: { _, r in
                         ChatProbe.visible = CGRect(x: 0, y: r.minY, width: 0, height: r.height)
                         ChatProbe.content = r.width
+                        ChatProbe.trail.append((L.nowMs(), r.minY, r.width, ChatProbe.following))
+                        if ChatProbe.trail.count > 600 { ChatProbe.trail.removeFirst(ChatProbe.trail.count - 600) }
                     }
                     .onChange(of: following, initial: true) { ChatProbe.following = following }
             } else {

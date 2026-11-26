@@ -1,6 +1,7 @@
 """Chats with one digital employee (docs/domains/20261120-chats.md)."""
 
 import os
+import time
 
 from lib import drawn, paths_with, wait
 from scenarios import scenario
@@ -100,6 +101,17 @@ def chats(ctx, c):
         c(cv["following"] and _settled(cv),
           f"应用：长回复之后停在最新一行，仍在跟随（{cv['following']}，最后一行底边 {rows[-1]['bottom'] if rows else None} / 可见高度 {cv['height']}）")
         c(drawn(ctx.app.picture(f"{chat}-long-reply")), f"应用：带宽表格的长回复画出来了（{chat}-long-reply.png）")
+
+        # A reply that streams in for seconds, as an agent writing a long answer: the view follows it
+        # down and never jumps back up on the way (it bounced between two ends a few points apart).
+        start = int(time.time() * 1000)
+        ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "[stream] 慢慢写"})
+        wait(lambda: replied("[stream] 慢慢写"), "数字员工一段一段写完回复", 60)
+        st = ctx.app.until(lambda s: (s.get("run") or {}).get("id") == chat and _settled(s["run"]["conversation"]), "流式回复写完，停在最新一行")
+        trail = [p for p in st["run"]["conversation"]["trail"] if p[0] >= start]
+        back = [(a, b) for a, b in zip(trail, trail[1:]) if a[3] and b[3] and b[2] >= a[2] and b[1] < a[1] - 1]
+        c(len(trail) > 10 and not back,
+          f"应用：回复一边写一边跟着往下，没有往回跳（{len(trail)} 个位置，往回跳 {len(back)} 次：{back[:3]}）")
 
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),
            "对话页打开，侧栏的对话列表里有它", pages=("draft agent:lead 第三条", "open chats"))
