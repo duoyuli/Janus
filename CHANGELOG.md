@@ -4,6 +4,28 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.5
+
+- 资源库的 MCP 路由改成 magpie 的做法：数字员工只拿到 `find_tools`（按要做的事或工具名找工具，中文也能找）和 `call_tool`（按名字调用）两个工具，再加上下面的 `run_code`，资源库再大，会话里的工具也不增加。路由会介绍自己背后有哪些服务器、各做什么、有哪些工具，所以 Codex 这类开局只看服务器说明的 Agent 也知道该去用它们。
+
+- 新增代码模式：数字员工可以用 `run_code` 写一段 JavaScript，在里面连续调用资源库的工具，只把需要的结果交回来，几次调用一步完成，用不上的结果不占上下文。脚本在单独的进程里运行，不能读写文件、联网或启动程序，有调用次数、时间和内存上限。跑通的脚本可以存成资源库里的 Skill（带 `code.js`），之后每个数字员工都能调用。「设置 › 资源库 › MCP」可以关掉代码模式，默认开。
+
+- 修复：Janus 自己的协作、值班和团队记忆工具，服务器不介绍自己，Codex 开局只看到一个没有说明的服务器。现在每个服务器都列出它的工具、各做什么；负责人说明、协作者约定和值班说明里不再重复列出工具。
+
+- 去掉 MCP 服务器的「每个会话单独运行」：每个服务器在一个任务里只运行一份，负责人和子任务共用，闲置 10 分钟后停止。升级时这个设置自动去掉。
+
+- 修复：MCP 路由的一次工具调用最多等 5 分钟，而 Claude Code 和 Codex 只等 60 秒，慢的调用会让 Agent 先报超时。现在最多等 50 秒，Agent 收到的是路由的回答。
+
+- The library's MCP router now works as magpie's does: digital employees get two tools, `find_tools` (find a tool by what you want done or by its name, Chinese queries included) and `call_tool` (run one by name), plus `run_code` below, so a session's tools don't grow with the library. The router says which servers are behind it, what each is for and what tools it has, so agents that start from a server's description, such as Codex, know to use them.
+
+- New code mode: digital employees can use `run_code` to write JavaScript that calls the library's tools in a row and hands back only the result they need, so several calls take one step and unused results stay out of the context. Scripts run in a separate process that can't read or write files, reach the network or start programs, with limits on calls, time and memory. A script that works can be saved as a library skill (with a `code.js`) that every digital employee can call. Turn code mode off in Settings › Library › MCP; it is on by default.
+
+- Fixed: Janus's own collaboration, Loop and team-memory tools came from servers that didn't introduce themselves, so Codex started out seeing a server with no description. Each server now lists its tools and what each does; the lead brief, collaborator rules and Loop brief no longer list them again.
+
+- MCP servers no longer have "Run once per session": each server runs once per run, shared by the lead and subtasks, and stops after 10 idle minutes. Upgrading removes the setting.
+
+- Fixed: one tool call through the MCP router could wait 5 minutes while Claude Code and Codex wait 60 seconds, so a slow call made the agent time out first. It now waits at most 50 seconds, and the agent gets the router's answer.
+
 ## 2026.11.26.4
 
 - 修复：模型网关收下请求却一直不回复时，用 Claude Code 的值班、对话和任务会停在这一轮 10 分钟（Claude Code 自己的默认等待）才重试，看起来像卡住了。现在 Janus 默认让 Claude Code 等 2 分钟就重发；想要别的时长，在 Agent 的环境变量里写 `API_TIMEOUT_MS=<毫秒>`，写 `API_TIMEOUT_MS=` 则回到 Claude Code 自己的默认。
