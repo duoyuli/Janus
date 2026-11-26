@@ -4,7 +4,9 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
-## 2026.11.26.12
+## 2026.11.26.13
+
+- 修复：在 macOS 15 上打开一段较长的会话，有时停在离底部一屏左右的地方，看起来已经到底、新回复也不跟。
 
 - 修复：Agent 工作时，跟着最新内容的会话一直上下抖动。回复逐字出现的每一帧，视图都在相差十来点的两个「底部」之间来回弹；现在落在同一处，内容变高时底边由系统钉住。
 
@@ -27,6 +29,8 @@ Janus versions are named by date, newest first. Each section lists the changes o
 - 交付里 Janus 查出来的风险标明是哪个子任务的，审阅卡片按它打开对应的子任务（以前靠切文字，只认中文）。
 
 - 内部：一轮架构治理。看板、负责人两个近 1700 行的文件按职责拆开；重复的实现收成一处（文字截断和时长、时钟 id、整文件写入、token 计数、会话加载、MCP 工具结果）；产物、看板消息种类、停滞原因等改用类型；`runs.loop_id` 只表示派出它的值班（数据版本 30）；删除没人用的 `GET /api/prices`、交付里没人读的用量行和 26 条没人用的界面翻译；补齐模块和接口文档。新的 ADR 记下由事件推导的状态迁到服务端的方向和顺序，以及负责人的交付报告仍写在回复里的理由。
+
+- Fixed: on macOS 15, opening a long conversation sometimes stopped about a screen short of the end, as if it were there, and new replies were not followed.
 
 - Fixed: while an agent worked, a conversation following the newest output kept jittering up and down. Each frame of a streaming reply bounced the view between two "ends" a dozen points apart; they are now the same place, and the bottom stays pinned as the content grows.
 
