@@ -23,6 +23,28 @@ wire_enum! {
     }
 }
 
+/// How an attempt asked to continue an earlier session started (`attempt.started`
+/// `data.continuation`): which task's session, whether it was loaded, and if not why.
+#[derive(Serialize)]
+struct Continuation {
+    from: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session: Option<String>,
+    loaded: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fallback: Option<Fallback>,
+}
+
+impl Continuation {
+    fn loaded(from: &str, session: &str) -> Continuation {
+        Continuation { from: from.into(), session: Some(session.into()), loaded: true, fallback: None }
+    }
+
+    fn new_session(from: &str, session: Option<&str>, why: Fallback) -> Continuation {
+        Continuation { from: from.into(), session: session.map(str::to_owned), loaded: false, fallback: Some(why) }
+    }
+}
+
 impl Fallback {
     /// The reason in the lead's words, on the board.
     pub(super) fn reason(self, lang: Lang) -> &'static str {
@@ -398,7 +420,7 @@ impl App {
         let opened = tokio::time::timeout(STARTUP_TIMEOUT, async {
             let mut resumed: Option<BrokeOff> = None;
             let mut followup_from: Option<String> = None;
-            let mut continuation: Option<Value> = None;
+            let mut continuation: Option<Continuation> = None;
             // Collaborators hand in their result and questions with the board's tools, an HTTP MCP
             // server: an agent that cannot reach one could never hand anything in.
             if conn.capabilities["mcpCapabilities"]["http"] != true {
@@ -412,56 +434,47 @@ impl App {
                 Some(SessionResume::BrokeOff(Reload { session: old, broke }))
                     if matches!(broke, BrokeOff::Failure(_)) && self.session_too_full(run, &old).is_some() =>
                 {
-                    continuation = Some(
-                        json!({ "from": id, "session": old, "loaded": false, "fallback": Fallback::ContextOverLimit.as_str() }),
-                    );
+                    continuation = Some(Continuation::new_session(id, Some(&old), Fallback::ContextOverLimit));
                     new_session(&conn, &workspace, &opening).await?
                 }
                 Some(SessionResume::BrokeOff(Reload { session: old, broke })) if conn.capabilities["loadSession"] == true => {
-                    match conn.request("session/load", opening.load_params(&old, &workspace)).await {
+                    // The reload replays history as updates; it is already in the event log.
+                    match load_session(&conn, &mut rx, opening.load_params(&old, &workspace), &old).await {
                         Ok(r) => {
-                            // The reload replays history as updates; it is already in the event log.
-                            // Updates can trail the response, so wait until the agent goes quiet.
-                            drain_replay(&conn, &mut rx).await;
                             resumed = Some(broke);
-                            let mut r = if r.is_object() { r } else { json!({}) };
-                            r["sessionId"] = json!(old);
                             r
                         }
                         Err(_) => new_session(&conn, &workspace, &opening).await?,
                     }
                 }
                 Some(SessionResume::Followup { from, session: old }) => {
-                    if self.session_too_full(run, &old).is_some() {
-                        continuation = Some(
-                            json!({ "from": from, "session": old, "loaded": false, "fallback": Fallback::ContextOverLimit.as_str() }),
-                        );
-                        new_session(&conn, &workspace, &opening).await?
+                    let unloaded = if self.session_too_full(run, &old).is_some() {
+                        Some(Fallback::ContextOverLimit)
                     } else if conn.capabilities["loadSession"] != true {
-                        continuation =
-                            Some(json!({ "from": from, "session": old, "loaded": false, "fallback": Fallback::Unsupported.as_str() }));
-                        new_session(&conn, &workspace, &opening).await?
+                        Some(Fallback::Unsupported)
                     } else {
-                        match conn.request("session/load", opening.load_params(&old, &workspace)).await {
+                        None
+                    };
+                    match unloaded {
+                        Some(why) => {
+                            continuation = Some(Continuation::new_session(&from, Some(&old), why));
+                            new_session(&conn, &workspace, &opening).await?
+                        }
+                        None => match load_session(&conn, &mut rx, opening.load_params(&old, &workspace), &old).await {
                             Ok(r) => {
-                                drain_replay(&conn, &mut rx).await;
                                 followup_from = Some(from.clone());
-                                continuation = Some(json!({ "from": from, "session": old, "loaded": true }));
-                                let mut r = if r.is_object() { r } else { json!({}) };
-                                r["sessionId"] = json!(old);
+                                continuation = Some(Continuation::loaded(&from, &old));
                                 r
                             }
                             Err(_) => {
-                                continuation = Some(
-                                    json!({ "from": from, "session": old, "loaded": false, "fallback": Fallback::LoadFailed.as_str() }),
-                                );
+                                continuation = Some(Continuation::new_session(&from, Some(&old), Fallback::LoadFailed));
                                 new_session(&conn, &workspace, &opening).await?
                             }
-                        }
+                        },
                     }
                 }
                 Some(SessionResume::Missing { from }) => {
-                    continuation = Some(json!({ "from": from, "loaded": false, "fallback": Fallback::NoSession.as_str() }));
+                    continuation = Some(Continuation::new_session(&from, None, Fallback::NoSession));
                     new_session(&conn, &workspace, &opening).await?
                 }
                 _ => new_session(&conn, &workspace, &opening).await?,
@@ -530,13 +543,10 @@ impl App {
             "config": applied, "enforcement": enforcement(&applied), "prompt": prompt, "resumed": resumed.is_some()
         });
         if let Some(broke) = &resumed {
-            started_data["brokeOff"] = json!(match broke {
-                BrokeOff::Restart => "restart",
-                BrokeOff::Failure(_) => "failure",
-            });
+            started_data["brokeOff"] = json!(broke.record());
         }
         if let Some(cont) = continuation {
-            started_data["continuation"] = cont;
+            started_data["continuation"] = json!(cont);
         }
         if let Some(r) = &reopen {
             started_data["reopen"] = r.record();
@@ -574,7 +584,7 @@ impl App {
         // nothing new went in, so nothing new is recorded.
         if resumed.is_none() && followup_from.is_none() {
             self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &rules);
-            self.record_instructions(run, &ctx, &sid, &channel, &standing);
+            self.record_system(run, &ctx, &sid, &channel, SystemPart::Instructions, &standing);
         }
         self.watch_session(run, &owner.session, n);
         let mut next = Some(prompt);

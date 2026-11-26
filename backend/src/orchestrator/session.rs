@@ -132,7 +132,7 @@ pub(super) fn takes_images(conn: &AcpConn) -> bool {
 
 /// Swallow the history a `session/load` replays. Updates may trail the response, so wait until
 /// the agent has been quiet for a moment; anything it asks meanwhile is declined.
-pub(super) async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceiver<Incoming>) {
+async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceiver<Incoming>) {
     let quiet = Duration::from_millis(500);
     let until = tokio::time::Instant::now() + Duration::from_secs(10);
     while tokio::time::Instant::now() < until {
@@ -144,6 +144,21 @@ pub(super) async fn drain_replay(conn: &AcpConn, rx: &mut mpsc::UnboundedReceive
             Ok(Some(Incoming::Closed)) | Ok(None) | Err(_) => break,
         }
     }
+}
+
+/// Go back into session `sid` (`session/load` with `params`): its replayed history swallowed, and
+/// the reply naming the session, which `session/load` does not.
+pub(super) async fn load_session(
+    conn: &AcpConn,
+    rx: &mut mpsc::UnboundedReceiver<Incoming>,
+    params: Value,
+    sid: &str,
+) -> Result<Value> {
+    let r = conn.request("session/load", params).await?;
+    drain_replay(conn, rx).await;
+    let mut session = if r.is_object() { r } else { json!({}) };
+    session["sessionId"] = json!(sid);
+    Ok(session)
 }
 
 pub(super) async fn new_session(conn: &AcpConn, cwd: &Path, opening: &Opening) -> Result<Value> {

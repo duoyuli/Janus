@@ -239,7 +239,7 @@ impl MemberTool {
                     "type": "object",
                     "required": ["text"],
                     "properties": {
-                        "kind": { "type": "string", "enum": ["progress", "blocker", "note"], "description": t("默认 progress", "Defaults to progress") },
+                        "kind": { "type": "string", "enum": PostKind::ALL.iter().map(|k| k.as_str()).collect::<Vec<_>>(), "description": t("默认 progress", "Defaults to progress") },
                         "text": { "type": "string", "maxLength": POST_MAX_CHARS, "description": t(
                             "写结论和负责人要知道的事；长内容写进文件，在这里给出路径",
                             "Conclusions and what the lead needs to know; put long content in a file and give its path here"
@@ -517,7 +517,7 @@ pub(super) fn needs_lead(e: &Event) -> bool {
         | EventKind::LeadEdited
         | EventKind::LeadRouted => true,
         EventKind::TaskStalled => field("resolved") != true,
-        EventKind::BoardPosted => field("kind") == "blocker",
+        EventKind::BoardPosted => d.map(PostKind::of) == Some(PostKind::Blocker),
         // A result that disagrees with the workspace, or an independent verification that rejected/questioned the target.
         EventKind::TaskSucceeded => {
             field("traceGaps").as_array().is_some_and(|g| !g.is_empty())
@@ -544,12 +544,40 @@ pub(super) fn titled(lang: Lang, task: &str, title: &str) -> String {
     tr!(lang, "{task}「{title}」", "{task} \"{title}\"")
 }
 
-/// The label of a collaborator's board post by its kind (`progress`, `blocker`, `note`).
-pub(super) fn post_label(lang: Lang, kind: Option<&str>) -> &'static str {
-    match kind {
-        Some("blocker") => lang.pick("阻塞", "Blocker"),
-        Some("note") => lang.pick("备注", "Note"),
-        _ => lang.pick("进展", "Progress"),
+wire_enum! {
+    /// What a collaborator's `board_post` is (`board.posted` `data.kind`).
+    #[derive(Default)]
+    pub(super) enum PostKind {
+        #[default]
+        Progress = "progress",
+        /// Something stops it: the lead hears of it like a question.
+        Blocker = "blocker",
+        Note = "note",
+    }
+}
+
+impl PostKind {
+    /// What a post's `data.kind` says, progress when it says nothing Janus knows.
+    pub(super) fn of(data: &Value) -> PostKind {
+        data["kind"].as_str().and_then(PostKind::parse).unwrap_or_default()
+    }
+
+    pub(super) fn label(self, lang: Lang) -> &'static str {
+        match self {
+            PostKind::Blocker => lang.pick("阻塞", "Blocker"),
+            PostKind::Note => lang.pick("备注", "Note"),
+            PostKind::Progress => lang.pick("进展", "Progress"),
+        }
+    }
+}
+
+wire_enum! {
+    /// Why the watchdog found a session stalled (`task.stalled` and `lead.stalled` `data.reason`).
+    pub(super) enum StallReason {
+        /// Nothing happened in it for a while.
+        Idle = "idle",
+        /// It made the same call, or the same sequence of calls, again and again.
+        Loop = "loop",
     }
 }
 
@@ -913,7 +941,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             )
         }
         EventKind::BoardPosted => {
-            let label = post_label(lang, d["kind"].as_str());
+            let label = PostKind::of(&d).label(lang);
             let text = d["text"].as_str().unwrap_or(&e.text);
             tr!(lang, "- [{label}] {it}· {name}：{text}", "- [{label}] {it} · {name}: {text}")
         }
@@ -981,7 +1009,9 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
             )
         }
         EventKind::TaskStalled if d["resolved"] == true => return None,
-        EventKind::TaskStalled if d["reason"] == "loop" && d["period"].as_u64().unwrap_or(1) > 1 => {
+        EventKind::TaskStalled
+            if d["reason"] == StallReason::Loop.as_str() && d["period"].as_u64().unwrap_or(1) > 1 =>
+        {
             let (repeats, tool) = (d["repeats"].as_i64().unwrap_or(4), clip(d["tool"].as_str().unwrap_or(""), 80));
             tr!(
                 lang,
@@ -989,7 +1019,7 @@ pub(super) fn board_entry(run: &Run, e: &Event) -> Option<String> {
                 "- [Stalled] {it} · {name} repeated the same sequence of calls {repeats} times in a row ({tool}); it may be going back and forth."
             )
         }
-        EventKind::TaskStalled if d["reason"] == "loop" => {
+        EventKind::TaskStalled if d["reason"] == StallReason::Loop.as_str() => {
             let (repeats, tool) =
                 (d["repeats"].as_i64().unwrap_or(LOOP_REPEAT as i64), clip(d["tool"].as_str().unwrap_or(""), 60));
             tr!(

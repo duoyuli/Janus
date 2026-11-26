@@ -967,7 +967,7 @@ impl Scan {
                     self.attempt(task, n, &actor, e.ts);
                     if let Some(a) = self.attempts.get_mut(&(task.clone(), n)) {
                         a.sent_back = data["reopen"]["reason"] == "lead.retry";
-                        a.restarted = data["brokeOff"] == "restart";
+                        a.restarted = data["brokeOff"] == crate::orchestrator::BrokeOff::RESTART;
                     }
                 }
             }

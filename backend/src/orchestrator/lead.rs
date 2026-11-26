@@ -36,6 +36,8 @@ wire_enum! {
         Collaboration = "system",
         /// A chat reopened: its recent exchanges, so the new session knows the conversation.
         History = "history",
+        /// The digital employee's own standing instructions.
+        Instructions = "instructions",
     }
 }
 
@@ -469,7 +471,7 @@ impl App {
                 (resume_prompt(&board, &broke, &notes, run.lang), Some(PromptChannel::Resume))
             } else {
                 self.record_system(run, &ctx, &sid, &channel, SystemPart::Collaboration, &brief);
-                self.record_instructions(run, &ctx, &sid, &channel, &standing);
+                self.record_system(run, &ctx, &sid, &channel, SystemPart::Instructions, &standing);
                 (format!("/goal {}", goal_condition(&run.goal)), None)
             };
             let mut delivered = false;
@@ -688,7 +690,7 @@ impl App {
                 if !history.is_empty() {
                     self.record_system(run, &ctx, &sid, &channel, SystemPart::History, &history);
                 }
-                self.record_instructions(run, &ctx, &sid, &channel, &standing);
+                self.record_system(run, &ctx, &sid, &channel, SystemPart::Instructions, &standing);
             }
 
             // The message that reopened the run was queued as a note; otherwise wait for one.
@@ -835,10 +837,9 @@ impl App {
             if conn.capabilities["loadSession"] == true {
                 let opening = self.conversation_opening(run, lead, &conn, channel, kept);
                 let params = opening.load_params(sid, &run.cwd);
-                if let Ok(Ok(r)) = tokio::time::timeout(STARTUP_TIMEOUT, conn.request("session/load", params)).await {
-                    drain_replay(&conn, &mut rx).await;
-                    let mut session = if r.is_object() { r } else { json!({}) };
-                    session["sessionId"] = json!(sid);
+                if let Ok(Ok(session)) =
+                    tokio::time::timeout(STARTUP_TIMEOUT, load_session(&conn, &mut rx, params, sid)).await
+                {
                     let resources = opening.resources;
                     return Ok(Conversation { conn, rx, ctl, session, loaded: true, resources });
                 }
@@ -974,8 +975,8 @@ impl App {
         }
     }
 
-    /// Janus's part of the system layer is invisible in the transcript: record it, with its
-    /// channel, the way `record_instructions` records the person's part.
+    /// What went into the system layer is invisible in the transcript: record each part, with its
+    /// channel.
     pub(super) fn record_system(
         &self,
         run: &Run,
@@ -991,9 +992,10 @@ impl App {
         let via = channel.as_str();
         let label = match part {
             SystemPart::Collaboration if let Some(label) = run.kind.collaboration_label() => label,
-            SystemPart::Collaboration if ctx.agent == "lead" => "向负责人注入 Agent Team 协作指令",
+            SystemPart::Collaboration if ctx.task.is_none() => "向负责人注入 Agent Team 协作指令",
             SystemPart::Collaboration => "向协作者注入 Agent Team 协作约定",
             SystemPart::History => "向 Agent 注入之前的对话",
+            SystemPart::Instructions => "向 Agent 注入数字员工的指令",
         };
         self.emit(
             run,
@@ -1001,28 +1003,6 @@ impl App {
                 .to(ctx.agent)
                 .scope(ctx)
                 .data(json!({ "channel": part.as_str(), "via": via, "session": sid, "prompt": text })),
-        );
-    }
-
-    /// What went into the system layer is invisible in the transcript: record it, with its channel.
-    pub(super) fn record_instructions(
-        &self,
-        run: &Run,
-        ctx: &Ctx<'_>,
-        sid: &str,
-        channel: &InstructionChannel,
-        text: &str,
-    ) {
-        let via = channel.as_str();
-        if text.is_empty() {
-            return;
-        }
-        self.emit(
-            run,
-            ev(EventKind::SessionPrompt, "janus", "向 Agent 注入数字员工的指令")
-                .to(ctx.agent)
-                .scope(ctx)
-                .data(json!({ "channel": "instructions", "via": via, "session": sid, "prompt": text })),
         );
     }
 

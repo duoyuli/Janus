@@ -1378,8 +1378,7 @@ impl App {
                 let other = d["other"].as_str().unwrap_or("?");
                 match e.kind() {
                     EventKind::BoardPosted => {
-                        let (label, text) =
-                            (post_label(lang, d["kind"].as_str()), d["text"].as_str().unwrap_or(&e.text));
+                        let (label, text) = (PostKind::of(&d).label(lang), d["text"].as_str().unwrap_or(&e.text));
                         Some(format!("- [{label}] {text}"))
                     }
                     EventKind::QuestionAsked => {
@@ -1519,9 +1518,10 @@ impl App {
         if text.chars().count() > POST_MAX_CHARS {
             return Err(tr!(lang, "text 超过 {POST_MAX_CHARS} 个字符", "text is over {POST_MAX_CHARS} characters"));
         }
-        let kind = match args["kind"].as_str().unwrap_or("progress") {
-            k @ ("progress" | "blocker" | "note") => k,
-            other => {
+        let kind = match args["kind"].as_str().map(|k| (k, PostKind::parse(k))) {
+            None => PostKind::Progress,
+            Some((_, Some(kind))) => kind,
+            Some((other, None)) => {
                 return Err(tr!(
                     lang,
                     "kind 只能是 progress、blocker 或 note，不能是 {other}",
@@ -1538,7 +1538,7 @@ impl App {
             .find(|t| t.def.id == task)
             .map(|t| t.agent.clone())
             .ok_or_else(|| no_task(lang, task))?;
-        let label = post_label(Lang::Zh, Some(kind));
+        let label = kind.label(Lang::Zh);
         self.emit(
             run,
             ev(EventKind::BoardPosted, &agent, format!("{label}：{}", clip(text, 80)))

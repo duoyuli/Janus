@@ -315,7 +315,7 @@ impl App {
                         format!("负责人已有 {} 没有任何动静", span(idle, crate::lang::Lang::Zh)),
                     )
                     .to("user")
-                    .data(json!({ "reason": "idle", "idleMs": idle })),
+                    .data(json!({ "reason": StallReason::Idle, "idleMs": idle })),
                 );
                 continue;
             };
@@ -329,7 +329,7 @@ impl App {
                 .task(&task)
                 .attempt(n)
                 .to("lead")
-                .data(json!({ "reason": "idle", "idleMs": idle })),
+                .data(json!({ "reason": StallReason::Idle, "idleMs": idle })),
             );
         }
     }
@@ -355,9 +355,9 @@ impl App {
         let SessionKey::Task(task) = session else {
             self.emit(
                 run,
-                ev(EventKind::LeadStalled, "janus", format!("负责人{text_body}"))
-                    .to("user")
-                    .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
+                ev(EventKind::LeadStalled, "janus", format!("负责人{text_body}")).to("user").data(
+                    json!({ "reason": StallReason::Loop, "tool": pattern, "repeats": repeats, "period": period }),
+                ),
             );
             return;
         };
@@ -367,7 +367,7 @@ impl App {
                 .task(task)
                 .attempt(n)
                 .to("lead")
-                .data(json!({ "reason": "loop", "tool": pattern, "repeats": repeats, "period": period })),
+                .data(json!({ "reason": StallReason::Loop, "tool": pattern, "repeats": repeats, "period": period })),
         );
     }
 

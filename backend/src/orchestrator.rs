@@ -109,11 +109,24 @@ pub(super) struct Reload {
 
 /// What ended a session its task goes back into.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum BrokeOff {
+pub(crate) enum BrokeOff {
     /// The orchestrator restarted while the attempt was working.
     Restart,
     /// The attempt failed (its agent exited, the provider returned an error …), with the reason.
     Failure(String),
+}
+
+impl BrokeOff {
+    /// How `attempt.started` records it (`data.brokeOff`).
+    pub(crate) const RESTART: &str = "restart";
+    const FAILURE: &str = "failure";
+
+    pub(super) fn record(&self) -> &'static str {
+        match self {
+            BrokeOff::Restart => BrokeOff::RESTART,
+            BrokeOff::Failure(_) => BrokeOff::FAILURE,
+        }
+    }
 }
 /// The watchdog tells the lead about an attempt that made the same tool call this many times in a row.
 const LOOP_REPEAT: u32 = 5;
