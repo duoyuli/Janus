@@ -6,11 +6,11 @@ extension AppStore {
     /// ticked (by number) and the agent they will run on.
     struct ProposalSheet {
         var chat: String
-        var proposal: JSON
+        var proposal: Proposal
         var connection: String
         var picked: Set<String> = []
         var error: String?
-        var roles: [JSON] { proposal["roles"].array }
+        var roles: [ProposedRole] { proposal.roles }
     }
 
     /// Open the sheet on the digital employees chat `run` proposed, as the server has them now;
@@ -20,16 +20,16 @@ extension AppStore {
         await run.loadProposal()
         guard let p = run.proposal else { return }
         proposalSheet = ProposalSheet(chat: run.id, proposal: p, connection: okConnections.first?["id"].str ?? "",
-                                      picked: Set(p["roles"].array.filter { !$0["existing"].truthy }.map { $0["n"].str }))
+                                      picked: Set(p.roles.filter { !$0.existing }.map(\.n)))
     }
 
     /// Create the ticked employees of the open proposal; closes the sheet and says so when it
     /// worked. They stay out of the way: the person is in the chat.
     func createProposed() async {
         guard let sheet = proposalSheet else { return }
-        let picks = JSON.array(sheet.roles.map { $0["n"].str }.filter { sheet.picked.contains($0) }.map { JSON($0) })
+        let picks = JSON.array(sheet.roles.map(\.n).filter { sheet.picked.contains($0) }.map { JSON($0) })
         do {
-            let made = try await api.post("/api/runs/\(API.q(sheet.chat))/proposal", ["proposal": sheet.proposal["proposal"], "picks": picks, "connection": JSON(sheet.connection)])
+            let made = try await api.post("/api/runs/\(API.q(sheet.chat))/proposal", ["proposal": sheet.proposal.id, "picks": picks, "connection": JSON(sheet.connection)])
             await loadSetup()
             proposalSheet = nil
             show(L.text("已创建 \(made.array.count) 位数字员工，在「设置 › 数字员工」里可以改"))
@@ -40,7 +40,7 @@ extension AppStore {
     func declineProposal(_ run: RunModel) async {
         guard let p = run.proposal else { return }
         do {
-            _ = try await api.post("/api/runs/\(API.q(run.id))/proposal/decline", ["proposal": p["proposal"]])
+            _ = try await api.post("/api/runs/\(API.q(run.id))/proposal/decline", ["proposal": p.id])
             await run.loadProposal()
         } catch { show(error.localizedDescription) }
     }

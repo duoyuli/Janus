@@ -234,7 +234,7 @@ enum Snapshots {
                 "proposalSheet": store.proposalSheet.map { p in
                     ["chat": JSON(p.chat), "error": p.error.map(JSON.init) ?? .null, "connection": JSON(p.connection),
                      "picked": JSON.array(p.picked.sorted().map(JSON.init)),
-                     "roles": JSON.array(p.roles.map { ["n": $0["n"], "name": $0["name"], "group": $0["group"], "lead": $0["lead"], "existing": $0["existing"]] })]
+                     "roles": JSON.array(p.roles.map { r -> JSON in ["n": JSON(r.n), "name": JSON(r.name), "group": JSON(r.group), "lead": JSON(r.lead), "existing": JSON(r.existing)] })]
                 } ?? .null,
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in
@@ -262,13 +262,22 @@ enum Snapshots {
                     let waiting = store.waiting(in: w)
                     let hidden = Set(waiting.map(\.id))
                     let knowledge = HomeView.knowledge(w, store: store)
-                    return ["waiting": JSON.array(waiting.map { ["run": JSON($0.id), "loop": $0.loop?["id"] ?? .null, "label": JSON($0.label), "items": JSON($0.entries.count)] }),
-                            "records": JSON.array((store.histories[id]?.runs ?? []).filter { !hidden.contains($0["id"].str) }.map { $0["id"] }),
-                            // What the two tiles beside the name say, the Loops in the order of their
-                            // column, and whether the goal box has the keyboard.
-                            "brief": JSON(knowledge.brief), "memory": JSON(knowledge.memory),
-                            "loops": JSON.array(LoopText.byAttention(store.loops(of: id)).map { $0["id"] }),
-                            "goalFocused": JSON(NSApp.windows.contains { $0.firstResponder is ComposerField.TextView && $0.isVisible && $0.canBecomeMain })]
+                    let rows: [JSON] = waiting.map { w -> JSON in
+                        let loop: JSON = w.loop?["id"] ?? .null
+                        return ["run": JSON(w.id), "loop": loop, "label": JSON(w.label), "items": JSON(w.entries.count)]
+                    }
+                    let history: [JSON] = store.histories[id]?.runs ?? []
+                    let records: [JSON] = history.filter { !hidden.contains($0["id"].str) }.map { $0["id"] }
+                    let loops: [JSON] = LoopText.byAttention(store.loops(of: id)).map { $0["id"] }
+                    let focused = NSApp.windows.contains { $0.firstResponder is ComposerField.TextView && $0.isVisible && $0.canBecomeMain }
+                    var home: [String: JSON] = ["waiting": JSON.array(rows), "records": JSON.array(records)]
+                    // What the two tiles beside the name say, the Loops in the order of their
+                    // column, and whether the goal box has the keyboard.
+                    home["brief"] = JSON(knowledge.brief)
+                    home["memory"] = JSON(knowledge.memory)
+                    home["loops"] = JSON.array(loops)
+                    home["goalFocused"] = JSON(focused)
+                    return .object(home)
                 }(),
                 // Each Agent card's runtime line as the settings page shows it
                 // (docs/architecture/20261031-adapters.md#api_shape): what the server says, the
@@ -306,13 +315,12 @@ enum Snapshots {
             ]
             if let r = store.run {
                 let s = r.state
+                // A chat's open proposal of digital employees, as the server gave it.
+                let proposal: JSON = r.proposal?.json ?? .null
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "readOnly": .bool(r.readOnly), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
-                    // A chat's open proposal of digital employees, as the server gave it.
-                    "proposal": r.proposal ?? .null,
-                    // Whether the chat shows a proposal at all: `proposal` reads null both for none and
-                    // for a proposal that is `JSON.null`.
+                    "proposal": proposal,
                     "proposalShown": .bool(r.proposal != nil),
                     // The inspector's 交付物 under 产物 (the 文档 menu's deliverables).
                     "deliverables": JSON.array(r.documents.filter { $0.source == .deliverable }.map { JSON($0.path) }),

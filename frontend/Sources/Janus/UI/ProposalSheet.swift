@@ -33,30 +33,30 @@ struct ProposalSheetView: View {
     @ViewBuilder private var list: some View {
         if let error = sheet?.error { Note(text: error, tone: .red) }
         let roles = sheet?.roles ?? []
-        let groups = Array(Set(roles.map { $0["group"].str })).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let groups = Array(Set(roles.map(\.group))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         ForEach(groups, id: \.self) { g in
             VStack(alignment: .leading, spacing: 0) {
                 Text(AppStore.groupTitle(g)).font(.headline).padding(.bottom, 6)
-                ForEach(roles.filter { $0["group"].str == g }, id: \.self) { r in row(r); Divider() }
+                ForEach(roles.filter { $0.group == g }, id: \.self) { r in row(r); Divider() }
             }
         }
     }
 
-    private func row(_ r: JSON) -> some View {
-        let n = r["n"].str
-        let name = r["name"].str
+    private func row(_ r: ProposedRole) -> some View {
+        let n = r.n
+        let name = r.name
         return VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 10) {
                 Toggle(L.text("创建 \(name)"), isOn: Binding(get: { sheet?.picked.contains(n) == true }, set: { if $0 { store.proposalSheet?.picked.insert(n) } else { store.proposalSheet?.picked.remove(n) } }))
                     .labelsHidden()
-                Avatar(initials: Role.initials(r["init"].str, name: name), color: r["color"].truthy ? r["color"].str : "#64748b", size: 26)
+                Avatar(initials: r.initials, color: r.color, size: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(name).fontWeight(.semibold)
-                        if r["lead"].truthy { Pill(L.text("负责人"), .violet) }
-                        if r["existing"].truthy { Pill(L.text("已有同名"), .amber) }
+                        if r.lead { Pill(L.text("负责人"), .violet) }
+                        if r.existing { Pill(L.text("已有同名"), .amber) }
                     }
-                    Text(r["desc"].truthy ? r["desc"].str : L.text("没有写职责")).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(r.desc.isEmpty ? L.text("没有写职责") : r.desc).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer()
                 Button { if open.contains(n) { open.remove(n) } else { open.insert(n) } } label: {
@@ -67,7 +67,7 @@ struct ProposalSheetView: View {
             }
             if open.contains(n) {
                 ScrollView {
-                    Text(r["prompt"].str).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(r.prompt).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .frame(maxHeight: 220)
                 .padding(10)

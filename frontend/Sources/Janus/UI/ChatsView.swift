@@ -192,7 +192,7 @@ struct ChatView: View {
                 Note(text: L.text("会话已结束：\(st.run.error)"), tone: .amber)
             }
             if let p = run.proposal {
-                let names = p["roles"].array.map { $0["name"].str }
+                let names = p.roles.map(\.name)
                 HStack(spacing: 10) {
                     Image(systemName: "person.crop.rectangle.stack").foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
@@ -225,17 +225,9 @@ extension RunModel {
     // @project-doc docs/domains/20261120-chats.md#chat_app
     func loadProposal() async {
         guard let p = try? await api.get("/api/runs/\(API.q(id))/proposal") else { return }
-        let open = Self.openProposal(p)
+        let open = Proposal(p)
         // Set only on a change: every set redraws the chat, which would pull it off where it follows.
         if proposal != open { proposal = open }
-    }
-
-    /// The proposal the server answered, `nil` when it said none (`null`). Written out: in
-    /// `p.isNull ? nil : p` the `nil` becomes `JSON.null` (JSON takes nil literals), and a chat
-    /// that proposed nothing showed「提议了 0 位数字员工」.
-    nonisolated static func openProposal(_ p: JSON) -> JSON? {
-        if p.isNull { return nil }
-        return p
     }
 
     /// A chat's title: its first message as soon as it is sent (the list's copy follows on the next
