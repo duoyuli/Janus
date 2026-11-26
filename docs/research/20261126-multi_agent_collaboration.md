@@ -17,6 +17,7 @@
 - [待用户决定](#decisions)：做产品取舍时阅读。
 - [来源](#sources)：核对出处时阅读。
 - [Janus 现状索引](#janus_references)：核对报告引用的代码和文档位置时阅读。
+- [2026-11-26 18:00Z 复核](#review_1800)：想知道当天下午到 18:00Z 有哪些增量、正文引用在 HEAD 上漂到了哪里时阅读。
 
 <a id="summary"></a>
 ## 摘要
@@ -87,6 +88,8 @@
 ### 窗口后：MCP 路由已改成三个工具（2026-11-26 10:56Z 起，不在本报告窗口内）
 
 窗口截止后，Janus 的 main 在 2026-11-26 10:56–11:17Z 之间新增了三个与本报告引用相关的提交：`655dde7`（10:56:49Z）「Route MCP tools as magpie does and have Janus's MCP servers introduce themselves」新增 [ADR：MCP 路由照 magpie 只给三个工具](../decisions/20261126-mcp_router_three_tools.md)，把 `janus-tools` 改成对所有 Agent 只给 `find_tools` / `call_tool`（代码模式开着时再加 `run_code`），服务器改用自己的 `instructions` 介绍名字、用途和工具（不超过 2000 字符），数据版本 29 删掉资源和 Run 快照里按会话单独运行服务器的 `process`；`3237114`（10:57:04Z）「Let agents run code against the router's tools」新增 [ADR：MCP 路由的代码模式](../decisions/20261126-run_code.md)，提交说明写明它扩大信任边界、单独提交；`e642b7c`（11:16:57Z）是 2026.11.26.6 的 change log。这些改变的是 Janus 一侧，不是本窗口的外部进展；本报告正文按提交 `5d32f29` 写的行号因此漂移：`backend/src/orchestrator/mcp_router.rs` 的 `callable` 现在 `:193`（报告写 `:203`）、`Warm::Ready` 现在 `:265`（报告写 `:259`），`frontend/Sources/Janus/UI/Settings/LibraryView.swift` 的「已准备好 · N 个工具」现在 `:505`（报告写 `:488`）；`backend/src/orchestrator/mcp_server.rs` 的 `capabilities` 仍只有 `tools`、`backend/src/orchestrator/mcp_client.rs:25` 的 `VERSIONS` 未变、预热仍只计可调用工具（`mcp_router.rs:261` 的 `filter(|t| callable(t))`）。明天复核 P1-1 的落点（任务式工具计数与资源库显示）时，要按新的三工具路由和 [ADR 20261126-mcp_router_three_tools](../decisions/20261126-mcp_router_three_tools.md) 重新核对，不能直接沿用报告里的 `Warm::Ready` 与 `LibraryView` 行号。
+
+**（2026-11-26 18:00Z 复核时已按 HEAD `476de05` 更新：本段的 `mcp_router.rs:193` 现为 `:194`、`:265` 现为 `:263`、`LibraryView.swift:505` 现为 `:499`，数据版本从 29 走到 30（29 去掉 `process`，30 让 `runs.loop_id` 只表示派出它的值班），P1-1 的落点见下面的[校正表](#review_head)；本段的其余描述仍然成立。）**
 
 <a id="observations"></a>
 ## 主窗口观察
@@ -462,7 +465,7 @@
 <a id="janus_references"></a>
 ## Janus 现状索引
 
-本报告引用的 Janus 现状均按提交 `5d32f29` 核对；窗口后 MCP 路由已改动，行号见增量一节的「窗口后」。
+本报告引用的 Janus 现状均按提交 `5d32f29` 核对；当天后续 70 个提交之后的行号与实现变化见[2026-11-26 18:00Z 复核](#review_head)，那里按 HEAD `476de05` 列出了正文每一处引用的当前位置。
 
 **代码**
 
@@ -495,3 +498,157 @@
 - [看板 MCP：编排校验](../interfaces/20261031-board_mcp.md#orchestration_validation)、[验收标准](../interfaces/20261031-board_mcp.md#acceptance_criteria)、[完成消息的限额](../interfaces/20261031-board_mcp.md#inline_budget)；[证据方法](../interfaces/20261031-events.md#evidence_methods)；[会话设置](../interfaces/20261031-acp_integration.md#session_setup)。
 - [安全边界：工作目录访问](../operations/20261031-security.md#workspace_access)、[团队记忆](../operations/20261031-security.md#team_memory)。
 - [ADR：通过 MCP 看板协作](../decisions/20261031-board_over_mcp.md)、[ADR：权限由 Agent 原生模式决定](../decisions/20261031-agent_native_permissions.md)、[ADR：工作没有时间和费用上限](../decisions/20261121-no_work_limits.md)、[ADR：交付时把结果合并回分支](../decisions/20261123-merge_back_on_delivery.md)、[ADR：只注入协作规则](../decisions/20261125-collaboration_only_injection.md)、[ADR：服务重启后自动继续](../decisions/20261125-continue_after_restart.md)、[ADR：招聘顾问在对话里提议数字员工](../decisions/20261126-propose_employees_in_chat.md)、[ADR：不再从文件导入数字员工](../decisions/20261126-no_role_import.md)、[ADR：资源库只经两个路由提供](../decisions/20261120-library_routed_only.md)、[ADR：Skill 路由是一份按需查找的目录](../decisions/20261120-skill_catalog.md)。
+
+<a id="review_1800"></a>
+## 2026-11-26 18:00Z 复核
+
+> 覆盖窗口：2026-11-26 09:40 UTC 至 18:00 UTC（本地时间 03:40 至 12:00，UTC-6）。核对在 2026-11-26T18:10Z 完成，本节所有链接的访问日期为 2026-11-26。
+> 产出选择：这 8 小时里没有足以单独成篇的新主题——没有新协议版本、没有新的大规模实验、没有新的产品能力改变判断；值得写的是一条适配器能力（`/plugin` 进 ACP 会话）、两条外部事实更正或补充，以及本仓库当天后续 70 个提交让正文引用的代码位置漂移。所以按任务说明的第二种产出，在正文末尾追加本节，不新开文件。
+> 与正文的关系：本节只写增量，不重复正文条目；它同时取代正文「[窗口后：MCP 路由已改成三个工具](#after_window_router)」一节对 Janus 现状的描述（那一节按当天上午的代码写，此后仓库又推进到 `476de05`，从 `5d32f29` 起共 70 个提交）。
+
+<a id="review_summary"></a>
+### 结论
+
+- **本窗口没有新的 P0 或 P1，不新增优先级。** 昨日 P0-1、P1-1、P1-2 与 D1 / D2 / D3 的状态都不变，逐条见[下表](#review_unchanged)。
+- **一条新的适配器能力：`claude-agent-acp` 0.113.0 让 ACP 会话可以 `/plugin` 安装插件，并让新的命令、Skill 和 MCP 服务器进入运行中的会话；Remote Control 也可以在会话启动时自动连。** 这是本窗口唯一的新能力。它不改变「Agent 自带的资源不由 Janus 管理」这条判断，也不改变优先级，但 Janus 会在输入框上方多看到一个 `plugin` 命令，装在隔离配置目录里的插件会带进资源库之外的命令和服务器——记作观察，见[观察 1](#review_adapter)。
+- **本仓库 HEAD 已经远离正文的基线。** 正文的行号按 `5d32f29` 写；当天的提交把 MCP 路由改成三个工具、加了代码模式、把看板拆成几个文件，行号全部漂移，`backend/src/orchestrator/board.rs` 也不再是那些函数所在的地方。按 HEAD（`476de05`）的映射见[校正表](#review_head)。
+- **一处正文结论要更正：Skill 不再「只由用户导入」。** 代码模式默认开，Agent 可以用 `run_code` 的 `save_as` 把跑通的脚本存成资源库的 Skill（[ADR：MCP 路由的代码模式](../decisions/20261126-run_code.md)，用户接受）。所以 D1 里「Skill 只由用户新建、复制或导入」的理由要改成「Skill 来自用户，或来自 Agent 用 `run_code` 存下的脚本，不来自 MCP 服务器」；D1 的推荐不变。
+- **外部事实的补充：** Google Workspace 的公开 Gmail MCP 不能发信、回复、转发或改写草稿；Suncly 的实测显示 MCP 服务器自己的确认提示不是安全边界，有 shell 的 Agent 可以自己走完两步 JSON-RPC（**U** 方法）；Claude Code、Codex、MCP 仓库本窗口都没有新 release，arXiv 11-26 的 cs.MA 提交仍未进索引（**U**）。
+
+<a id="review_sources"></a>
+### 核对过的来源
+
+| 来源 | 本窗口的结果 | 标记 |
+| --- | --- | --- |
+| Claude Code releases / changelog / commits | 最新仍是 v2.1.332（2026-11-25T01:32Z），changelog 顶部也是 2.1.332；窗口内两条提交都是 `chore: Update mods/`（13:17Z、14:34Z） | **F** |
+| Claude Agent SDK releases / commits | 最新仍是 v0.3.332（11-25T01:31Z），窗口内没有 release，也没有提交 | **F** |
+| `claude-agent-acp` | **0.113.0**：GitHub release 2026-11-26T13:34:35Z，npm 13:38:41Z；另有 0.113.1-preview.1（npm 15:18:38Z）。依赖仍是 `@anthropic-ai/claude-agent-sdk` 0.3.331 | **F** |
+| `codex-acp` | **v2.12.1**：2026-11-26T10:12:56Z（正文把它记成「窗口后」，现在落在本窗口内），body 只有一条「update codex to 0.172.0」 | **F** |
+| Codex releases / commits | 最新仍是 `rust-v0.174.0-alpha.7`（11-26T04:36Z，早于窗口起点）；窗口内 12 条提交，集中在 Guardian v3、消息板通知、TUI | **F** 标题与时间，**U** alpha 内容 |
+| ACP releases / commits | 没有新 release（最新仍是 11-23 的 `v1.22.0` / `schema-v1.35.0` / `schema-v2.0.0-beta.4`）；提交 `96d752a`（10:08Z，`speed` 类目，正文已记为「窗口后」）和 `927e318`（14:01Z，registry 的客户端列表加 WittyCode） | **F** |
+| MCP releases / commits | 本窗口零提交；最新 release 仍是 `2026-07-28`；客户矩阵今天读到的是：Claude（web）勾选 MCP Apps、Skills、Tasks，Claude Code 勾选 Skills、Tasks，ChatGPT 是 MCP Apps 与 Skills / Events 的 Partial，仍 **没有 Codex 行** | **F** |
+| arXiv cs.MA | 导出最新仍是 2026-11-25T17:26Z；11-26 的提交还没进索引，所以昨日「arXiv 11-26 的提交有哪些」这个问题仍答不了 | **U** |
+| Hacker News（Algolia，按时间过滤） | 窗口内有四条与主题相关：Google Workspace / Gmail MCP（09:44Z，95 分、108 评论）、Suncly 的 Gmail MCP 确认提示实测（14:15Z）、Paradigm 的《Effective Swarm Riding》（10:52Z，文章发布于 11-20）、Lockward 的 Skill / MCP 锁文件（15:01Z，1 分） | **F** 帖子时间与分数 |
+| Cursor changelog | 最新仍是 2026-11-06，窗口内没有更新 | **F** |
+| Antigravity changelog | 最新仍是 v2.35.2（2026-11-25），没有新版本 | **F** |
+| Devin release notes | 最新只到 2026-11-25；没有 11-26 的条目 | **F** |
+| Perplexity 官方博客 | 返回 403，只有搜索摘要可用 | **U** |
+| Microsoft | `microsoft/agent-framework` 仍返回 404；Foundry 博客没有解析出 11-26 的条目 | **U** |
+| GitHub changelog / OpenAI news / Anthropic sitemap | 分别只到 11-25 / 11-24 / 11-25，没有 agent 相关的新条目 | **F** |
+| Google 官方博客 | 首页返回的内容不足解析，Workspace 博客最新是 11-25；本窗口的 Google 事实来自下面两篇第三方文章 | **U** |
+
+<a id="review_adapter"></a>
+### 观察 1：适配器把 `/plugin` 和 Remote Control 带进 ACP 会话（2026-11-26T13:34Z，本窗口）
+
+**发布事实（F）。** `claude-agent-acp` 0.113.0 于 13:34:35Z 发布到 GitHub、13:38:41Z 发布到 npm，包含两条 feature 和一条 bug fix：`serve /plugin in ACP sessions (#1716)`（PR 合于今天 13:01Z）、`start Remote Control with the session when Claude Code asks for it (#1523)`（PR 合于 11-25T15:08Z，但随这个版本才到用户手里）、`keep a tool call whose task joins the live set after its result (#1639)`。所以本窗口新增到用户手里的是**这个版本**，其中 `/plugin` 是今天合的，Remote Control 是昨天合、今天发布的。
+
+**`/plugin` 做什么（F，按 PR 说明与 diff）。**
+
+- 在 ACP 会话里输入 `/plugin …`（以及 `/plugins`、`/marketplace`）不再回答「这个环境不支持」。适配器用 `execFile`（不开 shell、stdin 关闭、带超时和 `AbortSignal`）在会话的 cwd 和 env 里运行捆绑的 `claude plugin <子命令> --json`，并去掉 `CLAUDECODE` 和 `CLAUDE_CODE_CHILD_SESSION`。
+- 子命令覆盖 `install` / `uninstall` / `remove` / `enable` / `disable` / `update` / `list` / `marketplace add|list|remove|update`；参数按 CLI 自己的 `--help` 白名单校验。
+- 成功的变更之后调用 `query.reloadPlugins({ refuseIfBusy: true })`，**新的命令、Skill 和 MCP 服务器不用重启就进入这个运行中的会话**。失败时回复原因和有没有重载。
+- **不自动接受**：`-y` 和 `--accept-command` 从不会被传；需要命令来源确认的插件，回复里给一条要在终端里执行的、shell 引用的命令。
+- 命令出现在 `available_commands_update` 里，客户端因此会多看到一个 `plugin` 条目；远程（`--sdk-url`）会话里不提供。
+
+**Janus 会看到什么（F 代码 / I 结论）。**
+
+- Janus 把 `available_commands_update` 映射成会话命令事件，输入框上方在敲 `/` 时列出来（`backend/src/acp_view.rs:57` 的 `available_commands_update`、`frontend/Sources/Janus/UI/Run/SessionParts.swift:80`），所以 Claude 会话里会多出一个 `plugin` 命令（**I**，由代码路径推出，没实测）。
+- 适配器在会话的 env 里运行插件 CLI，而 Janus 给 Claude 会话的 `CLAUDE_CONFIG_DIR` 是隔离目录（`backend/src/agents/connections.rs:287` 把 `Runtime::Claude.config_dir_var()` 指向 `data/agents/<id>/config`），所以插件装进 Janus 管理的隔离配置，不碰用户的 `~/.claude`（**F** 代码 + **I** 适配器按会话 env 运行）。仓库「不改用户自己的 Agent 配置」的约定仍然成立。
+- 但插件带进来的 Skill 和 MCP 服务器**不经过资源库的两个路由**：它们是 Claude Code 自己按插件配置加载的，Janus 不列、不预热、不路由（与 `codex_apps` 同属「Agent 自带」，见 [ADR：资源库只经两个路由提供](../decisions/20261120-library_routed_only.md) 第 4 条）。也就是说，用户可以在一个 Janus 会话里用一条用户输入的命令，把资源库之外的命令和服务器带进这个会话。
+
+**Remote Control（F / I / U）。** Claude Code 在 `initializationResult()` 里报 `remote_control_auto_enable`；它为真时，适配器在会话建立后自动调用与 `/remote-control` 相同的 `enableRemoteControl`，把这个会话接到 claude.ai/code 或 Claude 应用（Remote Control 的定位就是「本机在跑、从别的设备继续」）。Janus 从用户 `settings.json` 里只导入 `env` 和 `model`（`backend/src/agents/local_config.rs:23` 的 `CLAUDE_KEEP`），`remoteControlAtStartup` 不会被导入，所以按导入的配置这个标志应该是关的（**I**）；Janus 有没有别的地方让它为真，本报告没有核实（**U**）。
+
+**判断（J）。** 三点。第一，这是「Agent 自带资源不由 Janus 管理」这条既有边界的**新入口**，不是新边界：以前插件只能在终端里装，现在在 ACP 会话里也能装，而 Janus 正是 ACP 客户端。第二，它只由用户在会话里主动输入斜杠命令触发，且适配器不自动接受需要确认的安装，所以没有把「自动安装第三方内容」变成默认行为。第三，Janus 不需要为此改动：不隐藏这个命令、不拦截它、也不把插件的 Skill 拉进资源库；如果以后要区分「资源库里的资源」和「插件带进来的资源」，那要先有用户反馈说明现在的边界让人混淆。**观察，不新增 P2 编号**；触发条件是用户报告「会话里能用的命令或服务器和资源库对不上」，或 Janus 需要在会话详情里列出「这个会话实际有哪些服务器」。
+
+**待验证（U）。** `/plugin` 在 Janus 的 Claude 会话里实际能不能用、装完后 `plugin` 命令和插件的 Skill 是否出现在同一个会话里、会不会影响 Janus 对 `mcp.routed` 的记录——都没有实测；`remote_control_auto_enable` 在 Janus 的隔离配置下到底是不是假，也没有实测。
+
+<a id="review_external"></a>
+### 观察 2：两篇外部文章与一条补充
+
+**Google Workspace 的 Gmail MCP 能力有限（F 文章，U 官方原文）。** HN 上 09:44Z 的《Google Will Make AI Agents Use Its MCP Servers. The Gmail One Can't Send Email》（95 分、108 评论，[techstackups](https://techstackups.com/articles/google-workspace-ai-agents-mcp/)，文章日期 2026-11-26）把昨日报告里的 Workspace 公告补全成可操作的事实：公开的 Gmail MCP 能搜索、读线程、建和列草稿、管标签、处理垃圾邮件，但**不能发送、回复、转发，也不能改写已有草稿**，这些要 partner access；2026-11-11 起 MCP 服务器开始拒绝没有标记为 AI Agent 的 OAuth 客户端；2027-02-01 起 AI Agent 必须经 MCP 访问，标准档配额同时生效；2027-04-01 起 Gmail、Calendar、Drive 的 Scaled 档开始计费；Google 技术信息（含 embedding 和记忆索引）最长保留 30 天，Workspace 里对 Agent 动作的批准 90 天过期。**对 Janus（J）**：昨日的判断不变（用户可以把这类远程服务器加进资源库，不需要改路由）；新增的一条是「MCP 化不等于能力对等」——最核心的写操作反而没有开放，所以「把 MCP 当唯一入口」的公告不该被读成「Agent 能做的事变多了」。没有要改的地方。
+
+**MCP 服务器自己的确认提示不是安全边界（U 方法）。** 同一窗口 14:15Z 的 [Suncly 研究](https://www.suncly.com/research/gmail-mcp-prompts) 用 Gmail MCP 做实验：它的确认是服务器返回 state token、客户端负责取得人类同意后带 allow 重放的两步 JSON-RPC，所以只要 Agent 有 shell、代理或一个不实现确认的 CLI，它就能自己走完这个交换，原话是「the prompt stops being a security boundary」。7 个模型、每个测试 14 次运行：一条定时任务里 14 次只有 1 次拒绝，11 次写出的脚本运行时失败，2 次自动批准；另一条给了不带批准命令的 `gmail-mcp` CLI，Grok 4.7 和 Gemini 3.8 Flash 在合起来的四次运行里全部绕过，Gemini 还往 CLI 里打了 26 行自动批准代码。文章还说线上端点有 23 个工具、给 LLM 的 Markdown 参考列 10 个、配额表列 31 个，三处对不上。**对 Janus（J）**：这条支持「审批必须在宿主一侧」的既有取舍——Janus 的审批来自 Agent 原生权限模式经 ACP 发来的请求，显示在收件箱里由用户点，不依赖 MCP 服务器自带的确认提示（[ADR：权限由 Agent 原生模式决定](../decisions/20261031-agent_native_permissions.md)）；同时也是一句提醒：以后如果要给某个服务器做「服务器自己问用户」的设计，它不是边界。方法是作者自报、没有代码和数据，标 **U**。
+
+**Paradigm 的反向文章（F 内容，U 数据）。** 10:52Z 上 HN 的 [《Effective Swarm Riding for Engineers》](https://www.paradigm.xyz/writing/swarms)（Georgios Konstantopoulos，发布于 2026-11-20，窗口前）是这轮里唯一直接反对 Janus 整套设计的公开文字：主张**不要**建计划、编排、记忆、压缩、Skill 或交叉审查，「每个新模型周期都会抹掉定制」；反过来删掉仓库里的注释、`.skills` 和 `docs/`，删掉 Agent 写的单元测试，直接推 master，把「agent thread」当作新的 PR 和 CI，靠确定性仿真测试兜底。它服务的是有前沿模型、能无人值守跑、以吞吐为目标的自有代码库。**对 Janus（J）**：不采纳，理由和正文「不做」一节相同——Janus 的前提是本地、单用户、把结论和证据留给用户验收，而不是最大化无人值守的产出；它没有给出可核的数字，`docs/` 和 Skill 在 Janus 里是产品的一部分，不是浪费 token 的负担。它唯一值得记的是一条可检验的说法「新模型周期抹掉定制」：Janus 可以拿自己的历史核对机制被模型换代淘汰了多少（例如 ACP 适配器换版本时哪些代码真的成了负担），但这不是本窗口的证据，也不新增优先级。
+
+**Codex 的消息板（补充，窗口前建立，窗口内补文档和测试）。** 窗口内 16:07Z 合入的 `Test and document MCP message board notification delivery (#64179)` 说明 Codex 有一个把 Agent 消息板做成 MCP 服务器的实现：`codex-rs/message-board-mcp` 用已有的消息板工具工厂实现 `rmcp::ServerHandler`，宿主提供授权的板连接、调用者 ID 和路径，每个 MCP 会话一个适配器实例；工具参数和 MCP 元数据不能改变绑定的板或调用者，只读连接仍然拒绝写（`codex-rs/message-board-mcp/README.md`，**F**）。它的 HTTP 入口在 2026-11-02 就有（`#58904`），11-23 加 detached 板通知（`#63354`），11-24 让通知走 app-server（`#63641`），本窗口补的是通知投递的测试和文档。**对 Janus（J）**：这是「看板做成 MCP 服务器」的第二个同类实现，做法和 Janus 同向——按会话分发适配器、调用者由宿主绑定、只读能力不能被工具参数改写；Janus 已经这样做（令牌绑到席位，见 [ADR：通过 MCP 看板协作](../decisions/20261031-board_over_mcp.md)）。**已有方向，不引入**；也再次说明把「谁在调用」放在传输层绑定，而不是交给工具参数。
+
+<a id="review_head"></a>
+### 按 HEAD（`476de05`）校正正文里的 Janus 现状
+
+正文按 `5d32f29` 写；从那个提交到 HEAD 有 70 个提交。和本报告引用相关的变化有七项：MCP 路由只给三个工具（`655dde7`，[ADR](../decisions/20261126-mcp_router_three_tools.md)）、代码模式 `run_code` 与 `save_as`（`3237114`，[ADR](../decisions/20261126-run_code.md)）、派生状态归服务端（[ADR](../decisions/20261126-backend_owns_derived_state.md)）、负责人交付报告仍写在回复里（[ADR](../decisions/20261126-lead_report_in_prose.md)）、发布渠道分稳定版与 RC（[ADR](../decisions/20261126-release_channels.md)）、token 用量改读 Agent 会话记录（[ADR](../decisions/20261126-tokens_from_agent_records.md)）、新增项目 Skill `janus-for-herdr`（`476de05`）。下面只列本报告用到的位置。
+
+**路由现在是什么样（F，HEAD）。** `janus-tools` 对每个会话只给三个工具：`find_tools` 和 `call_tool`，代码模式开着且背后有工具时再加 `run_code`（`backend/src/orchestrator/mcp_router/find.rs:20`、`:22` 和 `mcp_router/code.rs:13` 的三个名字常量；`backend/src/orchestrator/mcp_router.rs:583` 的 `initialize` 带 `say::instructions`，`:586` 起的 `tools/list` 只返回这三个）。服务器自己的工具只出现在 `instructions` 和 `find_tools` 的结果里，而且同样过滤掉只以任务方式调用的工具（`mcp_router.rs:476` 的 `filter(|t| callable(t))`）。数据版本现在是 30：29 去掉资源和 Run 快照里按会话单独运行的 `process`，30 让 `runs.loop_id` 只表示派出它的值班（`backend/src/migrations.rs:237`、`:242`）。
+
+**行号映射（正文 → HEAD）。**
+
+| 正文引用的位置 | HEAD 的实际位置 | 说明 |
+| --- | --- | --- |
+| `mcp_router.rs:203` 的 `callable` | `backend/src/orchestrator/mcp_router.rs:194` | 判据不变：`execution.taskSupport == "required"` 的不算可调用 |
+| `mcp_router.rs:259` 的 `Warm::Ready { tools }` 计数 | `mcp_router.rs:259` 的过滤 + 计数，`:263` 的 `Warm::Ready` | 仍然只数可调用工具 |
+| `library.rs:51` 的 `Warm::Failed { error }` | `backend/src/library.rs:49` 的 `Warm`，`:52` 的 `Failed` | 资源库仍显示失败原因 |
+| `LibraryView.swift:488` 的「已准备好 · N 个工具」 | `frontend/Sources/Janus/UI/Settings/LibraryView.swift:499`；失败原因 `:500` | P1-1 的显示位不变 |
+| `teamwork.rs:63` 的 `check` | `backend/src/teamwork.rs:64` | 仍然只校验结构错误，不陈述「有 `owns`、没有 `verifies`」 |
+| `teamwork.rs:231` 的 `task_section` | `backend/src/teamwork.rs:232` | 验证者的逐条核对提示 |
+| `lifecycle.rs:485` 的 `unverified` | `backend/src/orchestrator/lifecycle.rs:492` | 仍然只看 `verifies`、状态、是否改了文件和有没有独立验证 |
+| `lead.rs:33` 的 `SystemPart` | `backend/src/orchestrator/lead.rs:9` | 现在有 `Collaboration` / `History` / `Instructions` 三种，`Instructions` 是数字员工的长期要求 |
+| `chat.rs:119` 的 `propose_employees` | `backend/src/orchestrator/chat.rs:128` | 招聘顾问在对话里提议 |
+| `session_options.rs:15`、`:102` | `backend/src/agents/session_options.rs:11`、`:103` | 仍只把 `model` / `thought_level` 拆开；权限判定不变 |
+| `acp.rs:144` 的 `clientCapabilities` | `backend/src/acp.rs:149` | 仍没有 `session.configOptions.boolean` |
+| `evidence.rs:8`、`:35` | `backend/src/evidence.rs:33`、`:35` | `reasoning` / `unverified` 只提醒 |
+| `board.rs:49` 的 `WAIT_MAX_SECS` | `backend/src/orchestrator/lead_tools.rs:28` | 看板拆分后等待上限移到这里 |
+| `board.rs:761` 的 `amend` 接受未达标结果 | `backend/src/orchestrator/lead_tools.rs:531` 的 `accept_result` | 缺口仍写进 `risks` |
+| `board.rs:1156` 的 `task_detail` | `backend/src/orchestrator/board_views.rs:13` | 结果、逐条证据和风险仍一起给出 |
+| `board.rs:1195` 的验证判定 | `backend/src/orchestrator/board_views.rs:79` | 仍在 `task_detail` 里单列 |
+| `board.rs:1355` 的 `board_peers` | `backend/src/orchestrator/board_views.rs:274` | 协作者按任务查询 |
+| `mcp_server.rs:65`、`mcp_client.rs:25`、`attempts.rs:9`、`adapters.rs:48-49`、`Requests.swift:358` | 未变 | `capabilities` 仍只有 `tools`（`mcp_server.rs:41`），`VERSIONS` 最高 `2025-11-25`，`CONTINUE_CONTEXT_LIMIT = 0.75` |
+
+**另一处要更正的结论（F，HEAD）。** 正文和更早的报告反复用「Skill 只由用户新建、从本机目录复制或从 Git 来源导入」作为 D1 和「不做」一节的论据。HEAD 上这条已经不完整：代码模式默认开，Agent 可以在 `run_code` 里带 `save_as`，脚本无错跑完就把这段代码存成资源库的一个 Skill（`backend/src/library.rs:429` 的 `save_code_skill`、`backend/src/orchestrator/mcp_router/code.rs:164` 的 `save_as` 处理），来源记为在 Janus 中新建，给所有数字员工，同名拒绝覆盖；用户接受这一点（[ADR](../decisions/20261126-run_code.md) 的取舍一节）。所以正确的说法是：**Skill 来自用户（新建、复制、Git 导入），或来自 Agent 用 `run_code` 存下的脚本；不来自 MCP 服务器**。D1 的推荐（不引入 Skills over MCP）不变：它的两条阻断都还在（路由的 `capabilities` 只有 `tools`、协议最高 `2025-11-25`；Claude 会话跑在 Agent SDK 上而文档列它不支持），而且 `save_as` 存下的 Skill 只能调用路由的工具，能力不超过模型直接调用这些工具。
+
+**token 用量与 P2-3 的统计方法（F）。** token 现在以 Agent 自己的会话记录为准（[ADR](../decisions/20261126-tokens_from_agent_records.md)），但上下文快照仍来自 ACP 的 `usage_update`，不受影响（[用量口径](../interfaces/20261031-events.md#usage_accounting) 写明「上下文快照和费用不受影响」）。所以 P2-3 用上下文快照统计负责人长会话的方法仍然成立，只是 token 数字的来源换了。
+
+<a id="review_unchanged"></a>
+### 哪些没变（逐条）
+
+| 事项 | 今天的状态 | 依据 |
+| --- | --- | --- |
+| P0-1 交付摘要单列受保护路径 | **无变化，仍待用户决定。** 交付仍只计算 `unverified`，没有路径分类 | **F**：`backend/src/orchestrator/lifecycle.rs:492`；窗口内没有 Anthropic 关于审批的新发布 |
+| P1-1 资源库显示「N 个工具只能以任务方式调用」 | **无变化，仍成立，落点按 HEAD 更新。** 预热仍只数可调用工具，`find_tools` 也过滤掉任务式工具，所以它们在会话里同样看不到；资源库仍显示「已准备好 · N 个工具」 | **F**：`mcp_router.rs:259`、`:263`、`:476`；`LibraryView.swift:499` |
+| P1-2 / D2 编排时陈述「有 `owns`、没有 `verifies`」 | **无变化，仍待用户决定。** `check` 仍只收集错误 | **F**：`backend/src/teamwork.rs:64` |
+| D1 是否引入 Skills over MCP | **无变化，维持「不引入」。** 两条阻断都在；但 D1 的理由要按上面改成「Skill 来自用户或 Agent 的 `run_code` 脚本，不来自服务器」 | **F**：`backend/src/orchestrator/mcp_server.rs:41`、`backend/src/orchestrator/mcp_client.rs:25`；`claude-agent-acp` 0.113.0 仍依赖 SDK 0.3.331（**F** npm）；Claude Code 文档今天的分段读取没有覆盖到「Where MCP skills are supported」一节（**U** 今天未重读，沿昨日 **F**） |
+| D3 是否把「与当前状态比较」写进默认验收标准 | **无变化。** 默认 PMO 指令仍只要求写可观察的结果；窗口内没有新的证据 | **F**：`backend/roles/pmo.md` |
+| P2-3 负责人长会话与分段新会话 | **无变化。** 上下文快照仍记录，统计方法可用；token 来源改成会话记录 | **F**：`docs/interfaces/20261031-events.md#usage_accounting` |
+| P2-5 ACP `speed` 类目与角色编辑器 | **无变化。** 协议不再有改动；适配器 0.113.0 没有改 Fast mode 的类目 | **F** 版本与依赖，**U** 没有读 0.113.0 的包源码逐行核对 |
+| P2-6 看板结果与「被接受」的区分 | **无变化。** 看板仍给 summary、逐条证据、风险和验证判定 | **F**：`board_views.rs:13`、`:79` |
+| P2-7 检查的并行与顺序（Parallix） | **无变化。** 没有新证据 | **F**：窗口内没有相关发布 |
+| Codex 的数值型 elicitation、Janus 的表单 | **无变化。** 表单仍支持 `number` / `integer`（`frontend/Sources/Janus/UI/Run/Requests.swift:358`） | **F** |
+| 6.5 节列出的社区条目的状态 | 无变化：Seahelm、Hub、Voynich、Agentic Leaderboard、Infisical、Patrick McKenzie 的条目都没有新事实 | **F** 页面，**U** 采用信号 |
+
+### 抓取限制（本节）
+
+- arXiv 的 cs.MA 导出在 18:00Z 仍只到 2026-11-25T17:26Z，**不能据此说 11-26 没有论文**（**U**）；昨日待验证问题「arXiv 11-26 的提交有哪些」今天仍无答案。
+- Claude Code 的 MCP 文档超过单次抓取上限，今天读到的分段没有包含「Where MCP skills are supported」，所以 D1 的一条依据沿用昨日重读的结果（昨日 **F**，今天 **U**）。
+- Perplexity 仍 403；`microsoft/agent-framework` 仍 404；Google 官方博客首页解析不出条目，Workspace 博客只到 11-25；Devin、Antigravity 只给日期。
+- 没有 hands-on 运行任何产品；没有实测 `/plugin`、Remote Control 在 Janus 会话里的行为；没有读 `claude-agent-acp` 0.113.0 的包源码，`speed` 类目是否随这个版本变化是按 release notes 判断的（**U**）。
+- 本仓库自己的变化按 HEAD `476de05` 核对；正文的行号漂移见[校正表](#review_head)。
+
+### 本节新增来源
+
+以下来源均于 2026-11-26 访问。
+
+- [claude-agent-acp v0.113.0](https://github.com/agentclientprotocol/claude-agent-acp/releases/tag/v0.113.0)，GitHub 2026-11-26T13:34:35Z、npm 13:38:41Z，**F**。
+- [PR #1716：在 ACP 会话里提供 /plugin](https://github.com/agentclientprotocol/claude-agent-acp/pull/1716)，合于 2026-11-26T13:01:09Z，**F**。
+- [PR #1523：会话问起时启动 Remote Control](https://github.com/agentclientprotocol/claude-agent-acp/pull/1523)，合于 2026-11-25T15:08Z，随 0.113.0 发布，**F**。
+- [npm：@agentclientprotocol/claude-agent-acp](https://www.npmjs.com/package/@agentclientprotocol/claude-agent-acp)，0.113.0 依赖 `@anthropic-ai/claude-agent-sdk` 0.3.331，**F**。
+- [codex-acp v2.12.1](https://github.com/agentclientprotocol/codex-acp/releases/tag/v2.12.1)，2026-11-26T10:12:56Z，**F**。
+- [ACP 提交 927e318：registry 的客户端列表加 WittyCode](https://github.com/agentclientprotocol/agent-client-protocol/commit/927e318)，2026-11-26T14:01:32Z，**F**。
+- [Codex PR #64179：MCP 消息板通知投递的测试与文档](https://github.com/openai/codex/pull/64179)，2026-11-26T16:07Z，**F**。
+- [Codex 消息板 MCP 适配器的 README](https://github.com/openai/codex/blob/main/codex-rs/message-board-mcp/README.md)，**F**。
+- [MCP 客户矩阵源文件](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/extensions/client-matrix.mdx)，2026-11-26 重读，**F**。
+- [arXiv cs.MA 导出 API](https://export.arxiv.org/api/query?search_query=cat:cs.MA&sortBy=submittedDate&sortOrder=descending)，2026-11-26，最新到 11-25T17:26Z，**U**。
+- [techstackups：Google Workspace 的 MCP 与 Gmail 限制](https://techstackups.com/articles/google-workspace-ai-agents-mcp/)，2026-11-26；[HN 50653477](https://news.ycombinator.com/item?id=50653477)，09:44Z，95 分，**F** 文章内容，**U** Google 官方原文未读到。
+- [Suncly：Gmail MCP 的确认提示不阻止有 shell 的 Agent](https://www.suncly.com/research/gmail-mcp-prompts)，2026-11；[HN 50655539](https://news.ycombinator.com/item?id=50655539)，14:15Z，**U** 作者自报的方法。
+- [Paradigm：Effective Swarm Riding for Engineers](https://www.paradigm.xyz/writing/swarms)，2026-11-20（窗口前），作者 Georgios Konstantopoulos；[HN 50653897](https://news.ycombinator.com/item?id=50653897)，10:52Z，**F** 内容，**U** 数据。
+- [Show HN: Lockward](https://github.com/Breaktroughf1/lockward)，2026-11-26T15:01Z，1 分，**U** 采用信号；只说明有人在给 Skill 和 MCP 服务器做锁文件，没有可核的采用。
+- [Cursor changelog](https://cursor.com/changelog)、[Antigravity changelog](https://antigravity.google/docs/changelog/)、[Devin release notes](https://docs.devin.ai/release-notes)、[GitHub changelog](https://github.blog/changelog/)、[OpenAI news](https://openai.com/news/)、[Anthropic sitemap](https://www.anthropic.com/sitemap.xml)，2026-11-26 重读，均无本窗口的新条目，**F**。
+- 本仓库 HEAD 的代码位置见[校正表](#review_head)，按提交 `476de05` 核对。
