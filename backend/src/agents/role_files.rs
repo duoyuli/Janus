@@ -140,18 +140,8 @@ impl App {
                 .into_iter()
                 .find_map(|raw| crate::text::slug(raw, 36))
                 .unwrap_or_else(|| new_id("r"));
-            let input = RoleInput {
-                id: self.free_role_id(&base)?,
-                name: r.name,
-                desc: r.desc,
-                group: r.group,
-                prompt: r.prompt,
-                connection: connection.into(),
-                lead: r.lead,
-                color: r.color,
-                init: r.init,
-                ..Default::default()
-            };
+            let input =
+                RoleInput { id: self.free_role_id(&base)?, connection: connection.into(), ..RoleInput::from(&r) };
             made.push(self.save_role(&input)?);
         }
         Ok(made)

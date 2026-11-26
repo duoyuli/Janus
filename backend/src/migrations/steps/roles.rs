@@ -45,7 +45,7 @@ pub(crate) fn record_seed_origins(tx: &rusqlite::Transaction) -> Result<usize> {
         }
         // Under the id it had then: data version 17 moves it to the current one.
         let mut seed = json!({ "id": id });
-        for (field, text) in [("desc", &r.desc), ("prompt", &r.prompt)] {
+        for (field, text) in [("desc", &r.file.desc), ("prompt", &r.file.prompt)] {
             let shipped = text_hash(text);
             let history: Vec<&str> =
                 SEED_HISTORY.iter().filter(|h| h.0 == id && h.1 == field).flat_map(|h| h.2.iter().copied()).collect();
@@ -75,7 +75,7 @@ const RENAMED: &[(&str, &str)] = &[
 /// were then, and get today's text.
 pub(crate) fn seed_once_named(id: &str) -> Option<&'static RoleSeed> {
     let now = RENAMED.iter().find(|(then, _)| *then == id).map_or(id, |(_, now)| *now);
-    SEEDS.iter().find(|r| r.id == now)
+    SEEDS.iter().find(|r| r.file.id == now)
 }
 
 /// Data version 26: 招聘顾问, for data seeded before it existed (`add_seed`).
@@ -185,7 +185,7 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
         return Ok(0);
     }
     let r = seed_once_named(id).expect("a default role");
-    let origin = json!({ "id": id, "desc": text_hash(&r.desc), "prompt": text_hash(&r.prompt) });
+    let origin = json!({ "id": id, "desc": text_hash(&r.file.desc), "prompt": text_hash(&r.file.prompt) });
     let existing: Option<String> = tx
         .query_row(
             "SELECT data FROM configs WHERE kind = ?1 AND id = ?2",
@@ -196,15 +196,15 @@ pub(crate) fn add_seed(tx: &rusqlite::Transaction, id: &str) -> Result<usize> {
     let role = match existing {
         Some(data) => {
             let mut role: Value = serde_json::from_str(&data)?;
-            if role.get("seed").is_some() || role["desc"] != r.desc || role["prompt"] != r.prompt {
+            if role.get("seed").is_some() || role["desc"] != r.file.desc || role["prompt"] != r.file.prompt {
                 return Ok(0);
             }
             role["seed"] = origin;
             role
         }
         None => json!({
-            "id": id, "name": r.name, "desc": r.desc, "group": r.group, "prompt": r.prompt, "connection": "",
-            "model": "", "effort": "", "session": {}, "lead": r.lead, "color": r.color, "init": r.init, "avatar": "", "seed": origin
+            "id": id, "name": r.file.name, "desc": r.file.desc, "group": r.file.group, "prompt": r.file.prompt, "connection": "",
+            "model": "", "effort": "", "session": {}, "lead": r.file.lead, "color": r.file.color, "init": r.file.init, "avatar": "", "seed": origin
         }),
     };
     tx.execute(
@@ -222,7 +222,7 @@ pub(crate) fn add_role_groups(tx: &rusqlite::Transaction) -> Result<usize> {
             return false;
         }
         let seed = role.get("seed").and_then(|s| s["id"].as_str());
-        let group = seed.and_then(|id| SEEDS.iter().find(|r| r.id == id)).map_or("", |r| r.group.as_str());
+        let group = seed.and_then(|id| SEEDS.iter().find(|r| r.file.id == id)).map_or("", |r| r.file.group.as_str());
         role.insert("group".into(), json!(group));
         true
     })
