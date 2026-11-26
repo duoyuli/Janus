@@ -6,7 +6,8 @@
 
 - [持续集成](#ci)：修改 CI 检查时阅读。
 - [发布](#release)：发布新版本时阅读。
-- [发布渠道](#channels)：发测试版（RC）、判断一个标签该怎样发布时阅读。
+- [发布渠道](#channels)：判断一个标签该怎样发布、两个渠道各给谁时阅读。
+- [发布步骤](#release_steps)：用户让你「发布新版本」「发一个 RC」「把 RC 转正」时，照着一步步做。
 - [版本号](#versioning)：确定新版本号时阅读。
 - [更新部分](#update_parts)：修改增量更新包时阅读。
 - [签名](#signing)：修改签名证书和流程时阅读。
@@ -42,15 +43,7 @@
 6. 检查应用、服务和内置 Node.js 都是 arm64，校验签名；把两个更新部分重新拼装成应用再校验一次签名（更新器就是这样拼装的）；计算 SHA-256 写入 `SHA256SUMS.txt`（只写文件名，下载后在同一目录执行 `shasum -a 256 -c SHA256SUMS.txt` 即可核对）。
 7. 上传为工作流产物；等这个提交的 CI 通过（见第 3 步）后创建同名的 GitHub Release（测试版是 prerelease；已存在时覆盖上传并刷新说明），附上 DMG、更新部分、`update.json` 和校验和。Release 说明由 `CHANGELOG.md` 中「`## <版本>`」一节（中英双语）加上中英文的首次打开步骤和系统权限提示组成；找不到这一节时工作流失败。首次打开的 Gatekeeper 放行与资源访问授权分别说明，升级后可在「设置 › 通用 › macOS 权限」处理后者。
 
-发布一个稳定版本（版本号按日期，见[版本号](#versioning)；测试版见[发布渠道](#channels)）：
-
-```sh
-# 先在 CHANGELOG.md 最上面写下这一版的「## 2026.11.01」一节
-just e2e --packaged --real   # 打包版和真实 Agent 的端到端验证，见 docs/operations/20261031-testing.md#e2e
-git push origin main          # 先推提交：CI 在 main 上测它，Release 发布前等这次 CI 通过
-git tag v2026.11.01
-git push origin v2026.11.01
-```
+发布一个稳定版本或测试版的完整操作见[发布步骤](#release_steps)。
 
 每一版都要写 change log：小节标题是「`## <版本>`」，内容和标签里的版本一致；内容写用户能看到的变化，以及缺陷修复、性能优化和稳定性改进，内部的也写（用户看不到，但会影响他们的使用体验）；不涉及这些的纯内部重构不写。每节中英双语：先写中文条目，空一行，再写对应的英文条目；节内不用二级标题，工作流读到下一个「`## `」就停。工作流按标签取这一节作为 Release 说明，应用内更新的「更新内容」也读它，所以缺少这一节时不允许发布。
 
@@ -73,17 +66,74 @@ git push origin v2026.11.01
 - RC 相对 main 改了数据迁移（`backend/src/migrations.rs`、`backend/src/migrations/`）时，必须建在最新的 main 之上，迁移的版本号才会接在 main 后面；合并回 main 时版本号也不能变，见合并前检查第 13 条。
 - 标签既不是稳定版也不是 RC 的写法时失败。
 
-发一个测试版：
+测试版的发布说明同样取 `CHANGELOG.md` 里同名的一节，前面加一句「这是测试版，只有选了测试版渠道的 Janus 会更新到它」。发测试版、把测试版转成稳定版的操作见[发布步骤](#release_steps)。
 
-```sh
-git switch -c rc/<名字>            # 或在已有的 rc 分支上继续
-# 在 CHANGELOG.md 最上面写下「## 2026.11.27-rc.1」一节
-git push origin rc/<名字>          # CI 在这个提交上运行
-git tag v2026.11.27-rc.1
-git push origin v2026.11.27-rc.1
-```
+<a id="release_steps"></a>
+## 发布步骤
 
-测试版的发布说明同样取 `CHANGELOG.md` 里同名的一节，前面加一句「这是测试版，只有选了测试版渠道的 Janus 会更新到它」。这些改动合进 main、随稳定版发布时，把对应的 RC 小节合并进稳定版那一节，删掉 RC 小节。
+用户说「发布新版本」「发版」时发稳定版，说「发一个 RC」「发测试版」时发测试版，说「把 RC 转正」「合进正式版」时把测试版转成稳定版。下面的步骤由 Agent 自己完成，用户不用再交代细节；推送和打标签是对外的操作，用户说了要发布才做。
+
+### 每次发布都要做的
+
+1. **不在用户的主工作区里改**：主工作区可能有别的会话在用。`git fetch` 后在旁边建 worktree，发布完删掉：
+
+   ```sh
+   git worktree add ../Janus-<名字> -b <分支> origin/main
+   # 发布成功后
+   git worktree remove ../Janus-<名字> && git branch -D <分支>
+   ```
+
+2. **提交作者用 GitHub 的 noreply 地址**：用全局配置的邮箱提交，推送会被 GitHub 拒绝（邮箱隐私限制）。每次提交前设置环境变量，不改全局配置：
+
+   ```sh
+   export GIT_AUTHOR_EMAIL=17754408+duoyuli@users.noreply.github.com GIT_COMMITTER_EMAIL=17754408+duoyuli@users.noreply.github.com
+   ```
+
+3. **验证**：`just e2e` 必须通过。发布前还要按合并前检查第 12 条运行 `just e2e --packaged --real`；用户明确说不跑时不跑，并在 change log 提交的说明里写明跳过了它、之前跑过哪些检查。只在 CI 满载时偶发、单独重跑能通过的失败，对照 `LESSONS.md` 的未解决项判断，新出现的记进去。
+4. **写 change log**：在 `CHANGELOG.md` 最上面写这一版的一节（规则见[发布](#release)），单独一个提交，提交说明是 `Write the change log for <版本>`。
+5. **先推提交，再打标签**：推送前再 `git fetch`，main 动过就先 rebase。标签推上去之后不要再推 main：新的推送会取消上一个提交还在跑的 CI，而 Release 要等标签所在提交的 CI。
+6. **看到结果再收尾**：`gh run list` 找到这次的 CI 和 Release，等 Release 结束（它先等 CI 的「CI result」通过，再打包发布），用 `gh release view <标签>` 确认附件齐全（5 个）。CI 的结论只看「CI result」任务：托管机器没排到时，那条腿显示失败或没有结论，不影响结论。
+
+### 稳定版
+
+1. 版本号用今天的日期：`2026.11.27`；同一天已经发过时加序号：`2026.11.27.2`、`.3`……用 `git ls-remote --tags origin` 看已经用过哪些，推送过的标签不再用，即使它没发布成功。
+2. 在 worktree 里合并好要发的改动（从 `origin/main` 开始，或 fast-forward 已经验证过的分支），完成上面的验证和 change log。
+3. 推送并打标签：
+
+   ```sh
+   git push origin <分支>:main
+   git tag v2026.11.27
+   git push origin v2026.11.27
+   ```
+
+### 测试版（RC）
+
+1. 版本号要比最新的稳定版新（`gh release view --json tagName` 看最新稳定版），一般写成这批改动预计转正时的版本，再加 `-rc.<序号>`：最新稳定版是 `2026.11.26.11` 时，今天的第一个测试版写 `2026.11.26.12-rc.1` 或 `2026.11.27-rc.1`。
+2. 从最新的 main 开一个 `rc/<名字>` 分支（名字说明这批改动是什么），在上面做改动和验证。改了数据迁移的话，打标签前先 rebase 到最新的 main（合并前检查第 13 条，Release 工作流也会检查）。
+3. 在 `CHANGELOG.md` 写一节 `## 2026.11.27-rc.1`，格式和稳定版一样。
+4. 推送分支（CI 在这个提交上运行），再打标签：
+
+   ```sh
+   git push origin rc/<名字>
+   git tag v2026.11.27-rc.1
+   git push origin v2026.11.27-rc.1
+   ```
+
+5. Release 发布为 prerelease，确认 `gh release view <标签> --json isPrerelease` 是 `true`，`gh api repos/duoyuli/Janus/releases/latest --jq .tag_name` 仍是原来的稳定版。告诉用户：只有在「设置 › 通用 › 更新」里选了「测试版（RC）」的 Mac 会收到。
+6. 再改一轮就在同一个分支上提交，写 `## 2026.11.27-rc.2` 一节，打 `v2026.11.27-rc.2`。
+
+### 测试版转稳定版
+
+1. 把 `rc/<名字>` 合进 main（rebase 或 fast-forward）。分支改了数据迁移时，迁移的版本号不能变；main 上在这之后又有了别的迁移时，先把测试版的迁移合进 main，别的迁移接在后面（合并前检查第 13 条）。
+2. 在 `CHANGELOG.md` 里把这批改动的各个 RC 小节合并进稳定版那一节（标题是稳定版的版本号），删掉 RC 小节。
+3. 按[稳定版](#release_steps)的步骤发布。选了测试版的 Mac 也会收到它：稳定版比它的 RC 新。
+4. 删掉远端和本地的 `rc/<名字>` 分支（`git push origin --delete rc/<名字>`）。RC 的标签和 prerelease 留着，是测试过的记录。
+
+### 发布失败时
+
+- **CI 没通过，Release 等不到它**：在 main（测试版在 `rc/` 分支）上修好再发。推送过的标签不再用，改用下一个序号；用 `gh release view <标签>` 确认那个标签没有 Release，用户同意后删掉它（`git push origin --delete <标签>`）；没发布出去的那一节 change log 并入新版本的一节，提交说明里写明原因。
+- **偶发失败**：先看是不是 `LESSONS.md` 未解决项里记过的，或单独重跑能通过。重跑 CI 失败的任务用 `gh run rerun <CI 的 run id> --failed`；Release 已经因为等 CI 失败而结束时，CI 通过后再 `gh run rerun <Release 的 run id>`。
+- **`release-channel.sh` 拒绝了标签**：按它的提示改（稳定版不在 main 上、测试版不比稳定版新、测试版改了迁移却不在最新的 main 上），用新的标签名重发。
 
 <a id="versioning"></a>
 ## 版本号
