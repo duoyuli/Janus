@@ -140,6 +140,19 @@ const SKILL_CODE_MAX: u64 = 256 * 1024;
 /// The id of the MCP router's one row of settings.
 const ROUTER: &str = "settings";
 
+/// The MCP router's settings: whether it gives `run_code`.
+#[derive(Serialize, Deserialize)]
+struct RouterSettings {
+    code: bool,
+}
+
+impl crate::db::Setting for RouterSettings {
+    const KIND: ConfigKind = ConfigKind::McpRouter;
+    fn id(&self) -> &str {
+        ROUTER
+    }
+}
+
 /// The board MCP's and the router's names are reserved, in any case and with any punctuation
 /// around them.
 pub(crate) fn reserved_mcp_name(name: &str) -> bool {
@@ -440,13 +453,13 @@ impl App {
 
     /// Whether the MCP router gives `run_code` (code mode); on until the person turns it off.
     pub fn code_mode(&self) -> bool {
-        self.db.get_config(ConfigKind::McpRouter, ROUTER).ok().flatten().is_none_or(|v| v["code"] != false)
+        self.db.get::<RouterSettings>(ROUTER).ok().flatten().is_none_or(|s| s.code)
     }
 
     /// Turn code mode on or off, for the sessions that start from now on.
     pub fn save_code_mode(&self, body: &Value) -> Result<Value> {
         let code = body["code"].as_bool().ok_or_else(|| anyhow!("code 只能是 true 或 false"))?;
-        self.db.put_config(ConfigKind::McpRouter, ROUTER, &json!({ "code": code }), now_ms())?;
+        self.db.put(&RouterSettings { code }, now_ms())?;
         Ok(json!({ "code": code }))
     }
 

@@ -51,17 +51,23 @@ macro_rules! tr {
 }
 pub(crate) use tr;
 
-const ID: &str = "app";
+/// The language the app is used in: the one row of `ConfigKind::Language`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AppLanguage {
+    language: Lang,
+}
+
+impl crate::db::Setting for AppLanguage {
+    const KIND: ConfigKind = ConfigKind::Language;
+    fn id(&self) -> &str {
+        "app"
+    }
+}
 
 impl App {
     /// The language the person last used the app in; Chinese until the app says.
     pub fn language(&self) -> Lang {
-        self.db
-            .get_config(ConfigKind::Language, ID)
-            .ok()
-            .flatten()
-            .and_then(|v| v["language"].as_str().and_then(Lang::parse))
-            .unwrap_or_default()
+        self.db.get::<AppLanguage>("app").ok().flatten().map(|s| s.language).unwrap_or_default()
     }
 
     /// The language run `run_id` was created in, from its record.
@@ -75,7 +81,7 @@ impl App {
             .as_str()
             .and_then(Lang::parse)
             .ok_or_else(|| anyhow::anyhow!("language 只能是 zh 或 en"))?;
-        self.db.put_config(ConfigKind::Language, ID, &json!({ "language": lang }), crate::util::now_ms())?;
+        self.db.put(&AppLanguage { language: lang }, crate::util::now_ms())?;
         Ok(json!({ "language": lang }))
     }
 }
