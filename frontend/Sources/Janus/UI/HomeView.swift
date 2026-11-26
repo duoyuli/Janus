@@ -577,7 +577,8 @@ struct WorkspaceEditor: View {
         .onAppear(perform: setup)
         .task(id: path) {
             try? await Task.sleep(nanoseconds: 250_000_000)
-            inspect = path.trimmingCharacters(in: .whitespaces).isEmpty ? nil : try? await store.api.get("/api/inspect?path=\(API.q(path))")
+            // Not `empty ? nil : …`: JSON takes nil literals, so that `nil` would be `JSON.null`.
+            if path.trimmingCharacters(in: .whitespaces).isEmpty { inspect = nil } else { inspect = try? await store.api.get("/api/inspect?path=\(API.q(path))") }
         }
     }
 

@@ -166,3 +166,11 @@ private struct ChatLog {
     log.add("agent.status", actor: "lead", text: "恢复了之前的会话", data: ["phase": "thinking", "session": "s1", "mode": "chat"])
     #expect(derive(log.events).run.status == .running)
 }
+
+/// A chat that proposed nothing (the server answers `null`) shows no proposal; `nil` written as
+/// a JSON literal would have become `JSON.null` and shown「提议了 0 位数字员工」.
+@Test func noProposalShowsNoBanner() {
+    #expect(RunModel.openProposal(.null) == nil)
+    let p: JSON = ["proposal": 12, "roles": [["n": "1", "name": "测试"]]]
+    #expect(RunModel.openProposal(p) == p)
+}

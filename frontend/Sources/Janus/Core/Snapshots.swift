@@ -310,6 +310,9 @@ enum Snapshots {
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     // A chat's open proposal of digital employees, as the server gave it.
                     "proposal": r.proposal ?? .null,
+                    // Whether the chat shows a proposal at all: `proposal` reads null both for none and
+                    // for a proposal that is `JSON.null`.
+                    "proposalShown": .bool(r.proposal != nil),
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.events.last { $0.type == .memoryConsolidated }.map { $0.data } ?? .null,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.

@@ -26,7 +26,9 @@ def chats(ctx, c):
       "对话只带数字员工自己的指令，不注入 Janus 的协作说明")
     c(ctx.api("GET", f"/api/runs/{chat}")["run"]["goal"] == "", "第一条消息之前对话没有标题")
     if ctx.app:
-        ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running", "新对话打开，输入框等用户先说", pages=("density detail",))
+        st = ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running", "新对话打开，输入框等用户先说", pages=("density detail",))
+        c(ctx.api("GET", f"/api/runs/{chat}/proposal") is None and st["run"]["proposalShown"] is False,
+          f"没有提议数字员工的对话不显示提议（{st['run']['proposalShown']}）")
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "你好"})
 
     def replied(text):
