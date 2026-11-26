@@ -278,8 +278,7 @@ async fn traces_check_results_and_mark_stale_conclusions() {
     assert_eq!(handoff.data.as_ref().unwrap()["files"], json!(["a.txt"]));
 
     // The traces outlive the process.
-    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    stop(&h.app).await;
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     let r = app2.resume_run(&run).await.unwrap();

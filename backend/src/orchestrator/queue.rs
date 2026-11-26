@@ -90,7 +90,7 @@ impl App {
                 "goal": goal, "workspace": { "id": ws.id, "name": ws.name }, "images": goal_images,
                 "origin": origin.view(),
             }))
-            .into_event(&id, 1);
+            .into_event(&id);
         // Until this request has had its own turn at the slots, no other pump hands this run out,
         // so with a free slot it is set up before whoever asked is answered.
         self.fresh.lock().unwrap().insert(id.clone());
@@ -191,7 +191,7 @@ impl App {
     /// Take queued run `id` off the queue into `to`, recording `e` with it: `false` when it was no
     /// longer queued. The event and the new status reach the app.
     fn claim(&self, id: &str, to: RunStatus, e: Ev) -> Result<bool> {
-        let Some(event) = self.db.leave_queue(id, to, e.into_event(id, 0))? else { return Ok(false) };
+        let Some(event) = self.db.leave_queue(id, to, e.into_event(id))? else { return Ok(false) };
         let _ = self.tx.send(event);
         self.run_changed(id, to);
         // A queued run cancelled before it started also ends a Loop's dispatch.

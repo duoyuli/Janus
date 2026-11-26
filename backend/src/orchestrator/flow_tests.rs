@@ -84,6 +84,21 @@ pub(super) fn served_app(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<App> 
     app
 }
 
+/// The service behind `app` exits, leaving what a process that ends leaves: its agents are killed
+/// and it reads and writes the database no more. The real service's home lock lets a new one start
+/// only then, so a restart in these tests stops the old `App` before making the new one.
+pub(super) async fn stop(app: &App) {
+    app.db.detach();
+    let runs: Vec<Arc<Run>> = app.runs.lock().unwrap().drain().map(|(_, r)| r).collect();
+    for run in runs {
+        let conns: Vec<_> = run.st.lock().unwrap().conns.drain().map(|(_, c)| c).collect();
+        for c in conns {
+            c.kill().await;
+        }
+        run.router.close();
+    }
+}
+
 /// `harness` with some of the app's settings changed by `set`.
 fn harness_with(name: &str, members: &[(&str, bool)], script: Value, set: impl FnOnce(&mut Config)) -> Harness {
     let dir = std::env::temp_dir().join(format!("janus-flow-{name}-{}", std::process::id()));
@@ -742,15 +757,13 @@ async fn restart_restores_failed_and_blocked() {
     let h = harness("restart", &[("lead", false), ("m1", false)], json!({ "T1": ["fail", "fail", "ok"] }));
     let run = start(&h, json!([task("T1", "m1", json!({})), task("T2", "m1", json!({ "deps": ["T1"] }))])).await;
     wait_until(&h.app, &run, "blocked", |e| has(e, "task.blocked")).await;
-    // Simulate the process going away: stop the old driver without writing anything.
-    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
     // Reported usage survives the restart.
     let old = h.app.run(&run).unwrap();
     h.app.emit(
         &old,
         ev(EventKind::SessionUsage, "m1", "用量").task("T1").attempt(1).data(json!({ "totalTokens": 2_000 })),
     );
+    stop(&h.app).await;
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     assert_eq!(status(&app2, &run), "interrupted");

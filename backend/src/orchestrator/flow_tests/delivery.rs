@@ -260,7 +260,7 @@ async fn questions_nobody_waits_on_are_withdrawn() {
             ev(EventKind::QuestionEscalated, "lead", "负责人请你决定：留下的").data(json!({ "key": "q-left" })),
         )
         .unwrap();
-    h.app.runs.lock().unwrap().clear();
+    stop(&h.app).await;
     let restarted = served_app(&h.dir, |_| {});
     restarted.recover().unwrap();
     assert!(withdrawn(&events(&restarted, &run), "q-left"));

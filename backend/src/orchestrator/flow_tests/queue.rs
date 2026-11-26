@@ -93,10 +93,8 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     wait_live(&app, &sixth).await;
     let seventh = new_run(&app, "第七个").await;
     assert_eq!(status(&app, &seventh), "queued");
-    // The process goes away: the sixth's setup stops writing before the restarted service writes
-    // to the same log (two writers would take the same seq).
-    app.run(&sixth).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // The process goes away, with the sixth's setup cut off.
+    stop(&app).await;
     let restarted = served_app(&h.dir, |c| c.max_running_runs = 1);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &sixth), "interrupted");
@@ -128,6 +126,7 @@ async fn a_run_that_never_got_set_up_queues_again() {
     let second = new_run(&app, "被领走但没准备好").await;
     // As if a pump took it off the queue and the service stopped before its setup.
     app.db.set_run_status(&second, RunStatus::Planning).unwrap();
+    stop(&app).await;
     // Two slots after the restart: the first run goes on in one, the second may take the other.
     let restarted = served_app(&h.dir, |c| c.max_running_runs = 2);
     restarted.recover().unwrap();
@@ -187,10 +186,7 @@ async fn working_goals_go_on_by_themselves_after_a_restart() {
     assert_eq!(status(&app, &queued), "queued");
 
     // The process goes away (its runs stop writing before the restarted service writes).
-    for run in [&working, &paused] {
-        app.run(run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    }
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    stop(&app).await;
     let restarted = served_app(&h.dir, |c| c.max_running_runs = 1);
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &working), "interrupted");
@@ -209,17 +205,15 @@ async fn working_goals_go_on_by_themselves_after_a_restart() {
     assert_eq!(recovered.data.as_ref().unwrap()["auto"], true);
 
     // Cut off again right after going on by itself, before any agent did anything.
-    restarted.run(&working).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
-    let last = restarted.db.events(&working, 0).unwrap().last().unwrap().seq;
-    restarted
+    stop(&restarted).await;
+    let again = served_app(&h.dir, |c| c.max_running_runs = 1);
+    again
         .db
         .insert_event(&crate::usage::event_from_json(
             &working,
-            &json!({ "seq": last + 1, "ts": now_ms(), "type": "run.recovered", "actor": "janus", "data": { "auto": true } }),
+            &json!({ "ts": now_ms(), "type": "run.recovered", "actor": "janus", "data": { "auto": true } }),
         ))
         .unwrap();
-    let again = served_app(&h.dir, |c| c.max_running_runs = 1);
     again.recover().unwrap();
     assert_eq!(left_to(&again, &working), "no_progress");
     again.continue_after_restart();

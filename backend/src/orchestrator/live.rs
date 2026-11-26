@@ -31,7 +31,7 @@ impl App {
         data["actor"] = json!(ctx.agent);
         data["task"] = json!(ctx.task);
         data["attempt"] = json!(ctx.attempt);
-        data["seq"] = json!(run.seq.load(Ordering::SeqCst));
+        data["seq"] = json!(run.last_seq.load(Ordering::SeqCst));
         let _ = self.live.send(Live { run: run.id.clone(), data });
     }
 

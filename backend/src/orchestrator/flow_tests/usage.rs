@@ -76,8 +76,7 @@ async fn usage_ledger_covers_a_run_and_survives_a_restart() {
     // The same events, read back by a new process, give the same ledger.
     let last = evs.last().unwrap().seq;
     let before = crate::usage::ledger(&evs);
-    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(2)).await;
+    stop(&h.app).await;
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     let replayed: Vec<Event> = app2.db.events(&run, 0).unwrap().into_iter().filter(|e| e.seq <= last).collect();

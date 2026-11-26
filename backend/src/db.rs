@@ -114,14 +114,17 @@ pub struct RunsPage {
     pub limit: usize,
 }
 
-/// Write one event through `conn` (a connection, or a transaction in progress).
-fn insert_event_in(conn: &Connection, e: &Event) -> Result<()> {
-    conn.execute(
+/// Write one event through `conn` (a connection, or a transaction in progress), as the next in
+/// its run's log: the seq is given here, in the same statement, and comes back. `e.seq` is not
+/// read. One place numbers every run's events, so no two writers can take the same seq.
+// @project-doc docs/interfaces/20261031-events.md#event_shape
+fn insert_event_in(conn: &Connection, e: &Event) -> Result<i64> {
+    Ok(conn.query_row(
         "INSERT INTO events (run_id, seq, ts, type, actor, to_agent, task, attempt, text, data)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?1), ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+         RETURNING seq",
         params![
             e.run_id,
-            e.seq,
             e.ts,
             e.kind,
             e.actor,
@@ -131,8 +134,8 @@ fn insert_event_in(conn: &Connection, e: &Event) -> Result<()> {
             e.text,
             e.data.as_ref().map(Value::to_string)
         ],
-    )?;
-    Ok(())
+        |r| r.get(0),
+    )?)
 }
 
 /// A query over `runs` that reads whole rows (`run_row`): `rest` follows `FROM runs`. A queued
@@ -290,7 +293,7 @@ impl Db {
         Ok(())
     }
 
-    /// Take run `id` off the dispatch queue into `to`, with `event` (its seq is the next in the
+    /// Take run `id` off the dispatch queue into `to`, with `event` (numbered as the next in the
     /// run's log) in the same transaction. `None` when it was no longer queued: someone else
     /// started, cancelled or deleted it first. The event as stored comes back.
     pub fn leave_queue(&self, id: &str, to: RunStatus, event: Event) -> Result<Option<Event>> {
@@ -301,12 +304,9 @@ impl Db {
         if left == 0 {
             return Ok(None);
         }
-        let seq: i64 =
-            tx.query_row("SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?1", params![id], |r| r.get(0))?;
-        let event = Event { seq, ..event };
-        insert_event_in(&tx, &event)?;
+        let seq = insert_event_in(&tx, &event)?;
         tx.commit()?;
-        Ok(Some(event))
+        Ok(Some(Event { seq, ..event }))
     }
 
     /// The run a workspace already has for a Loop's dispatch key, and its status.
@@ -395,7 +395,16 @@ impl Db {
         Ok(())
     }
 
-    pub fn insert_event(&self, e: &Event) -> Result<()> {
+    /// Let go of the database, as a service that exits does: whatever this handle is still asked
+    /// to read or write afterwards fails. Tests stop an `App` this way before another starts over
+    /// the same home, which the real service's home lock allows only once the first has exited.
+    #[cfg(test)]
+    pub fn detach(&self) {
+        *self.0.lock().unwrap() = Connection::open_in_memory().unwrap();
+    }
+
+    /// Append `e` to its run's log; the seq it was given comes back (see `insert_event_in`).
+    pub fn insert_event(&self, e: &Event) -> Result<i64> {
         insert_event_in(&self.0.lock().unwrap(), e)
     }
 

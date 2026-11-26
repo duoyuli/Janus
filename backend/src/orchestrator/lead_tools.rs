@@ -122,7 +122,7 @@ impl App {
         // The record comes first: tasks go on the board only once their orchestration is in the
         // log, which is what a restart rebuilds the board from (FL-08).
         // @project-doc docs/interfaces/20261031-board_mcp.md#orchestrate
-        let planned = run.seq.load(Ordering::SeqCst);
+        let planned = run.last_seq.load(Ordering::SeqCst);
         let n = run.st.lock().unwrap().tasks.len() + defs.len();
         let kept = self.emit_kept(
             run,

@@ -934,7 +934,7 @@ struct RunRecord {
     brief: String,
     goal_images: Vec<Value>,
     lang: crate::lang::Lang,
-    /// The last event already in the log; the next one gets the following seq.
+    /// The last event already in the log (see `Run::last_seq`).
     last_seq: i64,
     status: RunStatus,
     asker: Asker,
@@ -961,7 +961,9 @@ pub struct Run {
     goal_images: Vec<Value>,
     /// What its sessions are told is in this language: the app's when the run was created.
     pub lang: crate::lang::Lang,
-    seq: AtomicI64,
+    /// The seq of the newest event in its log, as the database numbered it (`Db::insert_event`):
+    /// what a reader asks for when it wants "where the log stands now".
+    last_seq: AtomicI64,
     /// Held while an event takes its seq, is stored and broadcast, so the stream carries a
     /// run's events in seq order; the app reads a gap as missed events and reloads the run.
     /// `true` once the run is deleted: what its sessions still say on the way out is not written.
@@ -1108,7 +1110,7 @@ impl Run {
             brief: r.brief,
             goal_images: r.goal_images,
             lang: r.lang,
-            seq: AtomicI64::new(r.last_seq),
+            last_seq: AtomicI64::new(r.last_seq),
             emitting: StdMutex::new(false),
             files: std::sync::RwLock::new(()),
             orchestrating: StdMutex::new(()),
@@ -1295,11 +1297,11 @@ impl Ev {
         self.data = Some(data);
         self
     }
-    /// The event as it is stored: `seq` in `run_id`'s log, stamped now.
-    fn into_event(self, run_id: &str, seq: i64) -> Event {
+    /// The event for `run_id`'s log, stamped now; the database gives it its seq when it is stored.
+    fn into_event(self, run_id: &str) -> Event {
         Event {
             run_id: run_id.into(),
-            seq,
+            seq: 0,
             ts: now_ms(),
             kind: self.kind.as_str().into(),
             actor: self.actor,
@@ -1423,15 +1425,12 @@ impl App {
         if *deleted {
             return None;
         }
-        let seq = run.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let event = e.into_event(&run.id, seq);
+        let event = e.into_event(&run.id);
         let nudge = needs_lead(&event);
         let wakes_board = wakes_board_wait(&event);
-        let stored = self.store(event);
+        let seq = self.store(event)?;
+        run.last_seq.store(seq, Ordering::SeqCst);
         drop(deleted);
-        if !stored {
-            return None;
-        }
         if wakes_board {
             run.board_wake.notify_waiters();
         }
@@ -1441,16 +1440,23 @@ impl App {
         Some(seq)
     }
 
-    /// Write an event, then broadcast it. The log is the source of truth: an event that could not
-    /// be written is not broadcast either, so the app never shows what a reload would not find.
-    /// Its `seq` stays unused.
-    fn store(&self, event: Event) -> bool {
-        if let Err(err) = self.db.insert_event(&event) {
-            crate::config::log(format!("janus: failed to persist event {}#{}: {err:#}", event.run_id, event.seq));
-            return false;
+    /// Write an event as the next in its run's log, then broadcast it with the seq it was given.
+    /// The log is the source of truth: an event that could not be written is not broadcast either,
+    /// so the app never shows what a reload would not find.
+    fn store(&self, event: Event) -> Option<i64> {
+        match self.db.insert_event(&event) {
+            Ok(seq) => {
+                let _ = self.tx.send(Event { seq, ..event });
+                Some(seq)
+            }
+            Err(err) => {
+                crate::config::log(format!(
+                    "janus: failed to persist {} event of {}: {err:#}",
+                    event.kind, event.run_id
+                ));
+                None
+            }
         }
-        let _ = self.tx.send(event);
-        true
     }
 
     /// Write an event to run `run_id`, live or not.
@@ -1461,14 +1467,9 @@ impl App {
         }
     }
 
-    /// Write an event to a run that is not live (queued, interrupted, delivered before a restart):
-    /// nothing else writes to its log, so it takes the next seq after the last one stored.
+    /// Write an event to a run that is not live (queued, interrupted, delivered before a restart).
     fn record(&self, run_id: &str, e: Ev) -> Result<i64> {
-        let seq = self.db.max_seq(run_id)? + 1;
-        if !self.store(e.into_event(run_id, seq)) {
-            bail!("任务 {run_id} 的事件没有写入");
-        }
-        Ok(seq)
+        self.store(e.into_event(run_id)).with_context(|| format!("任务 {run_id} 的事件没有写入"))
     }
 
     /// Tell the global stream a run's status changed, with the Loop that dispatched it.

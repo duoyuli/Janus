@@ -220,6 +220,7 @@ async fn a_loop_that_missed_its_time_wakes_once_after_a_restart() {
         &live,
         ev(EventKind::LoopScheduled, "janus", "排好下次开工").data(json!({ "until": now_ms() - 1, "reason": "timer" })),
     );
+    stop(&h.app).await;
     let restarted = served_app(&h.dir, |_| {});
     restarted.recover().unwrap();
     assert_eq!(status(&restarted, &run), "interrupted");
@@ -300,7 +301,7 @@ async fn answers_come_in_the_next_wake_and_questions_outlive_the_session() {
     // Asked, then the service restarts: the question still waits, and answering it reopens the
     // session and wakes the Loop with the answer.
     let second = ask("要不要发版？").await;
-    h.app.runs.lock().unwrap().clear();
+    stop(&h.app).await;
     let restarted = served_app(&h.dir, |_| {});
     restarted.recover().unwrap();
     restarted.start_loops().unwrap();

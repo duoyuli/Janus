@@ -70,7 +70,7 @@ impl App {
             }
             // Continuing: the restarted lead is told the board so far; `wait` brings only what is new.
             if resumed {
-                st.lead.cursor = run.seq.load(Ordering::SeqCst);
+                st.lead.cursor = run.last_seq.load(Ordering::SeqCst);
             }
             if st.mcp_token.is_empty() {
                 st.mcp_token = token;
@@ -121,9 +121,9 @@ impl App {
                 if r.st.lock().unwrap().cancelled() {
                     return;
                 }
-                since = Some(r.seq.load(Ordering::SeqCst));
+                since = Some(r.last_seq.load(Ordering::SeqCst));
                 // It is told where the board stands now; `wait` brings only what happens next.
-                r.st.lock().unwrap().lead.cursor = r.seq.load(Ordering::SeqCst);
+                r.st.lock().unwrap().lead.cursor = r.last_seq.load(Ordering::SeqCst);
                 let board = board_on_resume(&r, &app.db.events(&r.id, 0).unwrap_or_default());
                 outcome = app.lead_goal(&r, Some(LeadResume { board, broke: BrokeOff::Failure(error) })).await;
             }

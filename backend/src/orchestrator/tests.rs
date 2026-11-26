@@ -399,9 +399,11 @@ fn concurrent_events_are_broadcast_in_seq_order() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// An event the database refused is not broadcast: what the app sees is always in the log.
+/// The database numbers each event as the next in its run's log, whoever writes it, and the
+/// broadcast carries that number; an event the database refused is not broadcast: what the app
+/// sees is always in the log.
 #[test]
-fn an_event_that_was_not_written_is_not_broadcast() {
+fn events_are_numbered_where_they_are_stored_and_a_refused_one_is_not_broadcast() {
     let dir = std::env::temp_dir().join(format!("janus-store-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -410,7 +412,7 @@ fn an_event_that_was_not_written_is_not_broadcast() {
     let mut rx = app.tx.subscribe();
     let event = |text: &str| Event {
         run_id: "r1".into(),
-        seq: 1,
+        seq: 0,
         ts: 1,
         kind: "run.created".into(),
         actor: "user".into(),
@@ -420,12 +422,17 @@ fn an_event_that_was_not_written_is_not_broadcast() {
         text: text.into(),
         data: None,
     };
-    assert!(app.store(event("written")));
-    assert_eq!(rx.try_recv().unwrap().text, "written");
-    // The same seq again: the database refuses it, and nobody hears of it.
-    assert!(!app.store(event("refused")));
+    assert_eq!(app.store(event("first")), Some(1));
+    // Another writer of the same log (a queued run leaving the queue, say) takes the next seq...
+    assert_eq!(app.db.insert_event(&event("elsewhere")).unwrap(), 2);
+    // ...and the next event after it, not the same seq again.
+    assert_eq!(app.store(event("third")), Some(3));
+    let heard: Vec<(i64, String)> = std::iter::from_fn(|| rx.try_recv().ok()).map(|e| (e.seq, e.text)).collect();
+    assert_eq!(heard, [(1, "first".to_string()), (3, "third".to_string())]);
+    // The database is gone: nothing is written, and nobody hears of it.
+    app.db.detach();
+    assert_eq!(app.store(event("refused")), None);
     assert!(rx.try_recv().is_err(), "a refused event is not broadcast");
-    assert_eq!(app.db.events("r1", 0).unwrap().len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

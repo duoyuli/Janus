@@ -70,7 +70,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 约束：
 
 - `configs` 不保存凭据。Agent 的凭据在 `data/secrets/agents/<id>.json`，资源库 MCP 服务器的环境变量和 HTTP header 值在 `data/secrets/library/`，`configs` 中只记录变量名（`envKeys`、`headerKeys`）。
-- 事件按 `seq` 递增，`seq` 在单个 Run 内唯一。应用用 `after` 参数从某个 `seq` 之后续读。
+- 事件按 `seq` 递增，`seq` 在单个 Run 内唯一，由写入事件的那条插入语句分配（见[事件的形状](../interfaces/20261031-events.md#event_shape)）。应用用 `after` 参数从某个 `seq` 之后续读。
 - `events` 另有索引 `events_type_ts (type, ts)`，按时间段的用量账单用它找出区间里有 `session.usage` 的 Run，不必读全部事件（[用量账单](../interfaces/20261031-http_api.md#usage_bill)）。
 - 一个 Janus home 同一时间只有一个服务（[`janus.pid` 的独占锁](../operations/20261031-deployment.md#single_instance)），所以数据库里不记录 Run 归哪个进程驱动。同一个服务里，恢复、验收历史交付和删除一个不在运行的 Run 依次进行（`App.revival`），见 [Run 生命周期](../domains/20261031-run_lifecycle.md#recovery)。
 - 删除一个 Run 会删掉 `runs` 和其余各表中属于它的行、它在 `data/`、`work/`、`logs/` 下的目录（`RunDirs`），以及它的会话在 Agent 配置目录里留下的会话记录；工作区的目录不受影响。正在进行的 Run 不能删除，规则见 [HTTP API](../interfaces/20261031-http_api.md#run_delete)。

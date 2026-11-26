@@ -309,8 +309,7 @@ async fn goal_mode_resumes_the_leads_own_session() {
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": "先别急着交付" }));
 
     // The process goes away while the lead and T1 are still working.
-    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    stop(&h.app).await;
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
@@ -394,8 +393,7 @@ async fn goal_mode_resumes_in_a_new_session_when_the_lead_cannot_load() {
     assert!(!err, "{text}");
     wait_until(&h.app, &run, "T1", |e| task_event(e, "task.succeeded", "T1")).await;
 
-    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    stop(&h.app).await;
     std::fs::write(h.dir.join("fake/no-load"), "").unwrap();
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();

@@ -58,8 +58,7 @@ async fn evidence_methods_are_summarised_and_survive_a_restart() {
     assert!(detail.contains("独立验证 V1：已完成"), "{detail}");
 
     // The process goes away; the board is rebuilt from the event log.
-    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    stop(&h.app).await;
     let app2 = served_app(&h.dir, |_| {});
     app2.recover().unwrap();
     app2.resume_run(&run).await.unwrap();
