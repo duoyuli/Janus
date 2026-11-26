@@ -686,3 +686,31 @@ fn a_subtask_named_lead_has_its_own_seat() {
     assert_eq!(Caller::of(RunKind::Goal, &task, false), Some(Caller::Member));
     assert_eq!(Caller::of(RunKind::Goal, &lead, false), Some(Caller::Lead));
 }
+
+/// Every reopened attempt is told, in either language, to hand in with `janus.submit`; none asks
+/// for the result as text in its reply.
+#[test]
+fn reopened_attempts_hand_in_with_the_tool_in_both_languages() {
+    use crate::lang::Lang;
+    let def = TaskDef {
+        id: "T1".into(),
+        title: "t".into(),
+        desc: "d".into(),
+        deps: vec![],
+        accept: vec!["a".into()],
+        assignee: "m1".into(),
+        max_attempts: 2,
+        owns: vec![],
+        verifies: None,
+        continues: None,
+    };
+    let retry = Reopen::Retry { session: SessionChoice::Continue, from: None, note: None, revised: false };
+    let reverify = Reopen::Reverify { target: "T0".into() };
+    let findings = Review::Findings("V1 rejected it".into());
+    for lang in [Lang::Zh, Lang::En] {
+        for (reopen, review) in [(&retry, None), (&retry, Some(&findings)), (&reverify, None)] {
+            let p = continued_prompt(&def, 2, reopen, review, None, "", lang);
+            assert!(p.contains("janus.submit") && !p.contains("```"), "{lang:?}: {p}");
+        }
+    }
+}

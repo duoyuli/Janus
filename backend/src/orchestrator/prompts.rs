@@ -313,7 +313,7 @@ pub(super) fn continued_prompt(
         ),
         (Reopen::Retry { .. }, Some(_)) => lang.pick(
             "\n\n同意的意见就修改并重新验证；不同意的、或和任务范围冲突的不要硬改：在对应的 check 写 passed: false 说明理由，或用 janus.ask 请负责人决定。做完后用 janus.submit 交结果，checks 按验收标准逐条更新。",
-            "\n\nFix what you agree with and check it again; do not force changes you disagree with or that conflict with the subtask's scope: set passed: false on that check with your reason, or ask the lead in question. When done, end with the ```json structured result, with checks updated for every criterion.",
+            "\n\nFix what you agree with and check it again; do not force changes you disagree with or that conflict with the subtask's scope: set passed: false on that check with your reason, or ask the lead to decide with janus.ask. When done, hand in your result with janus.submit, with checks updated for every criterion.",
         ),
         (Reopen::Retry { .. }, None) => lang.pick(
             "\n\n做完后用 janus.submit 交结果，checks 按验收标准逐条更新。",
