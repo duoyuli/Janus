@@ -4,6 +4,40 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.7
+
+- 会话边做边显示：Agent 的回复逐字出现，运行中的命令直接显示输出的最后 16 行，不用等这一轮写完或命令跑完。思考也实时可见。任务记录的写法不变，回放和用量与以前一样。
+
+- 对话改成按轮显示：每一轮先是发给 Agent 的消息，然后是 Agent 的一行，写着它做了什么（「工作了 2 分 13 秒 · 运行 3 条命令 · 改 1 个文件」），点开看工作过程；接着是全宽排版的回复和「改了 N 个文件 +42 −10」卡片，点文件看改动。「摘要」档（现在是默认）把结束的一轮收成这一行，「详细」档全部展开。工具调用写成「运行 `pytest -q`」「读 `api.rs`」，进行中的有一道扫过的光。Janus 注入的系统层仍留在对话里，每项一行，点开看全文。
+
+- 斜杠命令更好用：↑ ↓ 选择，Tab 或 ↩ 选中，Esc 关闭；按名字、前缀、词首、包含、字母顺序和说明依次排序；只输入 `/` 时分「Agent 命令」和「Skill」两组；选中带参数的命令后，输入框里用灰字提示参数。
+
+- 等你审批或填写的请求停在会话输入框上方，对话里留一行提示；会话的上下文用量移到输入框下方，显示成圆环。
+
+- 用量更准：token 改为读 Agent 自己的会话记录（只读 Janus 隔离目录里的那份），一轮进行中每 20 秒更新一次，Run 页的用量不再在这一轮结束前一直是 0。
+
+- 修复：一轮崩溃、超时或被打断时，它用掉的 token 不计入用量（以前只有 Claude Code 协作者的尝试有补救）。
+
+- 修复：Agent 正在干活时发出的 `/compact` 这类斜杠命令会作为插话插进这一轮，Agent 只把它当成一段文字读到，命令没有执行。现在它等这一轮结束，作为单独的一轮发出。
+
+- 修复：一个文件一次以相对路径、一次以完整路径出现时，「改了几个文件」会把它算成两个。
+
+- Sessions show work as it happens: the agent's reply appears as it writes, and a running command shows the last 16 lines of its output, without waiting for the turn to be written down or the command to finish. Thinking shows live too. What the run records is unchanged, so replays and usage are as before.
+
+- Conversations read in turns: the message sent to the agent, then the agent's line saying what it did ("Worked for 2 min 13 s · Ran 3 commands · Edited 1 file"), which opens to the work; then the reply at full width and an "Edited N files +42 −10" card whose files open their changes. The Summary level (now the default) folds a finished turn to that line; Detail opens everything. Tool calls read "Ran `pytest -q`", "Read `api.rs`", with a passing light while they run. What Janus injects stays in the conversation, one line each, its full text a click away.
+
+- Slash commands are easier to use: ↑ ↓ to choose, Tab or ↩ to take one, Esc to close; ranked by the name itself, prefix, word start, anywhere, letters in order, then the description; a bare `/` lists agent commands and skills in two groups; a command that takes arguments shows them grey in the message box once picked.
+
+- Requests waiting for your approval or input sit above the session's message box, with one line in the conversation where they were asked; the session's context usage moves under the message box as a ring.
+
+- More accurate usage: tokens now come from the agents' own session records (only the copies in Janus's isolated folders), updated every 20 seconds while a turn runs, so a run's usage no longer stays at 0 until the turn ends.
+
+- Fixed: tokens of a turn that crashed, timed out or was interrupted were not counted (only Claude Code collaborators' attempts had a fallback).
+
+- Fixed: a slash command such as `/compact` sent while the agent was working was cut into its turn, where the agent read it as words and the command did not run. It now waits for the turn to end and goes as a turn of its own.
+
+- Fixed: a file named once by its path in the project and once by its full path counted as two files in "Edited N files".
+
 ## 2026.11.26.6
 
 - 资源库的 MCP 路由改成 magpie 的做法：数字员工只拿到 `find_tools`（按要做的事或工具名找工具，中文也能找）和 `call_tool`（按名字调用）两个工具，再加上下面的 `run_code`，资源库再大，会话里的工具也不增加。路由会介绍自己背后有哪些服务器、各做什么、有哪些工具，所以 Codex 这类开局只看服务器说明的 Agent 也知道该去用它们。
