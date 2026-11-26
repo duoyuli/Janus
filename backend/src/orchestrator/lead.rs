@@ -73,7 +73,7 @@ wire_enum! {
 impl PromptChannel {
     /// A prompt in the lead's session: a slash command starts a goal, anything else follows up.
     pub(super) fn of_lead_prompt(prompt: &str) -> PromptChannel {
-        if prompt.starts_with("/goal ") { PromptChannel::Goal } else { PromptChannel::Followup }
+        if starts_goal(prompt) { PromptChannel::Goal } else { PromptChannel::Followup }
     }
 
     fn label(self) -> &'static str {
@@ -433,13 +433,7 @@ impl App {
             .await?;
         let result = async {
             self.take_peeked_notes(run, "lead", &note_ids);
-            let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
-            if sid.is_empty() {
-                bail!("负责人的会话没有返回 sessionId");
-            }
-            let mut applied = configure_session(&conn, &session, &lead).await?;
-            applied["resources"] = json!(resources);
-            let controls = crate::acp_view::controls(&session, &applied);
+            let (sid, applied, controls) = main_session_ready(&conn, &session, &lead, &resources).await?;
             let opened = match (resumed, loaded) {
                 (false, _) => "开始推进目标",
                 (true, true) => "恢复了原来的会话，从中断处继续推进目标",
@@ -478,23 +472,9 @@ impl App {
             loop {
                 // A slash command starts a new goal; a message sent while one is active belongs
                 // to that goal's turn. Both complete through the same branch below.
-                let goal_turn = {
-                    let mut st = run.st.lock().unwrap();
-                    st.lead.in_turn = true;
-                    prompt.trim_start().starts_with("/goal ") || st.lead.goal_active
-                };
                 let channel = opening.take().unwrap_or_else(|| PromptChannel::of_lead_prompt(&prompt));
-                self.record_session_prompt(run, &ctx, &sid, channel, &prompt);
-                let text = self
-                    .stream_prompt(
-                        run,
-                        &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
-                        &prompt,
-                        &ctx,
-                        Some(&mut ctl),
-                    )
-                    .await?;
-                self.run_changes_after_turn(run);
+                let session = &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
+                let (text, goal_turn) = self.main_turn(run, session, &mut ctl, &ctx, channel, &prompt).await?;
                 if let Some(reason) = goal_refused(&text) {
                     return Err(GoalRefused(format!("{} 拒绝了 /goal：{reason}", lead.connection_name)).into());
                 }
@@ -553,13 +533,7 @@ impl App {
             }
         }
         .await;
-        {
-            let mut st = run.st.lock().unwrap();
-            st.lead.session = None;
-            st.lead.in_turn = false;
-        }
-        self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
-        run.lead_nudge.notify_one();
+        self.end_main_session(run, &owner, &conn).await;
         result
     }
 
@@ -642,13 +616,7 @@ impl App {
             }
         };
         let result = async {
-            let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
-            if sid.is_empty() {
-                bail!("恢复会话没有返回 sessionId");
-            }
-            let mut applied = configure_session(&conn, &session, &lead).await?;
-            applied["resources"] = json!(resources);
-            let controls = crate::acp_view::controls(&session, &applied);
+            let (sid, applied, controls) = main_session_ready(&conn, &session, &lead, &resources).await?;
             let opened = match (chat, loaded || old_session.is_some()) {
                 (true, false) => "开始对话",
                 (true, true) if loaded => "恢复了之前的会话",
@@ -730,22 +698,9 @@ impl App {
             }
             let mut next = prompt.iter().map(|m| m.text.as_str()).collect::<Vec<_>>().join("\n\n");
             loop {
-                let goal_turn = {
-                    let mut st = run.st.lock().unwrap();
-                    st.lead.in_turn = true;
-                    next.trim_start().starts_with("/goal ") || st.lead.goal_active
-                };
-                self.record_session_prompt(run, &ctx, &sid, PromptChannel::of_lead_prompt(&next), &next);
-                let text = self
-                    .stream_prompt(
-                        run,
-                        &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid },
-                        &next,
-                        &ctx,
-                        Some(&mut ctl),
-                    )
-                    .await?;
-                self.run_changes_after_turn(run);
+                let session = &mut PromptSession { conn: &conn, rx: &mut rx, sid: &sid };
+                let channel = PromptChannel::of_lead_prompt(&next);
+                let (text, goal_turn) = self.main_turn(run, session, &mut ctl, &ctx, channel, &next).await?;
                 match run.kind {
                     RunKind::Loop => self.loop_turn_ended(run),
                     // A consolidation is one turn: on record, delivered, and its session closes.
@@ -792,12 +747,7 @@ impl App {
             }
         }
         .await;
-        {
-            let mut st = run.st.lock().unwrap();
-            st.lead.session = None;
-            st.lead.in_turn = false;
-        }
-        self.close_session(run, &owner, Some(&conn), "负责人的会话已结束，撤回这个请求").await;
+        self.end_main_session(run, &owner, &conn).await;
         // Without a live session the run is read-only again; the next message reopens it. If the
         // scheduler is still running tasks, leave the run reachable until they finish.
         if run.driving.active() {
@@ -810,8 +760,42 @@ impl App {
         } else {
             self.runs.lock().unwrap().remove(&run.id);
         }
-        run.lead_nudge.notify_one();
         result
+    }
+
+    /// One turn of a run's main session: `prompt` recorded as sent on `channel`, streamed until
+    /// the turn ends, and what the run changed meanwhile recorded. Returns the reply and whether
+    /// the turn belonged to a goal (a `/goal` command, or a message while one was active).
+    async fn main_turn(
+        &self,
+        run: &Run,
+        session: &mut PromptSession<'_>,
+        ctl: &mut Control,
+        ctx: &Ctx<'_>,
+        channel: PromptChannel,
+        prompt: &str,
+    ) -> Result<(String, bool)> {
+        let goal_turn = {
+            let mut st = run.st.lock().unwrap();
+            st.lead.in_turn = true;
+            starts_goal(prompt) || st.lead.goal_active
+        };
+        self.record_session_prompt(run, ctx, session.sid, channel, prompt);
+        let text = self.stream_prompt(run, session, prompt, ctx, Some(ctl)).await?;
+        self.run_changes_after_turn(run);
+        Ok((text, goal_turn))
+    }
+
+    /// A run's main session ended, however it did: nothing is in it any more, what it waited for
+    /// is withdrawn, its agent stops, and whoever waits on the lead hears.
+    async fn end_main_session(&self, run: &Run, owner: &Owner, conn: &Arc<AcpConn>) {
+        {
+            let mut st = run.st.lock().unwrap();
+            st.lead.session = None;
+            st.lead.in_turn = false;
+        }
+        self.close_session(run, owner, Some(conn), "负责人的会话已结束，撤回这个请求").await;
+        run.lead_nudge.notify_one();
     }
 
     /// Open a run's main session: a conversation's, or the lead's goal session (new, or continued
@@ -1108,6 +1092,29 @@ Decisions:
         ));
     }
     p
+}
+
+/// Whether a prompt to the lead is a `/goal` command, which starts a goal.
+fn starts_goal(prompt: &str) -> bool {
+    prompt.trim_start().starts_with("/goal ")
+}
+
+/// A run's main session just opened: its id, the controls applied to it with the resources it
+/// was given, and the options it offers.
+async fn main_session_ready(
+    conn: &AcpConn,
+    session: &Value,
+    lead: &Member,
+    resources: &[crate::library::Delivery],
+) -> Result<(String, Value, Value)> {
+    let sid = session["sessionId"].as_str().unwrap_or_default().to_string();
+    if sid.is_empty() {
+        bail!("负责人的会话没有返回 sessionId");
+    }
+    let mut applied = configure_session(conn, session, lead).await?;
+    applied["resources"] = json!(resources);
+    let controls = crate::acp_view::controls(session, &applied);
+    Ok((sid, applied, controls))
 }
 
 /// Whether a session's options (`acp_view::controls`) name anything; a loaded session may return none.
