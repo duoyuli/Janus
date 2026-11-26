@@ -227,3 +227,47 @@ async fn an_interrupted_turn_after_delivery_waits_for_the_person() {
     assert!(h.repo.join("half.md").exists(), "the person let the turn's work stand");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A question the lead handed the person and went on without is withdrawn once the lead leaves
+/// the board (its goal delivered): no answer would reach it. A card a restart left open in a
+/// delivered run's log is withdrawn when the service comes back, and answering it is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn questions_nobody_waits_on_are_withdrawn() {
+    let h = harness("deliver-questions", &[("lead", false), ("m1", true)], json!({ "T1": ["ok"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    let (text, err) =
+        tool(&h.app, &run, "lead", "ask_user", json!({ "question": "「1」指什么？", "why": "只有你知道" })).await;
+    assert!(!err, "{text}");
+    let key = |e: &Event| e.data.as_ref().and_then(|d| d["key"].as_str().map(str::to_owned));
+    let asked = events(&h.app, &run).iter().find(|e| e.kind.as_str() == "question.escalated").and_then(key).unwrap();
+    wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+    let withdrawn = |e: &[Event], k: &str| {
+        e.iter().any(|x| x.kind.as_str() == "decision.withdrawn" && key(x).as_deref() == Some(k))
+    };
+    assert!(!withdrawn(&events(&h.app, &run), &asked), "the lead still works on its goal");
+    finish_lead(&h);
+    wait_until(&h.app, &run, "delivery", |e| has(e, "run.delivered")).await;
+    wait_until(&h.app, &run, "the question withdrawn", |e| withdrawn(e, &asked)).await;
+    let late = h
+        .app
+        .action(&h.app.run(&run).unwrap(), &action_of(json!({ "type": "answer", "key": asked, "answer": "测试" })));
+    assert!(late.is_err(), "nobody waits on it any more");
+
+    // A card the log still has open when the service stops: nobody waits on it after the restart.
+    h.app
+        .record(
+            &run,
+            ev(EventKind::QuestionEscalated, "lead", "负责人请你决定：留下的").data(json!({ "key": "q-left" })),
+        )
+        .unwrap();
+    h.app.runs.lock().unwrap().clear();
+    let restarted = served_app(&h.dir, |_| {});
+    restarted.recover().unwrap();
+    assert!(withdrawn(&events(&restarted, &run), "q-left"));
+    let body = json!({ "type": "answer", "key": "q-left", "task": "", "answer": "测试" });
+    match restarted.request_action(&run, &req(body)).await {
+        Err(Refused::Conflict(why)) => assert!(why.contains("这个任务已经不在进行"), "{why}"),
+        _ => panic!("an answer to a delivered run that is not running is refused"),
+    }
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

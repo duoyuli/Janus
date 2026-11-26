@@ -267,9 +267,13 @@ impl App {
                             self.resume_run(run_id).await?
                         }
                         _ => {
-                            return Err(Refused::Conflict(
-                                "这个子任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into(),
-                            ));
+                            return Err(Refused::Conflict(match stored {
+                                Some(RunStatus::Interrupted | RunStatus::Failed) => {
+                                    "这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into()
+                                }
+                                _ => "这个任务已经不在进行，没有人在等这个操作：要补充什么，直接给某个 Agent 发消息"
+                                    .into(),
+                            }));
                         }
                     },
                 }
@@ -961,6 +965,28 @@ impl App {
         });
     }
 
+    /// Whoever waited on a decision waited in the process that just stopped, so a card still open
+    /// in a run's log can no longer be acted on (a delivered run's included, which has no
+    /// `run.interrupted` to clear it): it is withdrawn. A Loop's questions wait for their answer
+    /// across restarts (`restore_loop_questions`).
+    // @project-doc docs/domains/20261031-run_lifecycle.md#recovery
+    fn withdraw_stale_requests(&self) -> Result<()> {
+        for asked in self.db.open_requests()? {
+            let kind = self.db.run(&asked.run_id)?.map(|r| r.kind).unwrap_or_default();
+            if asked.kind() == EventKind::QuestionEscalated && kind.questions_outlive_session() {
+                continue;
+            }
+            let Some(key) = asked.data.as_ref().and_then(|d| d["key"].as_str()) else { continue };
+            let mut e = ev(EventKind::DecisionWithdrawn, "janus", "服务重启了，没有人再等这个回答，撤回这个请求")
+                .data(json!({ "key": key }));
+            if let Some(task) = asked.task.as_deref().filter(|t| !t.is_empty()) {
+                e = e.task(task).attempt(asked.attempt.unwrap_or_default());
+            }
+            self.record(&asked.run_id, e)?;
+        }
+        Ok(())
+    }
+
     pub fn recover(&self) -> Result<()> {
         self.db.interrupt_commands()?;
         for (run_id, task, n) in self.db.orphaned_attempts()? {
@@ -995,6 +1021,7 @@ impl App {
                 self.continuing.lock().unwrap().insert(run_id);
             }
         }
+        self.withdraw_stale_requests()?;
         // An accepted run kept its worktree while its conversation was open; nothing works there
         // after a restart, and the result is back where the run started. One whose conversation
         // worked on files after the acceptance keeps that work and is delivered again, which

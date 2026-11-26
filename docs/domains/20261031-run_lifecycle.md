@@ -291,6 +291,7 @@ Run 快照中的工作区带着开始时的[共享资料](20261031-agents_and_ro
 - 仍在进行的尝试标记为 `interrupted`。
 - 未结束的 Run 写入 `run.interrupted` 事件，状态改为 `interrupted`。事件的 `data.after`（`AfterRestart`）写明之后怎样：目标 Run 为 `goes_on`，服务开始监听后自动继续；重启前用户暂停了它为 `paused`；上次重启后自动继续过、到这次重启之前没有任何 Agent 做过事（说话、调用工具、交结果、编排、完成子任务，`EventKind::is_agent_progress`）为 `no_progress`，避免一个让服务停下的 Run 被反复拉起；对话、值班的会话和整理团队记忆为 `person`，由下一条消息或下一次开工打开。见 [ADR：服务重启后自动继续](../decisions/20261125-continue_after_restart.md)。
 - 服务开始监听后（`continue_after_restart`），`goes_on` 的 Run 逐个从中断处继续，和用户「从中断处继续」走同一条路，只是由「时间表」发起（`Asker::Schedule`，座位排在用户在等的会话之后）：`run.recovered` 的 `actor` 为 `janus`、`data.auto` 为 `true`。它们重新开始之前就算作在做（`App.continuing`），[补位](#dispatch_queue)不会先把槽位交给排队的新 Run。自动继续失败时 Run 保持中断，再记一条 `run.interrupted`（`after` 为 `person`，带 `error`），等用户处理。
+- 等待中的决定只在服务进程里，重启后没有人再等：日志中仍未回答或撤回的提问、审批和表单（`Db::open_requests`）一律撤回（`decision.withdrawn`，`withdraw_stale_requests`），包括没有 `run.interrupted` 的已交付 Run 留下的。值班的提问除外，它们重启后重新等待回答。对不在运行、也不是中断或失败的 Run 回答这类请求时，服务拒绝并说明「这个任务已经不在进行」，要补充的话直接给 Agent 发消息。
 - 已验收的 Run 留下的 worktree 被移除（结果已经合并回源分支）。worktree 里有上次合并之后的改动或提交时保留，Run 再次交付（`redeliver_after_restart`，带上一次交付的内容）并合并回源分支，等用户验收。
 
 自动继续、用户「从中断处继续」（`resumeRun`），或直接给某个 Agent 发消息时，`resume_run_by` 从 `runs.config` 重建团队，从事件日志重建任务；在 worktree 中的 Run，worktree 不在了就先重建。恢复、验收历史交付（`accept_archived`）和删除一个不在运行的 Run 先拿 `App.revival`，一次只做一件：两条消息同时发给已中断或已交付的 Run 时，第二条等第一条把 Run 恢复好，再发进同一个 Run，不会各自恢复出一个负责人会话；恢复期间到达的验收按运行中的 Run 处理：

@@ -418,6 +418,26 @@ impl Db {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The requests for the person (a question handed over, an approval, a form) in every run that
+    /// nobody has answered or withdrawn since, oldest first: the cards the app shows from the log.
+    pub fn open_requests(&self) -> Result<Vec<Event>> {
+        use EventKind as K;
+        let list = |kinds: &[K]| kinds.iter().map(|k| format!("'{}'", k.as_str())).collect::<Vec<_>>().join(", ");
+        let asked = list(&[K::QuestionEscalated, K::ApprovalRequested, K::InputRequested]);
+        let settled =
+            list(&[K::QuestionAnswered, K::ApprovalGranted, K::ApprovalDenied, K::InputAnswered, K::DecisionWithdrawn]);
+        let conn = self.0.lock().unwrap();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT run_id, seq, ts, type, actor, to_agent, task, attempt, text, data
+             FROM events e WHERE type IN ({asked}) AND NOT EXISTS (
+                 SELECT 1 FROM events s WHERE s.run_id = e.run_id AND s.seq > e.seq AND s.type IN ({settled})
+                   AND json_extract(s.data, '$.key') = json_extract(e.data, '$.key'))
+             ORDER BY run_id, seq"
+        ))?;
+        let rows = stmt.query_map([], event_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// The latest event of type `kind` in a run, without reading the rest of its log.
     pub fn latest_event(&self, run_id: &str, kind: EventKind) -> Result<Option<Event>> {
         Ok(self

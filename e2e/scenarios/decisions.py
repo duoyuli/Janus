@@ -71,6 +71,10 @@ def decisions(ctx, c):
     # A question the lead leaves behind goes to the person, and the run still finishes.
     run.orchestrate(task("T3", t.member("m3")))
     run.wait_event("question.asked", task="T3")
+    # A question the lead hands over and then delivers without: nobody reads an answer to it any more.
+    text, err = lead.call("ask_user", {"question": "要不要顺便发版？", "why": "发版要用户的账号"})
+    c(not err, "负责人又交出一个问题，没等回答就交付")
+    unanswered = run.wait_event("question.escalated", actor="lead", data__question="要不要顺便发版？")["data"]["key"]
     t.fake.finish_lead("先交付，T3 的问题请用户回答")
     q = run.wait_event("question.escalated", task="T3")
     c(q, "负责人结束后，协作者的提问转给用户")
@@ -78,5 +82,13 @@ def decisions(ctx, c):
     c("按回答 beta 完成" in run.wait_event("task.succeeded", task="T3")["data"]["summary"], "用户的回答回到 T3 的会话")
     wait(lambda: run.has("run.delivered"), "Run 交付")
     c(True, "处理完所有决定后 Run 交付")
+    c(run.wait_event("decision.withdrawn", data__key=unanswered), "负责人交付时，它没等到回答的提问被撤回")
+    code, text = run.act_error("answer", key=unanswered, task="", answer="发")
+    c(code == 400 and "没有等待中的决定" in text, "撤回的提问不能再回答")
+    if ctx.app:
+        def questions(s):
+            return [e for e in s["open"] + s["later"] if e["run"] == run.id and e["kind"] == "question"]
+        ctx.app.until(lambda s: not questions(s), "应用：收件箱里没有这个 Run 撤回的提问", "open inbox", timeout=30)
+        c(True, "应用：收件箱里没有这个 Run 撤回的提问")
     ctx.ui(c, run.id, lambda r, s: all(i["kind"] == "session" for i in r["inbox"]) and all(x["status"] == "succeeded" for x in r["tasks"]),
            "没有待处理的事项，T1–T3 都已完成", pages=("board", "task:T1", "audit"))

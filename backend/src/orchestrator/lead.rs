@@ -237,8 +237,37 @@ impl App {
     /// The lead finished a turn and waits for the person: a collaborator still waiting on the
     /// board now waits on the person, as it does when the lead's session ends.
     fn lead_goes_idle(&self, run: &Run) {
-        run.st.lock().unwrap().lead.in_turn = false;
+        let off_duty = {
+            let mut st = run.st.lock().unwrap();
+            st.lead.in_turn = false;
+            !st.lead.on_duty()
+        };
+        if off_duty {
+            self.withdraw_lead_questions(run);
+        }
         self.escalate_open_questions(run);
+    }
+
+    /// The lead left the board with questions it handed the person (`ask_user`) unanswered: it
+    /// went on without them and reads no answer now, so their cards go. Anything the person
+    /// still wants it to know is a message. A Loop's questions wait for their answer.
+    // @project-doc docs/domains/20261031-goal_mode.md#question_routing
+    fn withdraw_lead_questions(&self, run: &Run) {
+        if run.kind.questions_outlive_session() {
+            return;
+        }
+        let keys: Vec<String> = run
+            .st
+            .lock()
+            .unwrap()
+            .pending
+            .iter()
+            .filter(|(_, p)| p.owner.session == SessionKey::Lead && p.ask == Ask::Question)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in keys {
+            self.withdraw(run, &key, "", 0, "负责人已经结束这一轮，不再等这个回答；要补充什么，直接给负责人发消息");
+        }
     }
 
     /// While the lead's session lasts: whenever the board gets something the lead has to act on,
