@@ -99,10 +99,10 @@ impl LeadTool {
             }),
             LeadTool::Wait => json!({
                 "description": t(
-                    "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，协作者的提问和用户的回答。有子任务完成或需要你处理的消息时立即返回，连同之前攒下的开始、进展等消息；否则最多等 timeout_sec 秒（默认 120，最大 180），超时返回攒下的消息和运行中子任务的实时进展。Janus 已经推送进你会话的看板消息算作读过，不会再出现在这里。",
-                    "Fetch the new board messages for you: subtasks started, finished (summary, evidence, risks, artifacts) or failed, progress, blockers and split proposals from collaborators, their questions and the user's answers. Returns as soon as a subtask finishes or something needs you, together with the starts, progress and other messages held so far; otherwise waits up to timeout_sec seconds (default 120, at most 180) and then returns what it holds plus the live progress of running subtasks. Board messages Janus already pushed into your session count as read and do not come back here."
+                    "从共享看板取回发给你的新消息：子任务开始、完成（摘要、证据、风险、产物）、失败，协作者写回的进展、阻塞和拆分提议，协作者的提问和用户的回答。有子任务完成或需要你处理的消息时立即返回，连同之前攒下的开始、进展等消息；否则最多等 timeout_sec 秒（默认也是最大值 50），超时返回攒下的消息和运行中子任务的实时进展。Janus 已经推送进你会话的看板消息算作读过，不会再出现在这里。",
+                    "Fetch the new board messages for you: subtasks started, finished (summary, evidence, risks, artifacts) or failed, progress, blockers and split proposals from collaborators, their questions and the user's answers. Returns as soon as a subtask finishes or something needs you, together with the starts, progress and other messages held so far; otherwise waits up to timeout_sec seconds (50 by default, which is also the most) and then returns what it holds plus the live progress of running subtasks. Board messages Janus already pushed into your session count as read and do not come back here."
                 ),
-                "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 180 } } },
+                "inputSchema": { "type": "object", "properties": { "timeout_sec": { "type": "integer", "minimum": 1, "maximum": WAIT_MAX_SECS } } },
                 "annotations": board_read()
             }),
             LeadTool::Reply => json!({

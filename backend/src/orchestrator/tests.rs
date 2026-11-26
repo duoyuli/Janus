@@ -567,6 +567,23 @@ fn each_caller_lists_its_own_tools_once() {
     assert_eq!(names(Caller::of(RunKind::Chat, &lead, true).unwrap()), ["propose_employees"], "nor team memory");
 }
 
+/// Claude Code and Codex fail an MCP tool call after 60 seconds, so `wait` never holds that
+/// long, whatever it is asked, and says so: a longer one only ever came back as an error.
+#[test]
+fn wait_returns_before_the_agent_gives_up_on_it() {
+    use crate::lang::Lang;
+    for asked in [json!({}), json!({ "timeout_sec": 180 }), json!({ "timeout_sec": 120 })] {
+        assert!(wait_limit(&asked) < Duration::from_secs(60), "{asked}");
+    }
+    assert_eq!(wait_limit(&json!({ "timeout_sec": 10 })), Duration::from_secs(10), "a shorter wait as asked");
+    assert_eq!(wait_limit(&json!({ "timeout_sec": 0 })), Duration::from_secs(1));
+    for lang in [Lang::Zh, Lang::En] {
+        let d = LeadTool::Wait.definition(lang);
+        assert!(d["inputSchema"]["properties"]["timeout_sec"]["maximum"].as_u64().unwrap() < 60);
+        assert!(d["description"].as_str().unwrap().contains("50"), "{lang:?}");
+    }
+}
+
 /// A lead that packs every subtask's long instructions into one `orchestrate` call can run past
 /// its model's output limit, and the call is lost whole before Janus sees it: the tool says to
 /// split the submission and to point to material already in the working directory, in both
@@ -618,7 +635,7 @@ fn the_board_speaks_the_runs_language() {
     }
     let wait = LeadTool::Wait.definition(Lang::En);
     let about = wait["description"].as_str().unwrap();
-    assert!(about.contains("at most 180") && about.contains("pushed into your session"), "{about}");
+    assert!(about.contains("which is also the most") && about.contains("pushed into your session"), "{about}");
     let amend = LeadTool::Amend.definition(Lang::Zh);
     assert!(amend["description"].as_str().unwrap().contains("独立验证子任务的判定和结论不能用它改"), "{amend}");
 

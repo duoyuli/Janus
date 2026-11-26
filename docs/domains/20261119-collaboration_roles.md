@@ -32,7 +32,7 @@
 | 用途 | 工具 | 做什么 |
 | --- | --- | --- |
 | 看 | [`board`](../interfaces/20261031-board_mcp.md#task_detail) | 不传 `task`：协作者（名字和职责）和看板上所有子任务的状态；传 `task`：一个子任务的完整说明、结果、证据、验证结论、修订、改过的文件和问答 |
-| | [`wait`](../interfaces/20261031-board_mcp.md#wait) | 取看板新消息；有子任务完成或需要它处理的事时立即返回，否则最多等 180 秒 |
+| | [`wait`](../interfaces/20261031-board_mcp.md#wait) | 取看板新消息；有子任务完成或需要它处理的事时立即返回，否则最多等 50 秒 |
 | 派活 | [`orchestrate`](../interfaces/20261031-board_mcp.md#orchestrate) | 提交一组子任务：执行者、依赖、验收标准，可选 `owns`（负责的文件）、`verifies`（独立验证哪个子任务）、`continues`（接着哪个子任务的会话） |
 | 跟进进行中的子任务 | [`reply`](../interfaces/20261031-board_mcp.md#lead_tools) | 回答协作者的提问，或给正在执行的协作者补充指示 |
 | 处理结束的子任务 | [`retry`](../interfaces/20261031-board_mcp.md#retry_tool) | 让结束的子任务再做一次：失败、取消的，或已完成但要返工的。`session` 必填（回到原会话或新开会话），可带 `from`（依据哪个独立验证的意见）和 `note` |

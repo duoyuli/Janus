@@ -42,6 +42,17 @@ impl Takers {
     }
 }
 
+/// The longest `wait` holds its call. Claude Code and Codex give an MCP tool call 60 seconds and
+/// then fail it ("The operation timed out."), so a longer wait never returns: the lead gets an
+/// error instead of what the board holds and the live progress of its subtasks.
+// @project-doc docs/interfaces/20261031-board_mcp.md#wait
+pub(super) const WAIT_MAX_SECS: u64 = 50;
+
+/// How long one `wait` call may hold: what it asks for, at most `WAIT_MAX_SECS`.
+pub(super) fn wait_limit(args: &Value) -> Duration {
+    Duration::from_secs(args["timeout_sec"].as_u64().unwrap_or(WAIT_MAX_SECS).clamp(1, WAIT_MAX_SECS))
+}
+
 /// Who reaches the `janus` MCP server, from the run's kind and the session's `who`: the tools it
 /// has. A chat has none, unless its digital employee proposes digital employees. The server gives
 /// no `instructions`: each tool's description says how it is used.
@@ -358,7 +369,7 @@ impl App {
 
     pub(super) async fn board_wait_inner(&self, run: &Run, args: &Value) -> String {
         let lang = run.lang;
-        let limit = Duration::from_secs(args["timeout_sec"].as_u64().unwrap_or(120).clamp(1, 180));
+        let limit = wait_limit(args);
         let until = tokio::time::Instant::now() + limit;
         loop {
             let notified = run.board_wake.notified();
