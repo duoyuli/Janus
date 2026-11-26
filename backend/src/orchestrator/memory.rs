@@ -465,22 +465,13 @@ impl App {
         let member = self.single_member(&role)?;
         let runs = self.delivered_runs_since(workspace, dreams.first())?;
         let id = crate::util::new_id("r");
-        let dir = self.cfg.layout.run(RunKind::Dream, &id).work;
-        std::fs::create_dir_all(&dir)
-            .with_context(|| format!("创建整理目录 {} 失败", dir.display()))
-            .map_err(Refused::from)?;
-        let cwd = dir.canonicalize().unwrap_or(dir);
+        let cwd = self.own_workdir(RunKind::Dream, &id).map_err(Refused::from)?;
         let config = json!({ "workspace": { "id": ws.id, "name": ws.name } });
-        let run = self.single_member_run(RunKind::Dream, &id, member, cwd.clone(), "整理团队记忆", config)?;
-        self.emit(
-            &run,
-            ev(EventKind::RunCreated, "janus", "开始整理团队记忆").data(json!({
-                "kind": RunKind::Dream, "cwd": cwd, "git": false,
-                "role": { "id": role.id, "name": role.name }, "runs": runs.len(),
-            })),
-        );
-        self.runs.lock().unwrap().insert(id.clone(), run.clone());
-        self.spawn_conversation(run.clone());
+        let run = self.single_member_run(RunKind::Dream, &id, member, cwd, "整理团队记忆", config)?;
+        let mut data = super::chat::created(&run, &role.id);
+        data["runs"] = json!(runs.len());
+        self.emit(&run, ev(EventKind::RunCreated, "janus", "开始整理团队记忆").data(data));
+        self.open_single_member_run(run.clone());
         let m =
             self.post_message(&run, "janus", "lead", "", &dream_prompt(&runs, |r| self.delivery_of(r), run.lang), &[]);
         self.send_steer(&run, "lead", "", Steer::Message(m))?;

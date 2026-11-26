@@ -705,17 +705,13 @@ impl App {
                 .map(|v| v.def.id.clone())
                 .collect();
             let t = Run::task_mut(&mut st, task).expect("found above");
-            t.set_phase(TaskPhase::Pending);
-            t.retry_base = t.attempts;
-            t.reopen = Some(Reopen::Retry {
+            // A new run of the task brings a new conclusion; earlier corrections were about the old one.
+            t.reopen(Reopen::Retry {
                 session,
                 from: from.map(str::to_owned),
                 note: note.map(str::to_owned),
                 revised: instructions.is_some() || accept.is_some(),
             });
-            t.trace_gaps.clear();
-            // A new run of the task brings a new conclusion; earlier corrections were about the old one.
-            t.amendments.clear();
             if let Some(i) = instructions {
                 t.def.desc = i.to_string();
             }
@@ -723,15 +719,7 @@ impl App {
                 t.def.accept = a.clone();
             }
             for id in &reverify {
-                let v = Run::task_mut(&mut st, id).expect("listed above");
-                v.set_phase(TaskPhase::Pending);
-                v.retry_base = v.attempts;
-                v.reopen = Some(Reopen::Reverify { target: task.to_string() });
-                v.trace_gaps.clear();
-                v.amendments.clear();
-                if !v.def.deps.iter().any(|d| d == task) {
-                    v.def.deps.push(task.to_string());
-                }
+                Run::task_mut(&mut st, id).expect("listed above").reverify(task);
             }
             reverify
         };
@@ -978,15 +966,7 @@ impl App {
                 stale.push((task.to_string(), target));
             }
             for (id, target) in &stale {
-                let v = Run::task_mut(&mut st, id).expect("listed above");
-                v.set_phase(TaskPhase::Pending);
-                v.retry_base = v.attempts;
-                v.reopen = Some(Reopen::Reverify { target: target.clone() });
-                v.trace_gaps.clear();
-                v.amendments.clear();
-                if !v.def.deps.iter().any(|d| d == target) {
-                    v.def.deps.push(target.clone());
-                }
+                Run::task_mut(&mut st, id).expect("listed above").reverify(target);
             }
             stale
         };

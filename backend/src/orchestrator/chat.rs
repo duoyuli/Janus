@@ -17,22 +17,27 @@ impl App {
         let role = self.role(&req.role)?;
         let member = self.single_member(&role)?;
         let id = crate::util::new_id("r");
-        let dir = self.cfg.layout.run(RunKind::Chat, &id).work;
-        std::fs::create_dir_all(&dir).with_context(|| format!("创建对话目录 {} 失败", dir.display()))?;
-        // The path the agent's own tools report, so the files it names resolve against it.
-        let cwd = dir.canonicalize().unwrap_or(dir);
+        let cwd = self.own_workdir(RunKind::Chat, &id)?;
         // Titled by its first message, once there is one (`title_chat`).
         let run = self.single_member_run(RunKind::Chat, &id, member, cwd, "", json!({}))?;
         let name = run.team[0].name.clone();
-        self.emit(
-            &run,
-            ev(EventKind::RunCreated, "user", format!("和 {name} 开始对话")).data(json!({
-                "kind": RunKind::Chat, "cwd": run.cwd, "git": false, "role": { "id": role.id, "name": name },
-            })),
-        );
-        self.runs.lock().unwrap().insert(id.clone(), run.clone());
-        self.spawn_conversation(run);
+        self.emit(&run, ev(EventKind::RunCreated, "user", format!("和 {name} 开始对话")).data(created(&run, &role.id)));
+        self.open_single_member_run(run);
         Ok(id)
+    }
+
+    /// The working directory of a run that has its own (a chat, a consolidation), made now: the
+    /// path the agent's own tools report, so the files it names resolve against it.
+    pub(super) fn own_workdir(&self, kind: RunKind, id: &str) -> Result<PathBuf> {
+        let dir = self.cfg.layout.run(kind, id).work;
+        std::fs::create_dir_all(&dir).with_context(|| format!("创建目录 {} 失败", dir.display()))?;
+        Ok(dir.canonicalize().unwrap_or(dir))
+    }
+
+    /// A new single-member run goes live: its session opens and waits for its first message.
+    pub(super) fn open_single_member_run(self: &Arc<Self>, run: Arc<Run>) {
+        self.runs.lock().unwrap().insert(run.id.clone(), run.clone());
+        self.spawn_conversation(run);
     }
 
     /// A digital employee as the one member of a run's main session (a chat, a Loop's session),
@@ -289,4 +294,11 @@ pub(super) fn chat_brief(events: &[Event], lang: Lang) -> String {
         "和用户的这段对话在新会话中继续。照下面的记录，从上次停下的地方接着说。\n\n最近的对话：\n{recent}",
         "This conversation with the user continues in a new session. Use the history below to pick up where you left off.\n\nRecent conversation:\n{recent}"
     )
+}
+
+/// What `run.created` says of a single-member run: its kind, directory and the role it is.
+pub(super) fn created(run: &Run, role: &str) -> Value {
+    json!({
+        "kind": run.kind, "cwd": run.cwd, "git": false, "role": { "id": role, "name": run.team[0].name },
+    })
 }

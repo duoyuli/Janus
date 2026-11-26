@@ -451,6 +451,24 @@ struct Task {
 }
 
 impl Task {
+    /// The task ended and starts again as `reopen` says: pending, its attempts counted afresh,
+    /// and nothing kept that was about the old result (trace gaps, the lead's corrections).
+    fn reopen(&mut self, reopen: Reopen) {
+        self.set_phase(TaskPhase::Pending);
+        self.retry_base = self.attempts;
+        self.reopen = Some(reopen);
+        self.trace_gaps.clear();
+        self.amendments.clear();
+    }
+
+    /// A verification checks `target` again: reopened, and after `target` from now on.
+    fn reverify(&mut self, target: &str) {
+        self.reopen(Reopen::Reverify { target: target.to_string() });
+        if !self.def.deps.iter().any(|d| d == target) {
+            self.def.deps.push(target.to_string());
+        }
+    }
+
     fn new(def: TaskDef, agent: String, planned_seq: i64) -> Task {
         Task {
             def,
