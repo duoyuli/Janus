@@ -270,13 +270,20 @@ struct Composer<Footer: View>: View {
     /// Takes the keyboard as it first appears, so the person can type at once.
     var focusOnAppear: Bool
     var onSubmit: () -> Void
+    /// Arrow keys, Tab, ↩ and Esc while a list of suggestions is open; true when it took the key.
+    var onNavigate: ((ComposerNav) -> Bool)?
+    /// Grey text after what is typed, such as a command's arguments still to write.
+    var ghost: String?
     var footer: Footer
     @Local private var height: CGFloat = 0
     private var sendKey: SendKey { SendKeySetting.shared.value }
 
     init(text: Binding<String>, images: Binding<[PastedImage]>? = nil, placeholder: String, disabled: Bool = false, minHeight: CGFloat = 60,
-         focus: Int = 0, focusOnAppear: Bool = false, onSubmit: @escaping () -> Void, @ViewBuilder footer: () -> Footer) {
+         focus: Int = 0, focusOnAppear: Bool = false, onNavigate: ((ComposerNav) -> Bool)? = nil, ghost: String? = nil,
+         onSubmit: @escaping () -> Void, @ViewBuilder footer: () -> Footer) {
         _text = text
+        self.onNavigate = onNavigate
+        self.ghost = ghost
         self.images = images
         self.placeholder = placeholder
         self.disabled = disabled
@@ -314,8 +321,13 @@ struct Composer<Footer: View>: View {
         ZStack(alignment: .topLeading) {
             if text.isEmpty {
                 Text(placeholder).foregroundStyle(.tertiary).padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
+            } else if let ghost, !text.contains("\n") {
+                // Laid out like the field's own line: what is typed, invisible, then the grey rest.
+                (Text(verbatim: text).foregroundStyle(.clear) + Text(verbatim: ghost).foregroundStyle(.tertiary))
+                    .font(.system(size: NSFont.systemFontSize)).lineLimit(1)
+                    .padding(.leading, 5).allowsHitTesting(false).accessibilityHidden(true)
             }
-            ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, focus: focus, focusOnAppear: focusOnAppear, onImages: images.map { b in { add($0, to: b) } }, onSubmit: onSubmit)
+            ComposerField(text: $text, height: $height, disabled: disabled, sendKey: sendKey, focus: focus, focusOnAppear: focusOnAppear, onImages: images.map { b in { add($0, to: b) } }, onNavigate: onNavigate, onSubmit: onSubmit)
                 .frame(height: max(minHeight, min(max(height, 18), 240)))
                 .accessibilityLabel(placeholder)
         }
@@ -350,10 +362,13 @@ struct Composer<Footer: View>: View {
 
 extension Composer where Footer == EmptyView {
     init(text: Binding<String>, images: Binding<[PastedImage]>? = nil, placeholder: String, disabled: Bool = false, minHeight: CGFloat = 60,
-         focus: Int = 0, onSubmit: @escaping () -> Void) {
-        self.init(text: text, images: images, placeholder: placeholder, disabled: disabled, minHeight: minHeight, focus: focus, onSubmit: onSubmit) { EmptyView() }
+         focus: Int = 0, onNavigate: ((ComposerNav) -> Bool)? = nil, ghost: String? = nil, onSubmit: @escaping () -> Void) {
+        self.init(text: text, images: images, placeholder: placeholder, disabled: disabled, minHeight: minHeight, focus: focus, onNavigate: onNavigate, ghost: ghost, onSubmit: onSubmit) { EmptyView() }
     }
 }
+
+/// The keys a composer hands to the suggestions open above it.
+enum ComposerNav { case up, down, accept, dismiss }
 
 /// Thumbnails of the images about to be sent, each with a way to take it out.
 struct AttachmentStrip: View {
@@ -418,10 +433,12 @@ struct ComposerField: NSViewRepresentable {
     var focus = 0
     var focusOnAppear = false
     var onImages: (([PastedImage]) -> Void)?
+    var onNavigate: ((ComposerNav) -> Bool)?
     var onSubmit: () -> Void
 
     final class TextView: NSTextView {
         var onImages: (([PastedImage]) -> Void)?
+        var onNavigate: ((ComposerNav) -> Bool)?
         var onSubmit: () -> Void = {}
         var sendKey = SendKey.standard
         /// Take the keyboard once, when first shown in a window.
@@ -441,12 +458,26 @@ struct ComposerField: NSViewRepresentable {
         var pasteboard: NSPasteboard = .general
 
         override func keyDown(with event: NSEvent) {
+            // Suggestions above the field take the arrows, Tab, a bare ↩ and Esc while open.
+            if !hasMarkedText(), let onNavigate, let nav = Self.nav(event), onNavigate(nav) { return }
             // The send key sends; anything else edits as usual. An input method's composition is
             // not in the draft yet: ⌘↩ waits for it to be committed, and a bare ↩ goes to the
             // input method, which commits the composition with it.
             guard sendKey.sends(keyCode: event.keyCode, modifiers: event.modifierFlags) else { return super.keyDown(with: event) }
             if !hasMarkedText() { onSubmit() }
             else if !event.modifierFlags.contains(.command) { super.keyDown(with: event) }
+        }
+
+        /// What a key does to open suggestions: ↑ ↓ move, Tab and a bare ↩ take one, Esc closes them.
+        static func nav(_ event: NSEvent) -> ComposerNav? {
+            let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+            switch event.keyCode {
+            case 126 where mods.isEmpty: return .up
+            case 125 where mods.isEmpty: return .down
+            case 48 where mods.isEmpty, 36 where mods.isEmpty, 76 where mods.isEmpty: return .accept
+            case 53: return .dismiss
+            default: return nil
+            }
         }
 
         /// Applies text from SwiftUI, except while an input method is composing. The marked
@@ -567,6 +598,7 @@ struct ComposerField: NSViewRepresentable {
         tv.isSelectable = !disabled
         tv.onImages = onImages
         tv.onSubmit = onSubmit
+        tv.onNavigate = onNavigate
         tv.sendKey = sendKey
         context.coordinator.measure(tv)
         if focus != context.coordinator.focused {

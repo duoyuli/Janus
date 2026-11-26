@@ -17,7 +17,13 @@ enum SessionView {
         static func == (a: Control, b: Control) -> Bool { a.id == b.id && a.current == b.current && a.options.map(\.value) == b.options.map(\.value) }
     }
 
-    struct Command: Equatable { let name: String; let description: String; let hint: String }
+    struct Command: Equatable {
+        let name: String
+        let description: String
+        let hint: String
+        /// A skill the agent offers as a command, listed in a group of its own.
+        var skill = false
+    }
 
     struct Usage: Equatable {
         /// Context used and its size, when the agent reports them.
@@ -80,7 +86,42 @@ enum SessionView {
     /// The slash commands the agent offers now.
     static func commands(_ evs: [Event]) -> [Command] {
         guard let e = evs.last(where: { $0.type == .sessionCommands }) else { return [] }
-        return e.data["commands"].array.map { Command(name: $0["name"].str, description: $0["description"].str, hint: $0["hint"].str) }
+        return e.data["commands"].array.map { Command(name: $0["name"].str, description: $0["description"].str, hint: $0["hint"].str, skill: $0["skill"].bool ?? false) }
+    }
+
+    /// The commands matching what follows `/`, best first, in Lody's tiers: the name itself, a
+    /// prefix of it, a prefix of one of its words (after `-` `_` `/` `:` `.`), anywhere in it,
+    /// its letters in order, and last only the description. Within a tier the earlier and the
+    /// shorter match wins. Nothing typed yet keeps the agent's order, its own commands first.
+    static func rank(_ commands: [Command], _ query: String) -> [Command] {
+        let q = query.lowercased()
+        if q.isEmpty { return commands.filter { !$0.skill } + commands.filter(\.skill) }
+        func score(_ c: Command) -> (Int, Int, Int)? {
+            let n = c.name.lowercased()
+            if n == q { return (0, 0, n.count) }
+            if n.hasPrefix(q) { return (1, 0, n.count) }
+            let words = n.split(whereSeparator: { "-_/:. ".contains($0) })
+            if let w = words.firstIndex(where: { $0.hasPrefix(q) }) { return (2, w, n.count) }
+            if let r = n.range(of: q) { return (3, n.distance(from: n.startIndex, to: r.lowerBound), n.count) }
+            var rest = Substring(q)
+            for ch in n where rest.first == ch { rest = rest.dropFirst() }
+            if rest.isEmpty { return (4, 0, n.count) }
+            if c.description.lowercased().contains(q) { return (5, 0, n.count) }
+            return nil
+        }
+        return commands.compactMap { c in score(c).map { (c, $0) } }
+            .enumerated()
+            .sorted { a, b in a.element.1 != b.element.1 ? a.element.1 < b.element.1 : a.offset < b.offset }
+            .map(\.element.0)
+    }
+
+    /// The arguments still to write after a command picked from the list: its hint, shown grey
+    /// after `/name ` until the person types on.
+    static func argumentHint(_ draft: String, _ commands: [Command]) -> String? {
+        guard draft.hasPrefix("/"), draft.hasSuffix(" "), draft.filter({ $0 == " " }).count == 1 else { return nil }
+        let name = String(draft.dropFirst().dropLast())
+        guard let c = commands.first(where: { $0.name == name }), !c.hint.isEmpty else { return nil }
+        return c.hint
     }
 
     static func usage(_ evs: [Event]) -> Usage? {

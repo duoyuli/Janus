@@ -50,4 +50,41 @@ def sessions(ctx, c):
     t.fake.wait_call("links README.md")
     c("missing.md" not in t.fake.calls().split("links README.md", 1)[1].split("\n", 1)[0], "@ 引用只带工作区里存在的文件")
     ctx.ui(c, run.id, lambda r, s: next(x for x in r["tasks"] if x["id"] == "T1")["status"] == "succeeded", "T1 的会话已完成",
-           pages=("task:T2", "task:T1", "density detail", "draft T1 /", "agent:lead"))
+           pages=("task:T2", "task:T1", "density summary", "task:T1", "density detail", "draft T1 /", "agent:lead"))
+    if ctx.app:
+        conversation_in_turns(ctx, c, run)
+
+
+def conversation_in_turns(ctx, c, run):
+    """The app lays T1's session out in turns, from the same events the server holds
+    (docs/architecture/20261031-frontend.md#session_turns)."""
+    evs = [e for e in run.events() if e.get("task") == "T1"]
+    commands = [x["name"] for x in next(e for e in reversed(evs) if e["type"] == "session.commands")["data"]["commands"]]
+    hint = next(x["hint"] for x in next(e for e in reversed(evs) if e["type"] == "session.commands")["data"]["commands"] if x["name"] == "review")
+    edited = {d["path"] for e in evs if e["type"] == "tool.call" for d in e["data"].get("diffs") or []}
+
+    def conv(st):
+        return st["run"]["conversations"]["sess-T1"]
+
+    st = ctx.app.do(f"open run:{run.id}", "density summary", "draft T1 /")
+    rows = conv(st)["rows"]
+    kinds = [r["kind"] for r in rows]
+    c(kinds[0] == "section" and "system" in rows[0]["injected"],
+      f"每次尝试开头列出 Janus 注入的系统层，留在对话里：{rows[0]}")
+    head = next((r for r in rows if r["kind"] == "head"), None)
+    c(head and head["agent"] and f"改 {len(edited)} 个文件" in head["stats"] and not head["running"], f"Agent 的一行写出这一轮做了什么：{head}")
+    # A turn ending in a reply folds to it; one that only handed in its result keeps its work in view.
+    replied = "reply" in kinds
+    c(head["open"] is (not replied) and ("activity" in kinds) is (not replied), f"摘要档：有回复的一轮收起，没有回复的保持展开：{kinds}")
+    c("item" in kinds and any(r.get("type") == "result.submitted" for r in rows), "提交的结果始终在对话里")
+    files = next(r for r in rows if r["kind"] == "edits")["files"]
+    c({f["path"] for f in files} == edited and files[0]["added"] == 1, f"「改了 N 个文件」和服务端的 diff 一致：{files}")
+    labels = [x["label"] for x in conv(st)["suggestions"]]
+    c(labels == ["/" + n for n in commands], f"输入 / 列出 Agent 的斜杠命令：{labels}")
+
+    st = ctx.app.do("density detail", "draft T1 /review ")
+    kinds = [r["kind"] for r in conv(st)["rows"]]
+    c("activity" in kinds and next(r for r in conv(st)["rows"] if r["kind"] == "head")["open"] is True, f"详细档：每一轮都展开：{kinds}")
+    c(conv(st)["ghost"] == hint, f"选中命令后灰字显示它的参数：{conv(st)['ghost']}")
+    c(conv(st)["preview"] == {"text": "", "tools": 0}, "会话结束后没有残留的实时预览")
+    ctx.app.do("draft T1 ")

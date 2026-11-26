@@ -19,6 +19,11 @@ pub struct Turn {
     pub last_status: i64,
     pub thought: String,
     pub skills_read: std::collections::HashSet<String>,
+    /// The live preview (`orchestrator::live`): when the last frame went out, whether text or
+    /// thought arrived since, and the running tool calls that moved since.
+    pub live_at: i64,
+    pub live_said: bool,
+    pub live_tools: std::collections::BTreeSet<String>,
     plan: String,
     commands: String,
 }
@@ -55,7 +60,9 @@ pub fn event_for(u: &Value, turn: &mut Turn) -> Option<Shown> {
                 .iter()
                 .filter_map(|c| {
                     let name = c["name"].as_str()?.trim_start_matches('/');
-                    Some(json!({ "name": name, "description": c["description"], "hint": c["input"]["hint"] }))
+                    // The official adapters mark a skill's command for AIR clients, which Janus is.
+                    let skill = c["_meta"]["jetbrains"]["air"]["kind"] == "skill";
+                    Some(json!({ "name": name, "description": c["description"], "hint": c["input"]["hint"], "skill": skill }))
                 })
                 .collect();
             let key = serde_json::to_string(&commands).ok()?;
@@ -230,11 +237,16 @@ mod tests {
         assert_eq!((kind.as_str(), text.as_str()), ("agent.plan", "计划：1/2 完成"));
         assert_eq!(data["entries"][1]["status"], "in_progress");
         assert!(event_for(&plan, &mut t).is_none(), "an unchanged plan is not recorded again");
-        let cmds = json!({ "sessionUpdate": "available_commands_update", "availableCommands": [{ "name": "/compact", "description": "压缩上下文" }, { "name": "review", "description": "审查", "input": { "hint": "目标" } }] });
+        let cmds = json!({ "sessionUpdate": "available_commands_update", "availableCommands": [{ "name": "/compact", "description": "压缩上下文" }, { "name": "review", "description": "审查", "input": { "hint": "目标" }, "_meta": { "jetbrains": { "air": { "kind": "skill" } } } }] });
         let (kind, _, data) = event_for(&cmds, &mut t).unwrap();
         assert_eq!(kind.as_str(), "session.commands");
         assert_eq!(data["commands"][0]["name"], "compact");
         assert_eq!(data["commands"][1]["hint"], "目标");
+        assert_eq!(
+            (data["commands"][0]["skill"].clone(), data["commands"][1]["skill"].clone()),
+            (json!(false), json!(true)),
+            "skills are marked"
+        );
         assert!(event_for(&cmds, &mut t).is_none());
         assert!(
             event_for(

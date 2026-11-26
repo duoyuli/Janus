@@ -349,3 +349,39 @@ async fn pasted_images_reach_the_agent() {
     h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A slash command sent while the agent works is not cut into its turn, where it would be read
+/// as words: it waits for the turn to end and goes as a prompt of its own. Plain text still
+/// joins the running turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_slash_command_waits_for_the_turn() {
+    let h = harness("slash-queued", &[("lead", false), ("m1", true)], json!({ "T1": ["hold:go", "ok"] }));
+    std::fs::write(h.dir.join("fake/steer"), "").unwrap();
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 started", |e| task_event(e, "attempt.started", "T1")).await;
+    let r = h.app.run(&run).unwrap();
+    for _ in 0..100 {
+        if r.st.lock().unwrap().steerable.contains(&SessionKey::task("T1")) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    act(&h, &run, json!({ "type": "message", "task": "T1", "text": "先看 README" }));
+    act(&h, &run, json!({ "type": "message", "task": "T1", "text": "/compact" }));
+    let routed = |e: &[Event], delivery: &str| {
+        e.iter()
+            .filter(|e| e.kind.as_str() == "message.routed" && e.data.as_ref().unwrap()["delivery"] == delivery)
+            .count()
+    };
+    wait_until(&h.app, &run, "both routed", |e| routed(e, "steer") + routed(e, "queued") == 2).await;
+    let evs = events(&h.app, &run);
+    assert_eq!((routed(&evs, "steer"), routed(&evs, "queued")), (1, 1), "text steers, the command waits");
+    let calls = std::fs::read_to_string(h.dir.join("fake/calls.log")).unwrap();
+    assert!(calls.contains("steer 先看 README") && !calls.contains("steer /compact"), "{calls}");
+    std::fs::write(h.dir.join("fake/go"), "").unwrap();
+    wait_until(&h.app, &run, "command delivered", |e| {
+        has(e, "message.delivered") && task_event(e, "task.succeeded", "T1")
+    })
+    .await;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

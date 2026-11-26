@@ -21,7 +21,10 @@ fn lagged() -> Result<SseEvent, Infallible> {
     Ok(SseEvent::default().event("lagged").data("{}"))
 }
 
-/// A run's events from `after` on: the backlog, then each new one as it is stored.
+/// A run's events from `after` on: the backlog, then each new one as it is stored. Beside them,
+/// `live` frames preview what its sessions are writing and running before it is on record; a
+/// frame missed is not worth a reload, so they never ask for one.
+// @project-doc docs/interfaces/20261031-acp_integration.md#live_frames
 pub(super) async fn run(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,
@@ -29,16 +32,22 @@ pub(super) async fn run(
 ) -> Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>> {
     // Subscribe before reading the backlog so nothing falls between the two.
     let live = BroadcastStream::new(app.tx.subscribe());
+    let frames = BroadcastStream::new(app.live.subscribe());
     let backlog = app.db.events(&id, q.after.unwrap_or(0)).unwrap_or_default();
     let last = backlog.last().map(|e| e.seq).unwrap_or(q.after.unwrap_or(0));
     let to_sse = |e: &db::Event| Ok(SseEvent::default().data(serde_json::to_string(e).unwrap()));
     let backlog: Vec<_> = backlog.iter().map(to_sse).collect();
+    let run_id = id.clone();
     let live = live.filter_map(move |msg| match msg {
         Ok(e) if e.run_id == id && e.seq > last => Some(to_sse(&e)),
         Err(_) => Some(lagged()),
         _ => None,
     });
-    Sse::new(tokio_stream::iter(backlog).chain(live)).keep_alive(KeepAlive::default())
+    let frames = frames.filter_map(move |msg| match msg {
+        Ok(f) if f.run == run_id => Some(Ok(SseEvent::default().event("live").data(f.data.to_string()))),
+        _ => None,
+    });
+    Sse::new(tokio_stream::iter(backlog).chain(live.merge(frames))).keep_alive(KeepAlive::default())
 }
 
 /// Everything the app follows across runs, as it happens: a short notice for each new event of any

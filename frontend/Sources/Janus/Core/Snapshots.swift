@@ -328,6 +328,20 @@ enum Snapshots {
                     }() : .null,
                     // What each session's composer holds, by session key.
                     "drafts": .object(r.sessionDrafts.mapValues { JSON($0) }),
+                    // Each task's conversation and the lead's, as their cards lay them out: the rows in
+                    // turns at the display level chosen, what the composer suggests for its draft and the
+                    // live preview (docs/architecture/20261031-frontend.md#session_turns).
+                    "conversations": .object(Dictionary(uniqueKeysWithValues: (s.orderedTasks.map { (SessionTarget.task($0.id), taskSession(s, $0)) } + [(SessionTarget.agent("lead"), agentSession(s, "lead"))]).map { target, info in
+                        let detail = UserDefaults.janus.string(forKey: "janus.chatDensity") == ChatDensity.detail.rawValue
+                        let draft = r.sessionDrafts[target.key] ?? ""
+                        let live: ChatLive.Session? = { if case .task(let t) = target { return r.preview.of(task: t, agent: nil) } else { return r.preview.of(task: nil, agent: "lead") } }()
+                        return (target.key, [
+                            "rows": JSON.array(ChatCard.rows(run: r, st: s, info: info, target: target, detail: detail, live: r.canAct).map(Self.row)),
+                            "suggestions": JSON.array(Suggestions.rows(SessionView.asking(draft), commands: SessionView.commands(info.evs), files: []).map { ["label": JSON($0.label), "group": $0.group.map(JSON.init) ?? .null] }),
+                            "ghost": SessionView.argumentHint(draft, SessionView.commands(info.evs)).map(JSON.init) ?? .null,
+                            "preview": ["text": JSON(live?.text ?? ""), "tools": JSON(live?.tools.count ?? 0)],
+                        ] as JSON)
+                    })),
                     "status": JSON(s.run.status.rawValue), "paused": JSON(s.run.paused), "delivered": JSON(s.result != nil),
                     "goal": JSON(s.run.goal), "queuePosition": r.queuePosition.map { JSON($0) } ?? .null,
                     "accepted": JSON(s.result?.accepted != nil), "events": JSON(s.events.count),
@@ -428,6 +442,19 @@ enum Snapshots {
 
     /// The first composer of the key window (or the first visible one).
     /// A block as the state names it: its kind, and for a table its header, for code its language.
+    /// One conversation row as the test reads it: its kind, and what it shows in words.
+    static func row(_ r: ChatTurns.Row) -> JSON {
+        switch r {
+        case .section(let e, let injected): return ["kind": "section", "type": JSON(e.type.rawValue), "injected": JSON.array(injected.map { JSON($0.data["channel"].string ?? $0.type.rawValue) })]
+        case .item(let e): return ["kind": "item", "type": JSON(e.type.rawValue), "seq": JSON(e.seq)]
+        case .head(let t, let open):
+            return ["kind": "head", "agent": JSON(t.agent), "open": open.map { JSON.bool($0) } ?? .null, "running": JSON(t.running), "stats": JSON(t.stats.text)]
+        case .activity(_, let es, let open): return ["kind": "activity", "calls": JSON(es.count), "open": open.map { JSON.bool($0) } ?? .null]
+        case .text(let es, let reply): return ["kind": reply ? "reply" : "text", "text": JSON(es.map { $0.data["text"].str }.joined())]
+        case .edits(_, let files): return ["kind": "edits", "files": JSON.array(files.map { ["path": JSON($0.path), "added": JSON($0.added), "removed": JSON($0.removed)] })]
+        }
+    }
+
     private static func block(_ n: MDDoc.Node) -> String {
         switch n {
         case .heading(let level, _): return "heading\(level)"
@@ -485,22 +512,27 @@ enum ChatProbe {
     static var content: CGFloat = 0
     static var following = true
 
-    /// Rows in the conversation's order (a row's id is its first event's sequence number, negative
-    /// for a group of tool calls). A row the lazy list keeps aside after it scrolled away may
+    /// Rows in the conversation's order (`order`; a row's id is its first event's sequence number,
+    /// negative for a turn's own rows). A row the lazy list keeps aside after it scrolled away may
     /// report where it last was, so only the rows in view are sure to be where they are drawn.
     static var json: JSON {
-        let built = rows.sorted { abs($0.key) < abs($1.key) }
+        let built = rows.sorted { (order[$0.key] ?? 0) < (order[$1.key] ?? 0) }
         return ["following": .bool(following), "content": JSON(Int(content.rounded())),
                 "offset": JSON(Int(visible.minY.rounded())), "height": JSON(Int(visible.height.rounded())),
                 "rows": JSON.array(built.map { ["id": JSON($0.key), "top": JSON(Int($0.value.minY.rounded())), "bottom": JSON(Int($0.value.maxY.rounded()))] })]
     }
 
+    /// Each row's place in the conversation, top first.
+    static var order: [Int: Int] = [:]
+
     struct Row: ViewModifier {
         let id: Int
+        /// Its place in the conversation: ids are not in order (a turn's own rows have negative ones).
+        let order: Int
         func body(content: Content) -> some View {
             if Snapshots.active {
                 content
-                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .scrollView) } action: { ChatProbe.rows[id] = $0 }
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .scrollView) } action: { ChatProbe.rows[id] = $0; ChatProbe.order[id] = order }
                     .onDisappear { ChatProbe.rows[id] = nil }
             } else {
                 content

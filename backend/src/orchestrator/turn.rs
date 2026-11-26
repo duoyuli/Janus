@@ -37,6 +37,8 @@ impl App {
         let mut heard = tokio::time::Instant::now();
         let mut asks = 0u8;
         let mut asked_at: Option<usize> = None;
+        // However the turn ends, the app drops what it previewed of it.
+        let _live_end = LiveEnd { app: self, run, ctx };
         loop {
             let steer = async {
                 match ctl.as_mut() {
@@ -55,7 +57,15 @@ impl App {
             let settle = async move {
                 if settle_wait { tokio::time::sleep_until(settle_at).await } else { std::future::pending().await }
             };
+            let live_due = super::live::live_due(&turn);
+            let live_tick = async move {
+                match live_due {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            };
             tokio::select! {
+                _ = live_tick => self.live_frame(run, ctx, &out[flushed..], &mut turn),
                 _ = settle => {
                     asks += 1;
                     let text = crate::goal_settle::ask(run.lang);
@@ -208,7 +218,10 @@ impl App {
                 // turn to end. A short timeout: while this waits, the session loop answers nothing
                 // else, and the agent may itself be waiting for us (for example on a permission
                 // request).
-                let injected = c.steering && self.steer_into_turn(run, conn, sid, &m.text).await;
+                // A slash command runs only as a prompt of its own: cut into a turn, the agent
+                // would read it as words. It waits for the turn to end like any queued message.
+                let injected =
+                    c.steering && !is_command(&m.text) && self.steer_into_turn(run, conn, sid, &m.text).await;
                 self.route_message(
                     run,
                     agent,
@@ -591,6 +604,9 @@ impl App {
         // The /goal state comes as session info, { goal: { objective, status } } or null once
         // cleared, under the AIR metadata both official adapters use.
         let goal_meta = u["_meta"]["jetbrains"]["air"].get("goal");
+        if matches!(u["sessionUpdate"].as_str(), Some("agent_message_chunk" | "agent_thought_chunk")) {
+            turn.live_said = true;
+        }
         match u["sessionUpdate"].as_str().unwrap_or("") {
             "session_info_update" if ctx.goal && goal_meta.is_some() => {
                 let goal = goal_meta.unwrap();
@@ -643,6 +659,7 @@ impl App {
                     self.emit(run, e);
                 }
                 if matches!(status.as_str(), "completed" | "failed") {
+                    turn.live_tools.remove(&id);
                     let entry = turn.tools.remove(&id).unwrap();
                     if turn.tools.is_empty() {
                         run.with_watch(&key, n, |w| {
@@ -684,6 +701,7 @@ impl App {
                         }
                     }
                 } else {
+                    turn.live_tools.insert(id);
                     run.with_watch(&key, n, |w| {
                         w.phase = phase;
                         w.last_tool = clip(&title, 60);
@@ -1043,6 +1061,27 @@ pub(super) fn unwrap_output(s: &str) -> String {
     }
 }
 
+/// A message that is a slash command (`/compact`, `/review main`): `/` and a name, not a path.
+pub(super) fn is_command(text: &str) -> bool {
+    let Some(name) = text.trim_start().strip_prefix('/').and_then(|t| t.split_whitespace().next()) else {
+        return false;
+    };
+    name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && !name.contains('/')
+}
+
+/// Tells the app a turn's preview is over when the turn ends, however it ends.
+struct LiveEnd<'a> {
+    app: &'a App,
+    run: &'a Run,
+    ctx: &'a Ctx<'a>,
+}
+
+impl Drop for LiveEnd<'_> {
+    fn drop(&mut self) {
+        self.app.live_end(self.run, self.ctx);
+    }
+}
+
 pub(super) fn summarize_output(entry: &Value) -> String {
     if let Some(items) = entry["content"].as_array() {
         let parts: Vec<String> = items
@@ -1071,5 +1110,21 @@ fn tool_phase(kind: &str, title: &str) -> AgentPhase {
         "edit" | "delete" | "move" => AgentPhase::Editing,
         _ if title.contains("test") || title.contains("测试") => AgentPhase::RunningTest,
         _ => AgentPhase::RunningTool,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_command;
+
+    #[test]
+    fn a_command_is_a_slash_and_a_name() {
+        assert!(is_command("/compact"));
+        assert!(is_command("  /review main"));
+        assert!(is_command("/mcp:fetch url"));
+        assert!(!is_command("/Users/me/notes.md is wrong"), "a path is words");
+        assert!(!is_command("/ 这里"));
+        assert!(!is_command("compact /now"));
+        assert!(!is_command("/1 不算"));
     }
 }

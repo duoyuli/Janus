@@ -104,10 +104,20 @@ struct ChatCard: View {
     let target: SessionTarget
     /// How much of the agent's work to show (`ChatDensity`). One choice for all conversations,
     /// remembered on this Mac.
-    @AppStorage("janus.chatDensity", store: .janus) private var density = ChatDensity.detail
+    @AppStorage("janus.chatDensity", store: .janus) private var density = ChatDensity.summary
     private var sendKey: SendKey { SendKeySetting.shared.value }
     /// Counts the person's messages: sending one brings the conversation to its newest item.
     @Local private var sent = 0
+    /// The slash commands or files offered above the composer, and the one the keys are on.
+    @Local private var picker = SuggestionPicker()
+
+    /// Requests of this session still waiting for the person, oldest first.
+    private var requests: [InboxItem] {
+        info.evs.filter { [.approvalRequested, .inputRequested].contains($0.type) }.compactMap { e in st.inbox.first { $0.key == e.data["key"].str } }
+    }
+
+    /// Requests sit above the composer while the person can act on them here.
+    private var docked: Bool { run.canAct }
 
     var body: some View {
         let live = run.canAct
@@ -117,13 +127,6 @@ struct ChatCard: View {
                 Text(title).font(.headline)
                 Spacer()
                 if info.open && live && !(info.human && info.idle) { QuietNote(last: info.evs.last?.ts ?? 0) }
-                if let u = SessionView.usage(info.evs) {
-                    // This session's own numbers, labelled: `本会话 上下文 26% · 上一轮 1,500 tokens`.
-                    // They stay apart from the run's cumulative total on the run card.
-                    Text(verbatim: u.labels ?? u.percent.map { L.text("上下文 \($0)%") } ?? "\(SessionView.tokens(u.tokens ?? 0)) tokens")
-                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-                        .help([u.used.map { L.text("上下文已用 \(SessionView.tokens($0))") }, u.size.map { L.text("共 \(SessionView.tokens($0))") }, u.tokens.map { L.text("上一轮 \(SessionView.tokens($0)) tokens") }].compactMap { $0 }.joined(separator: " · ") + L.text("\n本会话的数字不计入任务累计用量"))
-                }
                 Picker(L.text("显示"), selection: $density) {
                     Text(L.text("详细")).tag(ChatDensity.detail)
                     Text(L.text("摘要")).tag(ChatDensity.summary)
@@ -135,16 +138,31 @@ struct ChatCard: View {
             .padding(12)
             Divider()
             PlanStrip(steps: SessionView.plan(info.evs))
-            ChatScroll(run: run, st: st, groups: groups, density: density, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent)
+            ChatScroll(run: run, st: st, rows: rows(live: live), target: target, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent, density: density, docked: docked) { id, open in
+                run.chatOpen[target.key, default: [:]][id] = open
+            }
                 // Each conversation keeps its own place; another task's session opens at its newest.
                 .id(target)
             PendingTray(st: st, target: target)
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
-                if enabled { Suggestions(run: run, draft: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), commands: SessionView.commands(info.evs)) }
-                Composer(text: Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 }), images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0) { send("message") }
-                HStack {
+                // What the agent waits on sits right above where the person answers, as in Lody;
+                // the conversation keeps one line where it was asked.
+                if docked, let first = requests.first {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if requests.count > 1 { Text(verbatim: L.text("1 / \(requests.count) 个请求")).font(.caption).foregroundStyle(.secondary) }
+                        RequestCard(run: run, st: st, item: first)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                let commands = SessionView.commands(info.evs)
+                let draft = Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 })
+                if enabled { Suggestions(run: run, draft: draft, commands: commands, picker: picker) }
+                Composer(text: draft, images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0,
+                         onNavigate: { picker.handle($0, draft: draft) }, ghost: SessionView.argumentHint(draft.wrappedValue, commands)) { send("message") }
+                HStack(spacing: 10) {
                     if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
+                    if let u = SessionView.usage(info.evs) { ContextMeter(usage: u) }
                     Spacer()
                     buttons
                 }
@@ -248,36 +266,22 @@ struct ChatCard: View {
         Task { await run.act(body) }
     }
 
-    // Tool calls in a row form one group: listed in full, or one line in the summary.
-    struct Group1: Identifiable { enum Kind { case item(Event), messages([Event]), tools([Event]) }; let id: Int; let kind: Kind }
+    /// The conversation in turns (`ChatTurns`): the events it shows, folded as the display level
+    /// and the person's own clicks say.
+    private func rows(live: Bool) -> [ChatTurns.Row] {
+        Self.rows(run: run, st: st, info: info, target: target, detail: density == .detail, live: live)
+    }
 
-    private var groups: [Group1] {
-        var out: [Group1] = []
-        var run: [Event] = []
+    static func rows(run: RunModel, st: RunState, info: SessionInfo, target: SessionTarget, detail: Bool, live: Bool) -> [ChatTurns.Row] {
         // Calls that came back: Janus's board tools (`tool.completed`) and the agent's own
         // (`tool.call` with the id its running row had).
         let done = Set(info.evs.filter { $0.type == .toolCompleted || ($0.type == .toolCall && $0.data["callId"].truthy) }.map { "\($0.actor):\($0.data["callId"].str)" })
-        func flush() { if let f = run.first { out.append(Group1(id: -f.seq, kind: .tools(run))) }; run = [] }
-        for e in info.evs {
-            if [.toolCall, .toolStarted, .toolCompleted].contains(e.type) {
-                if ToolRow.hidden(e, done: done) { continue }
-                run.append(e)
-            } else {
-                if !ChatItem.visible(e, st: st) { continue }
-                // The summary keeps what was said, asked and delivered; Janus's own prompts,
-                // status lines and the agent's thinking stay in the other views.
-                if density == .summary && [.sessionPrompt, .agentStatus, .agentThought].contains(e.type) { continue }
-                flush()
-                // Text streams in pieces; pieces in a row from one agent read as one message.
-                if e.type == .agentMessage, let last = out.last, case .messages(let es) = last.kind, es[0].actor == e.actor, es[0].attempt == e.attempt {
-                    out[out.count - 1] = Group1(id: last.id, kind: .messages(es + [e]))
-                    continue
-                }
-                out.append(Group1(id: e.seq, kind: e.type == .agentMessage ? .messages([e]) : .item(e)))
-            }
+        let shown = info.evs.filter { e in
+            [.toolCall, .toolStarted, .toolCompleted].contains(e.type) ? !ToolRow.hidden(e, done: done) : ChatItem.visible(e, st: st)
         }
-        flush()
-        return out
+        // The newest turn runs while the session works on its own or on the person's message.
+        let busy = info.open && live && !info.idle && !run.isReplaying
+        return ChatTurns.rows(shown, ChatTurns.Options(detail: detail, busy: busy, cwd: st.run.cwd, open: run.chatOpen[target.key] ?? [:]))
     }
 }
 
@@ -294,13 +298,18 @@ enum ChatDensity: String {
 struct ChatScroll: View {
     let run: RunModel
     let st: RunState
-    let groups: [ChatCard.Group1]
-    let density: ChatDensity
+    let rows: [ChatTurns.Row]
+    let target: SessionTarget
     let empty: Bool
     /// The session's last event: it changes whenever anything arrives.
     let last: Int
     /// Bumped when the person sends a message, which brings them to the newest.
     let sent: Int
+    let density: ChatDensity
+    /// Waiting requests are answered above the composer, not in the conversation.
+    let docked: Bool
+    /// The person opened or folded a turn or a group of calls (row id, open).
+    let toggle: (Int, Bool) -> Void
     @Local private var follow = ChatFollow()
     @Local private var position = ScrollPosition(edge: .bottom)
     /// The person is scrolling: dragging, swiping, or the swipe running on.
@@ -308,9 +317,11 @@ struct ChatScroll: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
-                ForEach(groups) { g in row(g).modifier(ChatProbe.Row(id: g.id)) }
+                // The rows, then what the agent is writing right now (its own view, so only it
+                // redraws per frame). One `ForEach`: a lazy list scrolls to ids it lists.
+                ForEach(lines) { line($0) }
             }
             .scrollTargetLayout()
         }
@@ -342,17 +353,65 @@ struct ChatScroll: View {
         .overlay(alignment: .bottom) { if !follow.following { back } }
     }
 
-    @ViewBuilder private func row(_ g: ChatCard.Group1) -> some View {
+    /// The live preview's row, always last.
+    static let liveId = Int.min / 2
+
+    /// The agent is writing or thinking right now: the newest line is its preview.
+    private var previewing: Bool {
+        let s: ChatLive.Session?
+        switch target {
+        case .task(let t): s = run.preview.of(task: t, agent: nil)
+        case .agent(let a): s = run.preview.of(task: nil, agent: a)
+        }
+        return !run.isReplaying && !(s.map { $0.text.isEmpty && $0.thought.isEmpty } ?? true)
+    }
+
+    /// One line of the list: a conversation row at its place, or the live preview after them all.
+    struct Line: Identifiable {
+        let index: Int
+        let row: ChatTurns.Row?
+        var id: Int { row?.id ?? ChatScroll.liveId }
+    }
+
+    private var lines: [Line] { rows.enumerated().map { Line(index: $0.offset, row: $0.element) } + [Line(index: rows.count, row: nil)] }
+
+    @ViewBuilder private func line(_ l: Line) -> some View {
+        if let r = l.row {
+            let gap: CGFloat = l.index == 0 ? 0 : Self.gap(r, after: rows[l.index - 1])
+            row(r).padding(.top, gap).modifier(ChatProbe.Row(id: r.id, order: l.index))
+        } else {
+            LiveSlot(run: run, target: target)
+        }
+    }
+
+    /// Turns and sections stand apart; the blocks of one turn sit close.
+    static func gap(_ r: ChatTurns.Row, after prev: ChatTurns.Row) -> CGFloat {
+        switch r {
+        case .section: return ChatRhythm.round
+        case .item(let e):
+            // A prompt right under the message it carries sits with it.
+            if case .item(let p) = prev, ChatTurns.role(p) == .opener { return ChatRhythm.block / 2 }
+            return ChatTurns.role(e) == .opener ? ChatRhythm.round : ChatRhythm.block / 2
+        case .head: return ChatRhythm.block
+        case .activity: return ChatRhythm.line
+        case .text(_, let reply): return reply ? ChatRhythm.block : ChatRhythm.line + 4
+        case .edits: return ChatRhythm.block
+        }
+    }
+
+    @ViewBuilder private func row(_ r: ChatTurns.Row) -> some View {
         let cwd = st.run.cwd
-        switch g.kind {
-        case .item(let e): ChatItem(run: run, st: st, e: e)
-        case .messages(let es): ChatItem(run: run, st: st, e: es[0], more: Array(es.dropFirst()))
-        case .tools(let es):
-            if density == .summary {
-                Text(verbatim: L.text("· \(es.count) 个操作")).font(.caption).foregroundStyle(.tertiary)
-            } else {
-                ForEach(es) { ToolRow(run: run, e: $0, cwd: cwd) }
+        switch r {
+        case .section(let e, let injected):
+            VStack(alignment: .leading, spacing: 6) {
+                ChatItem(run: run, st: st, e: e, docked: docked)
+                ForEach(injected) { ChatItem(run: run, st: st, e: $0, docked: docked) }
             }
+        case .item(let e): ChatItem(run: run, st: st, e: e, docked: docked)
+        case .head(let t, let open): TurnHead(run: run, turn: t, open: open) { toggle(r.id, !(open ?? false)) }
+        case .activity(_, let es, let open): ActivityRow(run: run, events: es, open: open, cwd: cwd) { toggle(r.id, !(open ?? true)) }
+        case .text(let es, let reply): TextRow(events: es, reply: reply)
+        case .edits(_, let files): EditsCard(files: files, cwd: cwd)
         }
     }
 
@@ -383,13 +442,37 @@ struct ChatScroll: View {
     /// it has not built, which can be far off for long Markdown messages: it scrolled past every
     /// row and the conversation showed nothing.
     private func toNewest() {
-        if let id = groups.last?.id { position.scrollTo(id: id, anchor: .bottom) } else { position.scrollTo(edge: .bottom) }
+        // The live preview when the agent is writing, else the newest row: scrolling to a row the
+        // list has nothing in (the empty preview) lands where its estimate puts it, not at the end.
+        if previewing || rows.isEmpty { position.scrollTo(id: Self.liveId, anchor: .bottom) } else { position.scrollTo(id: rows[rows.count - 1].id, anchor: .bottom) }
     }
 
     private func update(_ change: (inout ChatFollow) -> Void) {
         var f = follow
         change(&f)
         if f != follow { follow = f }
+    }
+}
+
+/// The newest row of a conversation: what its session is writing or thinking right now. Reads
+/// the run's live previews itself, so a frame redraws this row and nothing else.
+struct LiveSlot: View {
+    let run: RunModel
+    let target: SessionTarget
+
+    var body: some View {
+        if !run.isReplaying, let s = session, !(s.text.isEmpty && s.thought.isEmpty) {
+            LiveRow(session: s).padding(.top, ChatRhythm.block)
+        } else {
+            Color.clear.frame(height: 1)
+        }
+    }
+
+    private var session: ChatLive.Session? {
+        switch target {
+        case .task(let t): return run.preview.of(task: t, agent: nil)
+        case .agent(let a): return run.preview.of(task: nil, agent: a)
+        }
     }
 }
 
@@ -469,6 +552,8 @@ struct ChatItem: View {
     let e: Event
     /// Further pieces of the same agent message, streamed after `e`.
     var more: [Event] = []
+    /// A waiting request is answered above the composer: here it is one line.
+    var docked = false
 
     /// Items that render nothing (messages shown where they were routed, unknown messages).
     static func visible(_ e: Event, st: RunState) -> Bool {
@@ -522,15 +607,9 @@ struct ChatItem: View {
             }
             StoredImages(paths: Attach.paths(d), size: 56)
         case .agentMessage:
-            // Pieces keep their own whitespace (code blocks may be cut anywhere): join them as they came.
-            let words = ([e] + more).map { $0.data["text"].str }.joined().trimmingCharacters(in: .whitespacesAndNewlines)
-            if !words.isEmpty { bubble(agent: e.actor) { MarkdownText(text: words) } }
+            TextRow(events: [e] + more, reply: true)
         case .agentThought:
-            DisclosureGroup {
-                Text(d["text"].str).font(.callout).italic().foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 2)
-            } label: {
-                Text(verbatim: L.text("思考 · \(L.short(d["text"].str.replacingOccurrences(of: "\n", with: " "), 60))")).font(.caption).foregroundStyle(.secondary)
-            }
+            ThoughtLine(text: d["text"].str)
         case .sessionControl:
             note("\(d["failed"].truthy ? "⚠" : "↺") \(e.text)", d["failed"].truthy ? .amber : nil)
         case .sessionPrompt:
@@ -547,13 +626,16 @@ struct ChatItem: View {
                     : L.text("团队任务专属：分工、看板、派工和验证规则。"),
                 "history": L.text("重开对话时带上最近的聊天，接着聊。"),
             ][d["channel"].str]
-            VStack(alignment: .leading, spacing: 4) {
-                HStack { Text(verbatim: "→ \(label)").font(.callout.weight(.semibold)); Text(L.text("Janus 发给 Agent")).font(.caption).foregroundStyle(.secondary) }
-                if let hint { Text(hint).font(.caption).foregroundStyle(.secondary) }
-                DisclosureGroup(L.text("查看内容")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
+            // One line in the flow, as the rest of Janus's own notes: what it sent, a click from its text.
+            DisclosureGroup {
+                CodeBlock(text: d["prompt"].str, maxHeight: 360).padding(.top, 4)
+            } label: {
+                HStack(spacing: 6) {
+                    Text(verbatim: "→ \(label)").font(.callout.weight(.medium)).foregroundStyle(.secondary)
+                    Text(hint ?? L.text("Janus 发给 Agent")).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                }
+                .help(L.text("Janus 发给 Agent"))
             }
-            .padding(8)
-            .background(Tone.blue.color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         // Goal mode: a collaborator asks the lead, which answers on the board.
         case .questionAsked: note(L.text("? 问负责人：\(d["question"].string ?? e.text)\(d["options"].array.isEmpty ? "" : L.text("（\(d["options"].strings.joined(separator: " / "))）")) · 负责人会回答，不需要你处理"), .amber)
         // The lead edited files after handing out subtasks: it only manages from then on.
@@ -607,7 +689,9 @@ struct ChatItem: View {
         case .loopFailed: note("⚠ \(L.dateTime(e.ts)) · \(e.text)", .amber)
         // A request still waiting is answered right here, with the same card as the inbox.
         case .approvalRequested, .inputRequested:
-            if let item = st.inbox.first(where: { $0.key == d["key"].str }) { RequestCard(run: run, st: st, item: item) }
+            if let item = st.inbox.first(where: { $0.key == d["key"].str }) {
+                if docked { note(L.text("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text) · 等你处理，在输入框上方"), .amber) } else { RequestCard(run: run, st: st, item: item) }
+            }
             else { note(L.text("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text)"), L.tone(of: e.type)) }
         default: note(L.text("\(L.icon[e.type] ?? "·") \(run.who(e.actor).name)：\(e.text)"), L.tone(of: e.type))
         }
@@ -618,18 +702,8 @@ struct ChatItem: View {
     }
 
     private func note(_ t: String, _ tone: Tone?) -> some View {
-        Text(t).font(.caption).foregroundStyle(tone?.color ?? .secondary).textSelection(.enabled)
-    }
-
-    private func bubble<C: View>(agent: String, @ViewBuilder content: () -> C) -> some View {
-        let w = run.who(agent)
-        return HStack(alignment: .top, spacing: 8) {
-            Avatar(initials: w.initials, color: w.color, size: 22, role: w.role)
-            VStack(alignment: .leading, spacing: 4) { content() }
-                .padding(10)
-                .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
-            Spacer(minLength: 40)
-        }
+        Text(t).font(.callout).foregroundStyle(tone?.color ?? .secondary).textSelection(.enabled)
+            .frame(maxWidth: ChatRhythm.reading, alignment: .leading)
     }
 
     private func userBubble(_ text: String, images: [String] = [], via: String, insert: Bool) -> some View {
@@ -643,7 +717,7 @@ struct ChatItem: View {
                 if !insert && !via.isEmpty { Text(via).font(.caption).foregroundStyle(.secondary) }
             }
             .padding(10)
-            .background(Color.accent.opacity(insert ? 0.06 : 0.12), in: RoundedRectangle(cornerRadius: 10))
+            .background(insert ? Color.accent.opacity(0.06) : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(insert ? Color.accent.opacity(0.4) : .clear, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         }
     }
@@ -678,26 +752,74 @@ struct ToolRow: View {
     var body: some View {
         let d = e.data
         let board = d["tool"].str.hasPrefix("janus.")
-        let output = L.inWorkspace(d["output"].str, cwd)
+        let running = e.type == .toolStarted
+        // A call still running shows its newest frame: a title the agent filled in later, its output so far.
+        let live = running ? run.preview.tool(actor: e.actor, task: e.task, id: d["callId"].str) : nil
+        let output = L.inWorkspace(live?.output ?? d["output"].str, cwd)
+        let input = live.map { $0.input.isEmpty ? $0.title : $0.input } ?? (d["input"].truthy ? d["input"].str : e.text)
+        let failed = d["status"].str == "failed"
         // The first line that says something: not a Markdown fence around the output.
         let firstLine = output.split(separator: "\n").map(String.init).first { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("```") && !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
-        let (label, result) = board ? janusLabel(d["tool"].str, d["args"], output) : (d["input"].truthy ? d["input"].str : e.text, firstLine)
-        let full = board ? d["args"].or(d["input"]).pretty() : (d["input"].truthy ? d["input"].str : e.text)
-        DisclosureGroup {
-            CodeBlock(text: full + (output.isEmpty ? "" : "\n\n→ \(output)"), maxHeight: 300)
-            ForEach(Array(d["diffs"].array.enumerated()), id: \.offset) { _, x in
-                InlineDiff(path: L.tilde(x["path"].str), old: x["old"].str, new: x["new"].str)
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(board ? (run.isLoop ? L.text("值班") : L.text("看板")) : (d["tool"].truthy ? d["tool"].str : L.text("工具"))).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background((board ? Color.accent : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
-                    Text(label).font(.callout).lineLimit(1).truncationMode(.tail)
-                    if e.type == .toolStarted { Pill(d["live"].truthy ? L.text("进行中") : L.text("等待返回"), .blue) } else if d["status"].str == "failed" { Pill(L.text("失败"), .red) }
-                    if !d["diffs"].array.isEmpty { Text(verbatim: L.text("改了 \(d["diffs"].array.count) 个文件")).font(.caption).foregroundStyle(.secondary) }
+        let full = board ? d["args"].or(d["input"]).pretty() : input
+        VStack(alignment: .leading, spacing: 4) {
+            DisclosureGroup {
+                CodeBlock(text: full + (output.isEmpty ? "" : "\n\n→ \(output)"), maxHeight: 300)
+                ForEach(Array(d["diffs"].array.enumerated()), id: \.offset) { _, x in
+                    InlineDiff(path: L.tilde(x["path"].str), old: x["old"].str, new: x["new"].str)
                 }
-                if !result.isEmpty { Text("→ " + L.short(result, 160)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        if board {
+                            Text(run.isLoop ? L.text("值班") : L.text("看板")).font(.system(size: 11, design: .monospaced)).padding(.horizontal, 4).background(Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 3))
+                            Text(janusLabel(d["tool"].str, d["args"], output).0).font(.callout).lineLimit(1).truncationMode(.tail)
+                        } else {
+                            let (verb, what, mono) = Self.label(kind: live?.tool ?? d["tool"].str, input: input, title: live?.title ?? e.text, running: running, cwd: cwd)
+                            if running {
+                                Shimmer(text: [verb, what].filter { !$0.isEmpty }.joined(separator: " "))
+                            } else {
+                                if !verb.isEmpty { Text(verb).font(.callout).foregroundStyle(failed ? Tone.red.color : .secondary) }
+                                Text(verbatim: what).font(mono ? .system(.callout, design: .monospaced) : .callout)
+                                    .foregroundStyle(failed ? Tone.red.color : .primary).lineLimit(1).truncationMode(.tail)
+                            }
+                        }
+                        if running && !d["live"].truthy { Pill(L.text("等待返回"), .blue) }
+                        if failed { Pill(L.text("失败"), .red) }
+                        if !d["diffs"].array.isEmpty { Text(verbatim: L.text("改了 \(d["diffs"].array.count) 个文件")).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .help(input)
+                    if !running, !firstLine.isEmpty { Text("→ " + L.short(board ? janusLabel(d["tool"].str, d["args"], output).1 : firstLine, 160)).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                }
             }
+            // A running command's output so far: its last lines, as its own terminal ends.
+            if running, !output.isEmpty {
+                let (tail, cut) = ChatTurns.tail(output)
+                VStack(alignment: .leading, spacing: 2) {
+                    if cut { Text(L.text("更早的输出没有显示")).font(.caption2).foregroundStyle(.tertiary) }
+                    Text(verbatim: tail).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(16)
+                }
+                .padding(8)
+                .frame(maxWidth: ChatRhythm.reading, alignment: .leading)
+                .background(Color.soft, in: RoundedRectangle(cornerRadius: 6))
+                .textSelection(.enabled)
+            }
+        }
+    }
+
+    /// A call in one line: a verb for its kind and what it worked on, the command itself for a
+    /// command and the file's name for a file. Unknown kinds read as their own title.
+    static func label(kind: String, input: String, title: String, running: Bool, cwd: String) -> (verb: String, what: String, mono: Bool) {
+        let verb = ChatTurns.verb(kind, running: running)
+        let path = L.inWorkspace(input, cwd)
+        switch kind {
+        case "execute": return (verb, input.components(separatedBy: "\n").first ?? input, true)
+        case "read", "edit", "delete", "move":
+            // A plain path names the file; anything else (a range, a pattern) reads as the agent titled it.
+            if !path.contains(" "), !path.isEmpty { return (verb, (path as NSString).lastPathComponent, true) }
+            return (verb, title, false)
+        case "search", "fetch": return (verb, input.isEmpty ? title : input, false)
+        case "think": return (verb, "", false)
+        default: return ("", title.isEmpty ? input : title, false)
         }
     }
 

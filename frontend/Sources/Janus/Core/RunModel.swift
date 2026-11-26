@@ -106,6 +106,9 @@ final class RunModel {
     var reviewOpen = false
     /// Bumped to put the cursor in the lead's composer (「让负责人改…」).
     var leadFocus = 0
+    /// Turns and groups of calls the person opened or folded in each conversation (by
+    /// `SessionTarget.key`, then row id), for this opening of the run.
+    var chatOpen: [String: [Int: Bool]] = [:]
     /// The inspector tab chosen for this opening; nil until the board first appears.
     var inspectorTab: String?
     // Audit view state
@@ -118,6 +121,9 @@ final class RunModel {
     /// The run's Markdown files that exist, for the 文档 menu. Found again with each derive, not
     /// on every event: checking the files on each draw of the toolbar slowed busy runs down.
     private(set) var documents: [RunDocs.Doc] = []
+
+    /// What the run's sessions are writing and running right now, before it is on record.
+    var preview = ChatLive.State()
 
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     /// Markdown files found in the events so far, and how many events were scanned.
@@ -153,6 +159,7 @@ final class RunModel {
             let data = try await api.get("/api/runs/\(id)")
             runJSON = data["run"]
             events = data["events"].array.map(Event.init)
+            preview = ChatLive.State(events)
             docScan = [:]
             docScanned = 0
             // A derive scheduled before this read would land on the events it replaced.
@@ -194,6 +201,8 @@ final class RunModel {
                     case .lagged:
                         self.reload()
                         return
+                    case .named("live", let f):
+                        self.preview.apply(f)
                     case .named: continue
                     case .event(let j):
                         let e = Event(j)
@@ -202,6 +211,7 @@ final class RunModel {
                         // A gap means something was missed: read the whole run again.
                         if e.seq != last + 1 { self.reload(); return }
                         self.events.append(e)
+                        if [.agentMessage, .agentThought, .toolCall].contains(e.type) { self.preview.recorded(e) }
                         self.scheduleDerive()
                     }
                 }

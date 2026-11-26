@@ -45,6 +45,7 @@ mod flow_tests;
 mod hand_in;
 mod lead;
 mod lifecycle;
+mod live;
 mod loops;
 mod mcp_client;
 mod mcp_router;
@@ -1114,6 +1115,8 @@ pub struct App {
     /// What the app's global stream tells it besides each new event (a run's status, a Loop, a
     /// workspace's team memory), so its lists follow without polling.
     pub changes: broadcast::Sender<Change>,
+    /// Previews of what sessions are writing and running, before it is on record (`live`).
+    pub live: broadcast::Sender<live::Live>,
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
     /// One change of a kind at a time (`Gates`).
     pub gates: Gates,
@@ -1254,6 +1257,7 @@ impl App {
     pub fn new(db: Db, cfg: Config) -> Arc<App> {
         let (tx, _) = broadcast::channel(4096);
         let (changes, _) = broadcast::channel(1024);
+        let (live, _) = broadcast::channel(1024);
         // Working leads hold their seats while their collaborators need some: never all of them.
         let seats = crate::seats::Seats::new(cfg.max_agent_sessions.max(cfg.max_running_runs + 1));
         Arc::new_cyclic(|me| App {
@@ -1262,6 +1266,7 @@ impl App {
             cfg,
             tx,
             changes,
+            live,
             runs: Default::default(),
             gates: Default::default(),
             adapter_state: Default::default(),

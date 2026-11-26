@@ -11,6 +11,7 @@
 - [系统层：Janus 的说明和用户的长期要求](#standing_instructions)：修改系统层注入的内容时阅读。
 - [会话设置](#session_setup)：修改会话打开后的设置时阅读。
 - [会话中能看到什么](#session_view)：修改会话更新怎样变成事件时阅读。
+- [实时帧](#live_frames)：修改会话输出在写成事件之前的预览时阅读。
 - [会话中切换控制项](#session_controls)：修改中途切换模型或模式时阅读。
 - [目标状态](#goal_status)：修改 `/goal` 的状态跟随时阅读。
 - [插话](#steering)：修改插话时阅读。
@@ -153,7 +154,7 @@ Janus 把会话的更新转成事件（`acp_view.rs`），应用照着显示，�
 | `tool_call`（还没完成） | `tool.started` | 进行中的工具调用，`data.live` 为 `true`；完成后由同一 `callId` 的 `tool.call` 替换 |
 | `tool_call_update`（完成或失败） | `tool.call` | 带 `data.callId`；内容里的文件改动（`diff`）记在 `data.diffs`（`path`、`old`、`new`，每一边最多约 12000 字节） |
 | `plan` | `agent.plan` | 计划的全部条目（`content`、`status`、`priority`）；和上一份相同时不记录 |
-| `available_commands_update` | `session.commands` | 斜杠命令（`name` 不带 `/`、`description`、`hint`）；和上一份相同时不记录 |
+| `available_commands_update` | `session.commands` | 斜杠命令（`name` 不带 `/`、`description`、`hint`）；官方适配器给 AIR 客户端的 Skill 命令带 `_meta.jetbrains.air.kind: "skill"`，记为 `skill: true`，应用据此把 Skill 单独分组；和上一份相同时不记录 |
 | `current_mode_update` | `session.control` | Agent 自己切换了模式 |
 | `config_option_update` | `session.controls` | 选项变了，记录整份新的选项 |
 | `usage_update`；`session/prompt` 返回的 `usage` 和 `_meta.quota.model_usage` | `session.usage` | 上下文快照（`used`、`size`、可选 `cost`）；一轮的 token（`inputTokens`、`outputTokens`、`totalTokens`、`cachedReadTokens`、`cachedWriteTokens`、`thoughtTokens`）和按模型的 `models` |
@@ -173,6 +174,21 @@ Janus 把会话的更新转成事件（`acp_view.rs`），应用照着显示，�
 
 Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`terminal` 都是 `false`）：Agent 直接在工作目录里读写、运行命令，输出随工具调用回来。
 
+<a id="live_frames"></a>
+## 实时帧
+
+事件按[上表](#session_view)写入：回复在 Agent 停顿 1 秒或开始下一次工具调用时写成一条，工具调用在完成时写成一条。在这之前，Run 的事件流用实时帧把会话正在做的事先给应用看（`orchestrator/live.rs`），让回复逐字出现、命令运行时就能看到输出：
+
+| `kind` | 内容 |
+| --- | --- |
+| `say` | 还没写成事件的回复（`text`，和事件一样最多约 8000 字）和思考（`thought`，最后约 4000 字） |
+| `tool` | 运行中的一次工具调用：`callId`、`title`、`tool`（ACP 的 `kind`）、`input`、`status`，以及 `output`：到目前为止的输出，只取最后 16 行、约 4000 字 |
+| `end` | 这一轮结束了，无论正常返回、出错还是被打断；它预览过的内容要么已经写成事件，要么不会再有 |
+
+- 每帧都带 `actor`、`task`、`attempt`，说明是哪个会话的；还带 `seq`，即发出这一帧时这个 Run 最新事件的序号。应用只显示比它已经收到的同一会话的记录更新的帧：`say` 帧的 `seq` 小于这个会话最新一条 `agent.message` 或 `agent.thought` 时丢弃，收到更新的这两种事件时清掉预览；`tool` 帧在同一 `callId` 的 `tool.call` 到达后丢弃。事件和帧走两路广播，到达顺序不固定，靠 `seq` 判断而不靠先后。
+- 同一会话最多每 100 毫秒一帧：回复或思考有新片段、或某个运行中的调用有更新时才发，第一帧不等。写入事件的时机和内容不变，所以回放、用量账本、看板和收件箱都和没有实时帧时完全一样；实时帧只是预览，Run 不在内存中时没有，回放时应用也不显示。
+- 没有应用订阅时不发帧。
+
 <a id="session_controls"></a>
 ## 会话中切换控制项
 
@@ -191,6 +207,7 @@ Agent 声明了 `_meta.steering.supported` 时，会话正在进行的一轮可�
 1. Janus 发出 `_session/steering`，内容是消息的文字和 `@路径` 引用块，并带 `_meta.steering.idleBehavior: "promptRequired"`。返回 `outcome: "injected"` 时记 `message.routed`（`delivery: "steer"`）和 `message.delivered`（`data.applied: true`）。
 2. Agent 在下一个安全点把消息交给模型：Codex 立即读到；Claude Code 在当前工具调用结束后读到。这次插入已经成功时，不再另发通知。
 3. Agent 拒绝（例如这一轮正在结束）或没有声明插话时，用户的消息排队到这一轮结束；负责人的回复打断这一轮后立即发送。
+4. 用户的消息是斜杠命令（`/` 加一个以字母开头、不含 `/` 的名字，例如 `/compact`、`/review main`；`/Users/...` 这样的路径不算，`is_command`）时不插话，直接排队到这一轮结束，作为单独的一轮发出：插进正在进行的一轮，Agent 只会把它当成一段文字读到，不会执行命令。
 
 负责人跟随进行中的目标（`session/prompt` 已经返回、目标仍是 `active`）时没有可以等待的一轮：插不进去的消息立即作为新的一轮发送，不等目标结束。
 
