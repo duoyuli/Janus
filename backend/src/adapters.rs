@@ -366,6 +366,7 @@ impl App {
         self.pin_adapter(id, version)?;
         self.adapter_state.clear_job(id);
         self.adapter_note(id, &format!("切换到 {version} 并固定，不再自动更新"));
+        let _ = self.changes.send(Change::Adapters);
         Ok(())
     }
 

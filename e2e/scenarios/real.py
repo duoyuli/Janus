@@ -129,7 +129,7 @@ def real(ctx, c):
         tests = subprocess.run([shutil.which("python3") or "python3", "-m", "unittest", "-q"], cwd=worktree, capture_output=True, text=True)
         c(tests.returncode == 0, f"worktree 里的测试通过：{(tests.stderr or tests.stdout).strip().splitlines()[-1:]}")
         usage = api("GET", f"/api/runs/{run}/usage")
-        c(usage["run"]["tokens"]["total"], f"真实 Agent 上报了用量：{usage['text']}")
+        c(usage["run"]["tokens"]["total"], f"真实 Agent 上报了用量：{usage['run']['tokens']}")
         c("def mod" in open(os.path.join(repo, "calc.py")).read(), "交付时结果合并回工作区目录所在的分支")
         api("POST", f"/api/runs/{run}/actions", {"type": "accept"})
     finally:

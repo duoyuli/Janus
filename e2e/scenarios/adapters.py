@@ -150,9 +150,11 @@ def adapter_updates(ctx, c):
             "服务把没有安装的运行组件报成未安装", 30)
         c(a["pinned"] is False and a["job"] is None, "未安装的运行组件没有固定状态，也没有遗留任务")
         if ctx.app:
+            # Files removed behind the service's back send no notice: the page shows it when it
+            # opens again, as after any change made outside Janus.
             st = ctx.app.until(
                 lambda s: any(x["id"] == "codex" and not x["current"] and not x["versions"] for x in s.get("adapters", [])),
-                "应用在设置页开着时显示未安装的运行组件（没有 reload）", timeout=60)
+                "应用重新打开设置的数字员工页时显示未安装的运行组件", "open settings:general", "open settings:agents", timeout=60)
             row = next(x for x in st["adapters"] if x["id"] == "codex")
             c(row["state"] == "notInstalled" and row["menuShown"] is False,
               f"应用：未安装时只写「运行组件还没装」，没有切换入口（{row['state']}/{row['menuShown']}）")
