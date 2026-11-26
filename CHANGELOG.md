@@ -4,6 +4,20 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.26.3
+
+- 默认数字员工只留两个组：「产品研发」（PMO 和市场运营、产品经理、研发工程师、质量工程师，原来叫「产品上线」）和「对话」（老友、招聘顾问）。通用数字员工不再是默认：升级时，没有工作区在用、你也没改过的会删除；在用或改过的留下来，算作你自己的数字员工。新建工作区默认选负责人所在组里绑定了 Agent 的人。
+
+- 去掉从文件导入数字员工：「设置 › 数字员工」的「导入…」点了没有反应，现在新建数字员工交给招聘顾问在对话里提议、你确认后创建。导出成文件仍然保留。服务不再读取你选的文件夹。
+
+- 资源库的「推荐」按逐项评审重新整理。Skill 18 个：ego-browser 排第一（用 ego lite 浏览器带着你已登录的账号操作网站，需要先安装 ego lite），新加中文技术文档规范（Fenng）、ub-mode（Uncle Bob），Grilling 替换 Grill Me；去掉 MCP Builder、Doc Co-authoring、Brainstorming 这类要和你来回对话、协作者用不上的。MCP 8 个：Context7、DeepWiki、Exa、GitHub、Chrome DevTools、Hugging Face、Firecrawl、Tavily；去掉和 Janus 或 Agent 自带能力重复、或只服务单一厂商的。已经添加的资源不受影响。
+
+- The default digital employees now come in two groups: 产品研发 (the PMO with marketing, product manager, developer and QA, formerly 产品上线) and 对话 (老友 and the Recruiter). The general digital worker is no longer a default: upgrading removes it if no workspace uses it and you never edited it; one in use or edited stays as your own. A new workspace starts with the people in the lead's group who have an Agent.
+
+- Importing digital employees from files is gone: Import… in Settings › Digital Employees did nothing, and new employees now come from the Recruiter, who proposes them in a chat for you to confirm. Exporting to files stays. The service no longer reads folders you pick.
+
+- The library's recommendations were reviewed item by item. Skills (18): ego-browser first (it works sites in the ego lite browser with the accounts you're signed in to; needs ego lite installed), Fenng's Chinese technical writing style and Uncle Bob's ub-mode added, Grilling in place of Grill Me; MCP Builder, Doc Co-authoring and Brainstorming dropped, since they need back-and-forth with you that collaborators can't have. Servers (8): Context7, DeepWiki, Exa, GitHub, Chrome DevTools, Hugging Face, Firecrawl, Tavily; those that repeat what Janus or the agents already do, or serve one vendor only, were dropped. What you already added stays.
+
 ## 2026.11.26.2
 
 - 修复：负责人等看板消息（`janus.wait`）时，只要一分钟内没有新消息就报「The operation timed out.」，拿不到子任务的实时进展。原因是 Janus 最多等 3 分钟，而 Claude Code 和 Codex 等一次工具调用只给 60 秒。负责人因此会去翻工作目录，把协作者还没交的半成品当成已交付、提前要求返工，Run 也因每次报错多花一轮模型调用而变慢。现在每次最多等 50 秒。
