@@ -91,6 +91,9 @@ final class AppStore {
     /// Automatic updates already shown: leaving the settings page and coming back does not show
     /// "已自动更新" again (docs/architecture/20261031-adapters.md#update_check).
     var autoUpdateSeen: Set<String> = []
+    /// Connections whose login the person started here: when the server says it ended logged in,
+    /// the app checks the connection.
+    @ObservationIgnored var loggingIn: Set<String> = []
     /// Role edited in the sheet (empty id for a new one). The sheet belongs to the settings panel,
     /// so it opens only through `editRole`, which opens the panel too.
     private(set) var editingRole: JSON?
@@ -98,9 +101,9 @@ final class AppStore {
     /// What every run is waiting on the person for, across workspaces.
     let inbox = InboxModel()
 
-    /// The background reads in flight, by name, so a second start replaces the first; the
-    /// extensions in `AppStore+*.swift` start them too.
-    @ObservationIgnored var polls: [String: Task<Void, Never>] = [:]
+    /// The background tasks in flight, by name, so a second start replaces the first: the global
+    /// stream and the inbox's clock.
+    @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var toastTask: Task<Void, Never>?
 
     init(api: API, permissions: MacPermissions? = nil) {
@@ -117,8 +120,6 @@ final class AppStore {
         _ = await (m, r)
         await loadSetup()
         await loadLibrary()
-        watchLibrary()
-        watchChecks()
         await inbox.refresh(self)
         followEvents()
         if screen == nil {
@@ -215,17 +216,6 @@ final class AppStore {
     /// Sources being fetched, so every screen shows the same progress.
     var updatingSources: Set<String> = []
 
-    /// The server records its own checks; re-read the library now and then so reminders show up.
-    private func watchLibrary() {
-        polls["library"]?.cancel()
-        polls["library"] = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 600_000_000_000)
-                await self?.loadLibrary()
-            }
-        }
-    }
-
     /// Ask every remote now, instead of waiting for the server's next round.
     func checkSources() async {
         do {
@@ -289,8 +279,11 @@ final class AppStore {
                         case .named("loop", let c): await self.loadLoop(c["loop"].str)
                         // A workspace's team memory changed: read it again if its page has shown.
                         case .named("memory", let c): if self.memories[c["workspace"].str] != nil { await self.loadMemories(c["workspace"].str) }
-                        // An agent saved a script as a skill: read the library again if it has shown.
+                        // The library moved on by itself (a skill an agent saved, a server prepared,
+                        // the sources checked): read it again if it has shown.
                         case .named("library", _): if self.library != nil { await self.loadLibrary() }
+                        case .named("connection", let c): await self.connectionChanged(c["connection"].str)
+                        case .named("adapters", _): if self.adapters != .null { await self.loadAdapters(quiet: true) }
                         case .named("event", let n): self.note(n["run"].str, lists: Self.listChanges(EventKind(wire: n["type"].str), run: n["run"].str, store: self))
                         default: break
                         }

@@ -14,12 +14,8 @@ struct WorkersSettingsView: View {
             }
             .padding(20)
         }
-        // Read the runtime lines once when the page opens, then keep them current while it stays
-        // on screen: the server may check and update an adapter by itself, without the app asking.
-        .task {
-            await store.loadAdapters()
-            await store.watchAdapters()
-        }
+        // Read the runtime lines when the page opens; the global stream keeps them current.
+        .task { await store.loadAdapters() }
     }
 }
 

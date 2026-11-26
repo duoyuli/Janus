@@ -55,14 +55,8 @@ struct LibraryView: View {
                 .padding(.horizontal, 20).padding(.bottom, 20)
             }
         }
+        // A server being prepared reports on the global stream when it is ready.
         .task { await store.loadLibrary() }
-        // While a server is being prepared, keep its state current.
-        .task(id: store.libraryItems.filter { $0["warm"]["state"].str == "preparing" }.map { $0["id"].str }) {
-            while store.libraryItems.contains(where: { $0["warm"]["state"].str == "preparing" }) {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                await store.loadLibrary()
-            }
-        }
         .sheet(item: $sheet) { s in
             switch s {
             case .skill(let d): SkillEditor(store: store, draft: d)
