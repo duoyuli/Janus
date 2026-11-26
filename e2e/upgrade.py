@@ -280,6 +280,9 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         groups = {rid: roles[rid].get("group") for rid in ("pmo", "qa", "generalist", "friend", "recruiter", tester["id"])}
         check(groups == {"pmo": "产品上线", "qa": "产品上线", "generalist": "通用", "friend": "对话", "recruiter": "对话", tester["id"]: ""},
               f"升级后默认数字员工归入各自的分组，自己建的不分组（{groups}）")
+        hires = {rid: r.get("hires") for rid, r in roles.items()}
+        check(hires.get("recruiter") is True and not any(v for rid, v in hires.items() if rid != "recruiter"),
+              f"升级后只有招聘顾问能在对话里提议数字员工（{hires}）")
         rv = roles["qa"]
         check(rv["prompt"] == "我自己写的质量要求：先跑全部测试。", "改过指令的 reviewer 保留用户的文本")
         check(rv["desc"] == current_seeds["qa"][0], "reviewer 没改过的职责换成当前默认文本")
@@ -292,8 +295,9 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         t = roles[tester["id"]]
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
         # Version 1 dropped `role`, version 9 may unbind a custom-command agent, version 11 dropped
-        # `resources`, version 16 added `avatar` (empty: no picture), version 25 `group` (checked above).
-        changed = ("role", "connection", "resources", "avatar", "group")
+        # `resources`, version 16 added `avatar` (empty: no picture), version 25 `group` and version
+        # 27 `hires` (both checked above).
+        changed = ("role", "connection", "resources", "avatar", "group", "hires")
         check({k: v for k, v in t.items() if k not in changed} == {k: v for k, v in b.items() if k not in changed},
               "自定义数字员工除「定位」、选的资源和绑定的 Agent 外不变")
         check("resources" not in t and t.get("avatar") == "", "数字员工不再带选的资源，没有头像（显示文字）")

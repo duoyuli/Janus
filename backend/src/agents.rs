@@ -41,6 +41,7 @@ pub(crate) use connections::{is_sandbox_var, sandbox_vars};
 pub(crate) use environment::{private_env_value, protect_claude_env, read_secrets, write_secrets};
 pub use local_config::local_preview;
 use local_config::*;
+pub(crate) use role_files::{Candidate, Found, RoleFile, picked};
 pub use roles::Role;
 pub(crate) use roles::{RoleSeed, SEEDS, text_hash};
 pub use runtime::{InstructionChannel, Runtime};
@@ -256,7 +257,7 @@ pub(crate) fn test_connection(id: &str, kind: &str, base: &str, extra: Value) ->
 pub(crate) fn test_role(id: &str, extra: Value) -> Value {
     let mut r = json!({
         "id": id, "name": id, "desc": "", "group": "", "prompt": "", "connection": "", "model": "", "effort": "",
-        "session": {}, "lead": false, "color": "#64748b", "init": "", "avatar": "",
+        "session": {}, "lead": false, "hires": false, "color": "#64748b", "init": "", "avatar": "",
     });
     for (k, v) in extra.as_object().cloned().unwrap_or_default() {
         r[k] = v;

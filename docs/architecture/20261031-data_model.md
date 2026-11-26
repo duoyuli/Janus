@@ -117,6 +117,7 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 | 24 | Run 快照记下给 Agent 的文字用的语言（`config.lang`），以前的 Run 记为 `zh`，见[注入的语言](../domains/20261031-goal_mode.md#prompt_language) |
 | 25 | 数字员工加分组（`group`）：默认数字员工归入各自的组（产品上线、通用、对话），其余为空，见[分组](../domains/20261031-agents_and_roles.md#role_groups) |
 | 26 | 默认数字员工加上招聘顾问（`add_seed`），见[默认角色](../domains/20261031-agents_and_roles.md#product_launch_roles) |
+| 27 | 数字员工加 `hires`（能不能在对话里提议数字员工），默认的招聘顾问（`seed.id` 为 `recruiter`）为 `true`，其余为 `false`（`recruiter_hires`）；Run 快照的成员加 `hires`，已有的为 `false`。见[角色](../domains/20261031-agents_and_roles.md#roles) |
 
 <a id="snapshots"></a>
 ## Run 快照

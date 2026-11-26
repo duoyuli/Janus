@@ -1,5 +1,5 @@
 //! The default roles' data versions: where a default came from (2), defaults added after the
-//! person's data was seeded (6, 15, 26), the defaults' new ids (17) and groups (25). Defaults are named as they
+//! person's data was seeded (6, 15, 26), the defaults' new ids (17), groups (25) and who proposes digital employees (27). Defaults are named as they
 //! were at each version and get today's text (`seed_once_named`).
 
 use crate::agents::{RoleSeed, SEEDS, text_hash};
@@ -85,6 +85,18 @@ pub(crate) fn add_generalist(tx: &rusqlite::Transaction) -> Result<usize> {
 /// Data version 26: 招聘顾问, for data seeded before it existed (`add_seed`).
 pub(crate) fn add_recruiter(tx: &rusqlite::Transaction) -> Result<usize> {
     add_seed(tx, "recruiter")
+}
+
+/// Data version 27: the default 招聘顾问 proposes digital employees in its chats; nobody else
+/// does until the person turns it on.
+pub(crate) fn recruiter_hires(tx: &rusqlite::Transaction) -> Result<usize> {
+    super::super::edit_configs(tx, ConfigKind::Role, |_, role| {
+        if role.get("seed").and_then(|s| s["id"].as_str()) != Some("recruiter") || role["hires"] == true {
+            return false;
+        }
+        role.insert("hires".into(), json!(true));
+        true
+    })
 }
 
 /// Data version 15: 老友, for data seeded before it existed (`add_seed`), under the id it had then.

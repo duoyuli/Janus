@@ -195,7 +195,7 @@ struct RoleEditor: View {
                         // The shortcut from adding someone by hand to having them designed in a chat.
                         HStack(spacing: 10) {
                             Avatar(initials: "招聘", color: store.role(AppStore.recruiter)?.color ?? "#c2410c", size: 26, role: AppStore.recruiter)
-                            Text(L.text("不知道怎么写职责和指令？和招聘顾问聊聊你要做的事，它帮你设计好再导入。"))
+                            Text(L.text("不知道怎么写职责和指令？和招聘顾问聊聊你要做的事，它帮你设计好，你确认后创建。"))
                                 .font(.callout).fixedSize(horizontal: false, vertical: true)
                             Spacer()
                             Button(L.text("找招聘顾问")) { recruit() }
@@ -230,6 +230,13 @@ struct RoleEditor: View {
                     }
                     .toggleStyle(.switch)
                     .disabled(!Setup.leadCapable(c))
+                    Toggle(isOn: Binding(get: { r["hires"].truthy }, set: { r["hires"] = JSON($0) })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L.text("可以在对话里提议数字员工"))
+                            Text(L.text("在对话里为你设计数字员工，你看过、勾选后才创建")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
 
                     section(L.text("指令"))
                     TextEditor(text: bind("prompt"))

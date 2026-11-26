@@ -122,9 +122,84 @@ async fn a_chat_agent_cannot_reach_a_board() {
     let call = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "orchestrate", "arguments": { "tasks": [] } } });
     for req in [list, call] {
         let refused = h.app.mcp(&id, token, who, req).await.unwrap_err();
-        assert!(format!("{refused:#}").contains("对话没有共享看板"), "{refused:#}");
+        assert!(format!("{refused:#}").contains("这个对话没有 Janus 工具"), "{refused:#}");
     }
     assert!(!has(&events(&h.app, &id), "orchestration.accepted"));
+    let _ = std::fs::remove_dir_all(&h.dir);
+}
+
+/// A chat whose digital employee proposes digital employees reaches `janus` with that one tool,
+/// through the URL its session opened with. What it proposes is checked and waits for the person:
+/// they create the ones they pick on one agent, or none; each proposal is acted on once, and a
+/// newer one replaces it. Nothing it proposes may itself propose.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hiring_chat_proposes_employees_the_person_creates() {
+    let h = harness("chat-hire", &[("lead", false), ("m1", true)], json!({}));
+    let r = crate::agents::test_role("m1", json!({ "connection": "fake", "hires": true }));
+    h.app.db.put_config(ConfigKind::Role, "m1", &r, now_ms()).unwrap();
+    let id = chat(&h, "m1", "你好").await;
+    wait_until(&h.app, &id, "the first reply", |e| replied(e, "你好")).await;
+    let log = calls(&h);
+    let mcp: Value = serde_json::from_str(log.lines().find(|l| l.starts_with("mcp ")).unwrap()[4..].trim()).unwrap();
+    let url = mcp.as_array().unwrap().iter().find_map(|s| s["url"].as_str().filter(|u| u.ends_with("/lead"))).unwrap();
+    let (_, token, seat) = mcp_credential(url).unwrap();
+    let rpc = |name: &str, args: Value| json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": name, "arguments": args } });
+    let call = |name: &str, args: Value| {
+        let (app, id, token, seat, req) = (h.app.clone(), id.clone(), token.clone(), seat.clone(), rpc(name, args));
+        async move {
+            let res = app.mcp(&id, &token, &seat, req).await.unwrap().unwrap();
+            (res["result"]["content"][0]["text"].as_str().unwrap_or("").to_string(), res["result"]["isError"] == true)
+        }
+    };
+    let list = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} });
+    let tools = h.app.mcp(&id, &token, &seat, list).await.unwrap().unwrap();
+    let names: Vec<&str> =
+        tools["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["propose_employees"]);
+    for other in ["orchestrate", "recall"] {
+        let (text, err) = call(other, json!({})).await;
+        assert!(err && text.contains("没有这个工具"), "{other}: {text}");
+    }
+    let (text, err) = call("propose_employees", json!({ "employees": [{ "name": "审核员", "desc": "审合同" }] })).await;
+    assert!(err && text.contains("第 1 位：没有指令正文"), "{text}");
+    assert!(h.app.open_proposal(&id).unwrap().is_none(), "a refused proposal is not on record");
+
+    let employee = |name: &str, lead: bool| json!({ "name": name, "desc": format!("{name}的活"), "group": "律所", "color": "#11845a", "init": "审", "lead": lead, "instructions": format!("你是{name}。") });
+    let (text, err) =
+        call("propose_employees", json!({ "employees": [employee("合伙人", true), employee("m1", false)] })).await;
+    assert!(!err && text.contains("已交给用户：2 位"), "{text}");
+    let open = h.app.open_proposal(&id).unwrap().unwrap();
+    let files: Vec<&str> = open.roles.iter().map(|f| f.file.as_str()).collect();
+    assert_eq!(files, ["1", "2"]);
+    assert_eq!(open.roles[1].existing.as_deref(), Some("m1"), "a taken name is marked");
+
+    // Replaced before the person acts: the earlier one can no longer be acted on.
+    let (_, err) =
+        call("propose_employees", json!({ "employees": [employee("合伙人", true), employee("律师", false)] })).await;
+    assert!(!err);
+    let newer = h.app.open_proposal(&id).unwrap().unwrap();
+    assert!(newer.proposal > open.proposal);
+    assert!(h.app.create_proposed(&id, open.proposal, &["1".into()], "fake").is_err(), "a replaced proposal");
+    assert!(h.app.create_proposed(&id, newer.proposal, &["3".into()], "fake").is_err(), "no third employee");
+
+    let made = h.app.create_proposed(&id, newer.proposal, &["2".into(), "1".into()], "fake").unwrap();
+    let names: Vec<&str> = made.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["律师", "合伙人"]);
+    let partner = h.app.role(&made[1].id).unwrap();
+    assert!(partner.lead && !partner.hires && partner.group == "律所" && partner.connection == "fake");
+    assert_eq!(partner.prompt, "你是合伙人。");
+    assert!(h.app.open_proposal(&id).unwrap().is_none(), "acted on");
+    assert!(h.app.create_proposed(&id, newer.proposal, &["1".into()], "fake").is_err(), "created once");
+    let created = events(&h.app, &id).into_iter().find(|e| e.kind.as_str() == "roles.created").unwrap();
+    assert_eq!(created.data.unwrap()["proposal"], newer.proposal);
+
+    let (_, err) = call("propose_employees", json!({ "employees": [employee("助理", false)] })).await;
+    assert!(!err);
+    let third = h.app.open_proposal(&id).unwrap().unwrap();
+    h.app.decline_proposed(&id, third.proposal).unwrap();
+    assert!(h.app.open_proposal(&id).unwrap().is_none());
+    assert!(h.app.decline_proposed(&id, third.proposal).is_err(), "declined once");
+    assert!(!h.app.roles().unwrap().iter().any(|r| r["name"] == "助理"));
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

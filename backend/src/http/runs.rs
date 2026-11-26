@@ -205,6 +205,45 @@ pub(super) async fn files(
     reply(json!({ "files": acp_view::workspace_files(&cwd, q.q.as_deref().unwrap_or(""), 20) }))
 }
 
+/// The digital employees a chat proposed and the person has not acted on yet (`null`: none),
+/// numbered and marked like a folder's role files, so the app shows them in its import sheet.
+// @project-doc docs/interfaces/20261031-http_api.md#proposed_employees
+pub(super) async fn proposal(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+    stored_run(&app, &id)?;
+    reply(app.open_proposal(&id)?)
+}
+
+#[derive(Deserialize)]
+pub(super) struct Proposed {
+    proposal: i64,
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    connection: String,
+}
+
+/// Create the picked employees (`files`, their numbers) of the chat's open proposal on one agent.
+// @project-doc docs/interfaces/20261031-http_api.md#proposed_employees
+pub(super) async fn create_proposed(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(p): Json<Proposed>,
+) -> ApiResult {
+    stored_run(&app, &id)?;
+    reply(app.create_proposed(&id, p.proposal, &p.files, &p.connection)?)
+}
+
+/// Create none of the chat's open proposal.
+pub(super) async fn decline_proposed(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(p): Json<Proposed>,
+) -> ApiResult {
+    stored_run(&app, &id)?;
+    app.decline_proposed(&id, p.proposal)?;
+    ok()
+}
+
 pub(super) async fn action(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,

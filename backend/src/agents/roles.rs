@@ -25,6 +25,9 @@ pub struct Role {
     pub session: Value,
     /// Whether it may lead a workspace.
     pub lead: bool,
+    /// Whether, in a chat, it may propose new digital employees for the person to create
+    /// (`propose_employees`). Only the person turns it on, in the editor: a role file never does.
+    pub hires: bool,
     pub color: String,
     pub init: String,
     /// The hash of its picture (`data/roles/<id>/avatar.png`); empty shows the initials.
@@ -68,6 +71,7 @@ pub struct RoleInput {
     pub effort: String,
     pub session: Value,
     pub lead: bool,
+    pub hires: bool,
     pub color: String,
     pub init: String,
 }
@@ -86,6 +90,7 @@ impl From<&Role> for RoleInput {
             effort: r.effort.clone(),
             session: r.session.clone(),
             lead: r.lead,
+            hires: r.hires,
             color: r.color.clone(),
             init: r.init.clone(),
         }
@@ -162,6 +167,7 @@ impl App {
             effort: input.effort.clone(),
             session,
             lead: input.lead,
+            hires: input.hires,
             color: if input.color.is_empty() { "#64748b".into() } else { input.color.clone() },
             init,
             // The picture changes through `set_role_avatar`.
@@ -275,6 +281,7 @@ impl App {
                     group: r.group.clone(),
                     prompt: r.prompt.clone(),
                     lead: r.lead,
+                    hires: r.hires,
                     color: r.color.clone(),
                     init: r.init.clone(),
                     ..Default::default()
@@ -414,6 +421,9 @@ pub(crate) struct RoleSeed {
     pub(crate) color: String,
     pub(crate) init: String,
     pub(crate) lead: bool,
+    /// Whether it proposes digital employees in a chat; a default role's file says so with
+    /// `hires: true`, which only default roles are read for.
+    pub(crate) hires: bool,
     pub(crate) prompt: String,
     /// Its picture, a square PNG.
     pub(crate) avatar: &'static [u8],
@@ -460,6 +470,7 @@ impl RoleSeed {
                 return Err(format!("缺少 {key}"));
             }
         }
+        let hires = crate::front_matter::field(text, "hires").is_some_and(|v| v == "true");
         Ok(RoleSeed {
             id: f.id,
             name: f.name,
@@ -468,6 +479,7 @@ impl RoleSeed {
             color: f.color,
             init: f.init,
             lead: f.lead,
+            hires,
             prompt: f.prompt,
             avatar,
         })
@@ -598,6 +610,7 @@ mod seed_tests {
                 (role["prompt"].as_str().unwrap(), role["seed"]["prompt"].as_str().unwrap()),
                 (r.prompt.as_str(), text_hash(&r.prompt).as_str())
             );
+            assert_eq!(role["hires"], r.id == "recruiter", "only 招聘顾问 proposes employees: {}", r.id);
         }
         // A deleted default role stays deleted on the next start.
         app.db.delete_config(ConfigKind::Role, "qa").unwrap();

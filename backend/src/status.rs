@@ -91,12 +91,6 @@ impl RunKind {
         }
     }
 
-    /// Whether its sessions reach the `janus` MCP server (the board, a Loop's tools, the memory
-    /// tools). A chat is one person and one digital employee: nothing to coordinate.
-    pub fn has_janus_server(self) -> bool {
-        self != RunKind::Chat
-    }
-
     /// Whether a question its session asked stays open after the session ends: a Loop does not
     /// wait for the answer, which wakes it whenever it comes.
     pub fn questions_outlive_session(self) -> bool {

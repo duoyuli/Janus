@@ -207,6 +207,7 @@ impl App {
             resources: library.to_vec(),
             role_id: role.id.clone(),
             connection_name: str_of(&conn, "name").into(),
+            hires: role.hires,
         })
     }
 }

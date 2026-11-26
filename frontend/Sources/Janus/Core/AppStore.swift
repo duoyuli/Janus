@@ -544,6 +544,8 @@ final class AppStore {
         var scan: JSON?
         var picked: Set<String> = []
         var error: String?
+        /// The chat whose proposal the sheet shows, instead of files at `path`.
+        var chat: String?
         var found: [JSON] { scan?["roles"].array ?? [] }
     }
 
@@ -627,12 +629,21 @@ final class AppStore {
         }
     }
 
-    /// Make digital employees of the ticked files; closes the sheet and shows them when it worked.
+    /// Make digital employees of the ticked files, or of the ticked ones a chat proposed; closes
+    /// the sheet and says so when it worked. Imported ones are shown in Settings; a chat's stay
+    /// where the person is talking.
     func finishRoleImport() async {
         guard let im = roleImport else { return }
-        let files = im.found.map { $0["file"].str }.filter { im.picked.contains($0) }
+        let files = JSON.array(im.found.map { $0["file"].str }.filter { im.picked.contains($0) }.map { JSON($0) })
         do {
-            let made = try await api.post("/api/roles/import", ["path": JSON(im.path), "files": .array(files.map { JSON($0) }), "connection": JSON(im.connection)])
+            if let chat = im.chat {
+                let made = try await api.post("/api/runs/\(API.q(chat))/proposal", ["proposal": im.scan?["proposal"] ?? .null, "files": files, "connection": JSON(im.connection)])
+                await loadSetup()
+                roleImport = nil
+                show(L.text("已创建 \(made.array.count) 位数字员工，在「设置 › 数字员工」里可以改"))
+                return
+            }
+            let made = try await api.post("/api/roles/import", ["path": JSON(im.path), "files": files, "connection": JSON(im.connection)])
             await loadSetup()
             roleImport = nil
             show(L.text("已导入 \(made.array.count) 位数字员工"))
@@ -640,11 +651,31 @@ final class AppStore {
         } catch { roleImport?.error = error.localizedDescription }
     }
 
+    /// Open the import sheet on the digital employees chat `run` proposed, as the server has them
+    /// now; those whose name is taken start unticked.
+    // @project-doc docs/domains/20261120-chats.md#proposed_employees
+    func openProposal(_ run: RunModel) async {
+        await run.loadProposal()
+        guard let p = run.proposal else { return }
+        roleImport = RoleImport(path: "", connection: okConnections.first?["id"].str ?? "", scan: p,
+                                picked: Set(p["roles"].array.filter { !$0["existing"].truthy }.map { $0["file"].str }), chat: run.id)
+    }
+
+    /// Create none of what chat `run` proposed.
+    func declineProposal(_ run: RunModel) async {
+        guard let p = run.proposal else { return }
+        do {
+            _ = try await api.post("/api/runs/\(API.q(run.id))/proposal/decline", ["proposal": p["proposal"]])
+            await run.loadProposal()
+        } catch { show(error.localizedDescription) }
+    }
+
     /// The default digital employee who designs teams in a chat (`backend/roles/recruiter.md`).
     static let recruiter = "recruiter"
 
-    /// Talk with 招聘顾问 about the team to build; it writes role files into the chat's folder,
-    /// which the chat offers to import. Without an agent it opens the employee to pick one.
+    /// Talk with 招聘顾问 about the team to build; it proposes the digital employees it designs,
+    /// which the chat shows for the person to create. Without an agent it opens the employee to
+    /// pick one.
     func chatWithRecruiter() async {
         guard let r = role(Self.recruiter) else { return }
         if let why = ChatsView.unavailable(r, connection: connection) {

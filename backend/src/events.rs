@@ -107,6 +107,10 @@ wire_enum! {
         InputRequested = "input.requested",
         InputAnswered = "input.answered",
         DecisionWithdrawn = "decision.withdrawn",
+        // Digital employees a chat proposes (`propose_employees`) and what the person did with them
+        RolesProposed = "roles.proposed",
+        RolesCreated = "roles.created",
+        RolesDeclined = "roles.declined",
     }
 }
 

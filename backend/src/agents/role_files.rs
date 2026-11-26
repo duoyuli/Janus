@@ -7,10 +7,11 @@
 use super::*;
 use crate::front_matter;
 use roles::{MAX_AVATAR_BYTES, Role, RoleInput};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// What a role file says about one digital employee.
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RoleFile {
     /// Empty when the file names none; importing then takes one from the file's name.
     pub id: String,
@@ -49,13 +50,45 @@ impl RoleFile {
             "true" => true,
             other => return Err(format!("lead 应当是 true 或 false，而不是 {other}")),
         };
-        let prompt = front_matter::body(&text).trim().to_string();
+        let prompt = front_matter::body(&text).to_string();
+        RoleFile {
+            id: get("id"),
+            name,
+            desc,
+            group: get("group"),
+            color: get("color"),
+            init: get("init"),
+            lead,
+            prompt,
+        }
+        .checked()
+    }
+
+    /// The same, checked the way every source of digital employees is (a file, a chat's
+    /// proposal): a name and instructions, a `#rrggbb` color or none, a group name that fits.
+    pub fn checked(self) -> Result<RoleFile, String> {
+        let name = self.name.trim().to_string();
+        if name.is_empty() {
+            return Err("没有名字".into());
+        }
+        let prompt = self.prompt.trim().to_string();
         if prompt.is_empty() {
             return Err("没有指令正文".into());
         }
-        let color = Some(get("color")).filter(|c| is_hex_color(c)).unwrap_or_default();
-        let group = group_name(&get("group")).map_err(|e| e.to_string())?;
-        Ok(RoleFile { id: get("id"), name, desc, group, color, init: get("init"), lead, prompt })
+        if prompt.len() as u64 > MAX_FILE_BYTES {
+            return Err(format!("指令超过 {} KB", MAX_FILE_BYTES / 1024));
+        }
+        let color = Some(self.color).filter(|c| is_hex_color(c)).unwrap_or_default();
+        let group = group_name(&self.group).map_err(|e| e.to_string())?;
+        Ok(RoleFile {
+            name,
+            prompt,
+            color,
+            group,
+            desc: self.desc.trim().to_string(),
+            init: self.init.trim().to_string(),
+            ..self
+        })
     }
 
     /// The file for a saved digital employee; `parse` reads it back the same.
@@ -100,10 +133,12 @@ fn is_hex_color(c: &str) -> bool {
     c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|h| h.is_ascii_hexdigit())
 }
 
-/// A role file found under the folder (or the file) the person chose.
+/// A role file found under the folder (or the file) the person chose, or one employee of a
+/// chat's proposal.
 #[derive(Serialize)]
 pub struct Found {
-    /// Relative to the chosen folder; the file's own name when a file was chosen.
+    /// Relative to the chosen folder; the file's own name when a file was chosen; the position
+    /// (from 1) in a proposal.
     pub file: String,
     #[serde(flatten)]
     pub role: RoleFile,
@@ -214,50 +249,62 @@ impl App {
     /// The role files at `path`, each marked with the saved digital employee of the same name.
     pub fn scan_role_files(&self, path: &Path) -> Result<Scan> {
         let mut scan = scan(path)?;
+        self.mark_existing(&mut scan.roles)?;
+        Ok(scan)
+    }
+
+    /// Mark each of `found` with the saved digital employee of the same name, which the app
+    /// leaves unticked.
+    pub fn mark_existing(&self, found: &mut [Found]) -> Result<()> {
         let saved = self.db.list::<Role>()?;
-        for f in &mut scan.roles {
+        for f in found {
             f.existing = saved.iter().find(|r| r.name == f.role.name).map(|r| r.id.clone());
         }
-        Ok(scan)
+        Ok(())
     }
 
     /// Make a digital employee of each of `files` (as `scan_role_files` listed them) at `path`,
     /// all on the agent `connection` (empty: none yet). Files are read again here, not taken from
-    /// the app. An id already taken gets `-2`, `-3`, …: importing never replaces anyone.
+    /// the app.
     pub fn import_roles(&self, path: &Path, files: &[String], connection: &str) -> Result<Vec<Role>> {
+        let scan = scan(path)?;
+        let root = if path.is_dir() { path } else { path.parent().unwrap_or(path) };
+        let picked = picked(scan.roles, files, |file| anyhow!("{file} 不是能导入的数字员工文件"))?;
+        let candidates = picked.into_iter().map(|found| {
+            let stem = Path::new(&found.file).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+            Candidate { picture: picture_of(&root.join(&found.file)), role: found.role, stem }
+        });
+        self.make_roles(candidates, connection)
+    }
+
+    /// Save each candidate as a new digital employee on the agent `connection` (empty: none
+    /// yet), with its picture when it has one. Its id is the one it names, or one made from its
+    /// `stem` or name; an id already taken gets `-2`, `-3`, …: making never replaces anyone. What
+    /// a candidate may do beyond its instructions (`hires`) is never taken from it.
+    pub fn make_roles(&self, candidates: impl IntoIterator<Item = Candidate>, connection: &str) -> Result<Vec<Role>> {
         if !connection.is_empty() {
             self.connection(connection)?;
         }
-        let scan = scan(path)?;
-        let root = if path.is_dir() { path } else { path.parent().unwrap_or(path) };
         let mut made = vec![];
-        for file in files {
-            let found = scan
-                .roles
-                .iter()
-                .find(|f| &f.file == file)
-                .ok_or_else(|| anyhow!("{file} 不是能导入的数字员工文件"))?;
-            let r = &found.role;
-            let stem = Path::new(&found.file).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        for Candidate { role: r, stem, picture } in candidates {
             let base = [r.id.as_str(), stem.as_str(), r.name.as_str()]
                 .into_iter()
                 .find_map(|raw| crate::text::slug(raw, 36))
                 .unwrap_or_else(|| new_id("r"));
-            let id = self.free_role_id(&base)?;
             let input = RoleInput {
-                id,
-                name: r.name.clone(),
-                desc: r.desc.clone(),
-                group: r.group.clone(),
-                prompt: r.prompt.clone(),
+                id: self.free_role_id(&base)?,
+                name: r.name,
+                desc: r.desc,
+                group: r.group,
+                prompt: r.prompt,
                 connection: connection.into(),
                 lead: r.lead,
-                color: r.color.clone(),
-                init: r.init.clone(),
+                color: r.color,
+                init: r.init,
                 ..Default::default()
             };
             let mut role = self.save_role(&input)?;
-            if let Some(png) = picture_of(&root.join(&found.file)) {
+            if let Some(png) = picture {
                 role = self.put_role_avatar(role, &png)?;
             }
             made.push(role);
@@ -315,6 +362,25 @@ impl App {
         }
         Ok(out)
     }
+}
+
+/// One digital employee to make (`make_roles`): what its file or proposal says, a name to make
+/// its id from when it names none (its file's), and its picture.
+pub struct Candidate {
+    pub role: RoleFile,
+    pub stem: String,
+    pub picture: Option<Vec<u8>>,
+}
+
+/// The entries of `found` named in `files`, in that order; a name not among them is `missing`.
+pub fn picked(mut found: Vec<Found>, files: &[String], missing: impl Fn(&str) -> anyhow::Error) -> Result<Vec<Found>> {
+    files
+        .iter()
+        .map(|file| {
+            let at = found.iter().position(|f| &f.file == file).ok_or_else(|| missing(file))?;
+            Ok(found.swap_remove(at))
+        })
+        .collect()
 }
 
 /// A group name as saved: one line, trimmed, at most `MAX_GROUP` characters.
@@ -384,7 +450,8 @@ mod tests {
         std::fs::create_dir_all(src.join("node_modules")).unwrap();
         let write = |p: &str, t: &str| std::fs::write(src.join(p), t).unwrap();
         write("legal/counsel.md", "---\nname: 法务\ndesc: 审合同\nlead: true\n---\n审。");
-        write("legal/paralegal.md", "---\nname: 助理\ndesc: 整理材料\ngroup: 律所\n---\n整理。");
+        // A file cannot give anyone more than instructions: `hires` is the person's to turn on.
+        write("legal/paralegal.md", "---\nname: 助理\ndesc: 整理材料\ngroup: 律所\nhires: true\n---\n整理。");
         write("legal/README.md", "# 这个团队\n");
         write("legal/broken.md", "---\nname: 坏的\n---\n");
         write("legal/.hidden/x.md", "---\nname: 藏着的\n---\nx");
@@ -413,6 +480,7 @@ mod tests {
         assert_eq!(app.role("counsel").unwrap().desc, "", "the saved one is untouched");
         assert!(made[0].lead && made[0].avatar.len() == 16, "lead and picture come along");
         assert_eq!((made[1].id.as_str(), made[1].group.as_str()), ("paralegal", "律所"));
+        assert!(!made[1].hires, "a file does not make anyone propose employees");
         // A single file chosen: no folder to name a group after.
         let one = app.scan_role_files(&src.join("legal/counsel.md")).unwrap();
         assert_eq!((one.roles[0].file.as_str(), one.roles[0].role.group.as_str()), ("counsel.md", ""));

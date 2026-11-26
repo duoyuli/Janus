@@ -896,7 +896,8 @@ impl App {
 
     /// The opening of a conversation's main session, with `system` as its system layer where the
     /// agent takes it in the session's parameters (Claude Code). A chat has no board: its one
-    /// member has no team to lead.
+    /// member has no team to lead; it reaches the `janus` server only for the tools its digital
+    /// employee has (`Caller::of_run`).
     fn conversation_opening(
         &self,
         run: &Run,
@@ -905,11 +906,12 @@ impl App {
         channel: &InstructionChannel,
         system: &str,
     ) -> Opening {
-        let board = if run.kind.has_janus_server() && conn.capabilities["mcpCapabilities"]["http"] == true {
-            vec![self.mcp_server(run, &Seat::Lead)]
-        } else {
-            vec![]
-        };
+        let board =
+            if Caller::of_run(run, &Seat::Lead).is_some() && conn.capabilities["mcpCapabilities"]["http"] == true {
+                vec![self.mcp_server(run, &Seat::Lead)]
+            } else {
+                vec![]
+            };
         self.opening(
             run,
             &Seat::Lead,

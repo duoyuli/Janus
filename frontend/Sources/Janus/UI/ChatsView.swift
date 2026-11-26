@@ -191,12 +191,17 @@ struct ChatView: View {
             if st.run.status == .failed && !st.run.error.isEmpty {
                 Note(text: L.text("会话已结束：\(st.run.error)"), tone: .amber)
             }
-            if run.designedRoles > 0 {
+            if let p = run.proposal {
+                let names = p["roles"].array.map { $0["name"].str }
                 HStack(spacing: 10) {
                     Image(systemName: "person.crop.rectangle.stack").foregroundStyle(.secondary)
-                    Text(L.text("对话目录里有 \(run.designedRoles) 位数字员工的文件")).font(.callout)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L.text("\(me.name) 提议了 \(names.count) 位数字员工")).font(.callout).fontWeight(.semibold)
+                        Text(verbatim: names.joined(separator: L.text("、"))).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
                     Spacer()
-                    Button(L.text("导入数字员工…")) { Task { await run.store.openRoleImport(st.run.cwd) } }.buttonStyle(.primary)
+                    Button(L.text("不用了")) { Task { await run.store.declineProposal(run) } }
+                    Button(L.text("查看并创建…")) { Task { await run.store.openProposal(run) } }.buttonStyle(.primary)
                 }
                 .padding(10)
                 .background(Color.card, in: RoundedRectangle(cornerRadius: 10))
@@ -205,9 +210,9 @@ struct ChatView: View {
             ChatCard(run: run, st: st, title: me.name, info: info, target: .agent("lead"))
                 .frame(maxHeight: .infinity)
         }
-        // Looked at again each time a turn ends: that is when files may have been written.
-        .task(id: "\(st.run.cwd)|\(run.state.events.filter { $0.type == .agentStatus && $0.data["turn"].str == "idle" }.count)") {
-            await countDesigned(st.run.cwd)
+        // Read again from the server when the chat proposes or the person acts on a proposal.
+        .task(id: "\(run.id)|\(run.state.events.filter { [.rolesProposed, .rolesCreated, .rolesDeclined].contains($0.type) }.count)") {
+            await run.loadProposal()
         }
         .padding(20)
         .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
@@ -215,19 +220,16 @@ struct ChatView: View {
     }
 }
 
-extension ChatView {
-    // @project-doc docs/domains/20261120-chats.md#chat_app
-    private func countDesigned(_ cwd: String) async {
-        var count = 0
-        if !cwd.isEmpty, FileManager.default.fileExists(atPath: cwd) {
-            count = (try? await run.store.api.post("/api/roles/import/scan", ["path": JSON(cwd)]))?["roles"].array.count ?? 0
-        }
-        // Set only on a change: every set redraws the chat, which would pull it off where it follows.
-        if run.designedRoles != count { run.designedRoles = count }
-    }
-}
-
 extension RunModel {
+    /// The chat's open proposal, as the server has it.
+    // @project-doc docs/domains/20261120-chats.md#chat_app
+    func loadProposal() async {
+        guard let p = try? await api.get("/api/runs/\(API.q(id))/proposal") else { return }
+        let open: JSON? = p.isNull ? nil : p
+        // Set only on a change: every set redraws the chat, which would pull it off where it follows.
+        if proposal != open { proposal = open }
+    }
+
     /// A chat's title: its first message as soon as it is sent (the list's copy follows on the next
     /// refresh), otherwise who it is with.
     var chatTitle: String {

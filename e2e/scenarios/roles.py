@@ -1,6 +1,7 @@
-"""Digital employees by group, as role files in and out, and 招聘顾问 designing a team in a chat
+"""Digital employees by group, as role files in and out, and 招聘顾问 proposing a team in a chat
 (docs/domains/20261031-agents_and_roles.md#role_groups, #role_files)."""
 
+import json
 import os
 
 from lib import drawn, wait
@@ -50,7 +51,7 @@ def write(root, rel, text):
 
 @scenario("roles")
 def roles(ctx, c):
-    """数字员工按分组列出：默认数字员工各在自己的组；从文件夹导入（带 subagent 文件）、整组改名和换 Agent、导出成文件；招聘顾问在对话里写出的团队从对话里导入"""
+    """数字员工按分组列出：默认数字员工各在自己的组；从文件夹导入（带 subagent 文件）、整组改名和换 Agent、导出成文件；招聘顾问在对话里用工具交出团队，用户在对话里勾选后创建"""
     t = ctx.team("roles", members=("m1",))
     setup = {r["id"]: r for r in ctx.api("GET", "/api/setup")["roles"]}
     groups = {rid: setup[rid]["group"] for rid in ("pmo", "generalist", "friend", "recruiter", t.member("m1"))}
@@ -132,10 +133,15 @@ def roles(ctx, c):
         st = ctx.app.do("close-sheet", "open chats", "shot chats-by-group")
         c("chats" in st["screen"] and drawn(ctx.app.picture("chats-by-group")), "应用：新建对话页按分组列出数字员工（chats-by-group.png）")
 
-    # 招聘顾问: a chat whose agent writes role files into its folder, which the chat offers to import.
-    ctx.api("POST", "/api/setup/roles", dict({k: v for k, v in setup["recruiter"].items() if k != "seedUpdates"}, connection=t.member_conn["id"]))
-    write(t.fake.dir, "team/电商运营/shop-lead.md", COUNSEL.replace("法务顾问", "店铺负责人").replace("律所", "电商运营"))
-    write(t.fake.dir, "team/电商运营/copywriter.md", PARALEGAL.replace("律师助理", "文案").replace("律所", "电商运营").replace("paralegal", "copywriter"))
+    # 招聘顾问: a chat whose agent proposes the team it designed, which the person creates from the chat.
+    recruiter = setup["recruiter"]
+    c(recruiter["hires"] is True and not any(r["hires"] for r in ctx.api("GET", "/api/setup")["roles"] if r["id"] != "recruiter"),
+      "只有招聘顾问可以在对话里提议数字员工")
+    ctx.api("POST", "/api/setup/roles", dict({k: v for k, v in recruiter.items() if k != "seedUpdates"}, connection=t.member_conn["id"]))
+    team = [{"name": "店铺负责人", "desc": "统筹店铺运营", "group": "电商运营", "color": "#c2410c", "init": "店", "lead": True, "instructions": "你负责店铺运营。"},
+            {"name": "文案", "desc": "写商品详情和活动文案", "group": "电商运营", "color": "#11845a", "init": "文", "instructions": "你写文案。"},
+            {"name": "客服", "desc": "回答买家的问题", "group": "电商运营", "color": "#2563eb", "init": "客", "instructions": "你做客服。"}]
+    write(t.fake.dir, "team.json", json.dumps(team, ensure_ascii=False))
     if ctx.app:
         # Adding someone by hand offers 招聘顾问 instead; editing someone does not.
         st = ctx.app.do("role new", "shot role-editor-new")
@@ -155,14 +161,32 @@ def roles(ctx, c):
     wait(lambda: [e for e in ctx.api("GET", f"/api/runs/{chat}")["events"] if e["type"] == "agent.status" and e["data"].get("turn") == "idle"],
          "招聘顾问的会话打开", 60)
     ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "开一家网店 [team]"})
-    cwd = ctx.api("GET", f"/api/runs/{chat}")["run"]["cwd"]
-    wait(lambda: len(ctx.api("POST", "/api/roles/import/scan", {"path": cwd})["roles"]) == 2, "招聘顾问把两位数字员工写进对话目录", 60)
+    proposal = wait(lambda: ctx.api("GET", f"/api/runs/{chat}/proposal"), "招聘顾问用工具交出三位数字员工", 60)
+    c([r["name"] for r in proposal["roles"]] == ["店铺负责人", "文案", "客服"] and [r["file"] for r in proposal["roles"]] == ["1", "2", "3"],
+      "服务端记下这一批，按顺序编号")
+    c(not any(r["group"] == "电商运营" for r in ctx.api("GET", "/api/setup")["roles"]), "用户确认之前一个也没有创建")
     if ctx.app:
-        ctx.ui(c, chat, lambda r, s: r.get("designedRoles") == 2, "对话页提示目录里有 2 位数字员工的文件，可以导入", pages=("density detail",))
-        st = ctx.app.do(f"roles-import {cwd}", f"roles-import-agent {t.member_conn['id']}")
-        c(sorted(f["file"] for f in st["roleImport"]["found"]) == ["电商运营/copywriter.md", "电商运营/shop-lead.md"], "应用：从对话目录打开的导入表单列出这两位")
+        ctx.ui(c, chat, lambda r, s: [x["name"] for x in (r.get("proposal") or {}).get("roles", [])] == ["店铺负责人", "文案", "客服"],
+               "对话页显示服务端给的这一批：店铺负责人、文案、客服", pages=("density detail",))
+        st = ctx.app.do("proposal-open", f"roles-import-agent {t.member_conn['id']}", "roles-import-toggle 3", "shot proposal-sheet")
+        im = st["roleImport"]
+        c(im["chat"] == chat and [f["name"] for f in im["found"]] == ["店铺负责人", "文案", "客服"] and im["picked"] == ["1", "2"],
+          "应用：确认表单列出这一批，去掉客服后勾选两位")
+        c(drawn(ctx.app.picture("proposal-sheet")), "应用：确认表单画出来了（proposal-sheet.png）")
         ctx.app.do("roles-import-go")
+        ctx.ui(c, chat, lambda r, s: r.get("proposal") is None and s.get("roleImport") is None, "创建后对话页的提议消失，表单关闭")
     else:
-        ctx.api("POST", "/api/roles/import", {"path": cwd, "files": ["电商运营/copywriter.md", "电商运营/shop-lead.md"], "connection": t.member_conn["id"]})
+        ctx.api("POST", f"/api/runs/{chat}/proposal", {"proposal": proposal["proposal"], "files": ["1", "2"], "connection": t.member_conn["id"]})
     shop = [r for r in ctx.api("GET", "/api/setup")["roles"] if r["group"] == "电商运营"]
-    c(sorted(r["name"] for r in shop) == ["店铺负责人", "文案"], "招聘顾问设计的团队导入后成为「电商运营」组")
+    c(sorted(r["name"] for r in shop) == ["店铺负责人", "文案"], "勾选的两位成为「电商运营」组，没勾选的客服没有创建")
+    c(all(r["connection"] == t.member_conn["id"] and not r["hires"] for r in shop) and any(r["lead"] for r in shop),
+      "创建的人用选定的 Agent，负责人保留，没有提议数字员工的能力")
+    code, text = ctx.api_error("POST", f"/api/runs/{chat}/proposal", {"proposal": proposal["proposal"], "files": ["3"], "connection": t.member_conn["id"]})
+    c(code == 400 and "已经处理过" in text, "同一批不能再创建一次")
+    # A chat with someone who may not propose has no such tool.
+    other = ctx.api("POST", "/api/chats", {"role": t.member("m1")})["id"]
+    wait(lambda: [e for e in ctx.api("GET", f"/api/runs/{other}")["events"] if e["type"] == "agent.status" and e["data"].get("turn") == "idle"],
+         "别的数字员工的对话打开", 60)
+    ctx.api("POST", f"/api/runs/{other}/actions", {"type": "message", "agent": "lead", "text": "也开一家网店 [team]"})
+    wait(lambda: [e for e in ctx.api("GET", f"/api/runs/{other}")["events"] if e["type"] == "agent.message"], "它回复了", 60)
+    c(ctx.api("GET", f"/api/runs/{other}/proposal") is None, "不能提议数字员工的对话交不出这一批")

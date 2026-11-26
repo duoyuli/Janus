@@ -30,6 +30,8 @@ pub const SHAPES: &[Shape] = &[
             "effort",
             "session",
             "lead",
+            // Whether it proposes digital employees in a chat (`propose_employees`).
+            "hires",
             "color",
             "init",
             // The hash of its picture (`data/roles/<id>/avatar.png`); empty shows the initials.

@@ -162,6 +162,10 @@ enum Snapshots {
             if store.roleImport?.picked.contains(arg) == true { store.roleImport?.picked.remove(arg) } else { store.roleImport?.picked.insert(arg) }
         case "roles-import-agent": store.roleImport?.connection = arg
         case "roles-import-go": await store.finishRoleImport()
+        // The open chat's proposal of digital employees: `proposal-open` opens it in the import
+        // sheet (then the `roles-import-*` commands), `proposal-decline` creates none.
+        case "proposal-open": if let r = store.run { await store.openProposal(r) }
+        case "proposal-decline": if let r = store.run { await store.declineProposal(r) }
         // A group's menu: `group-bind <group>|<agent>`, `group-rename <from>|<to>`.
         case "group-bind":
             let p = arg.components(separatedBy: "|")
@@ -229,7 +233,7 @@ enum Snapshots {
                 // The import sheet as shown: where it reads, each file found (name, group, lead,
                 // whether the name is taken) and which are ticked.
                 "roleImport": store.roleImport.map { im in
-                    ["path": JSON(im.path), "error": im.error.map(JSON.init) ?? .null, "connection": JSON(im.connection),
+                    ["path": JSON(im.path), "chat": im.chat.map(JSON.init) ?? .null, "error": im.error.map(JSON.init) ?? .null, "connection": JSON(im.connection),
                      "picked": JSON.array(im.picked.sorted().map(JSON.init)),
                      "found": JSON.array(im.found.map { ["file": $0["file"], "name": $0["name"], "group": $0["group"], "lead": $0["lead"], "existing": $0["existing"]] })]
                 } ?? .null,
@@ -304,8 +308,8 @@ enum Snapshots {
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "readOnly": .bool(r.readOnly), "page": JSON(String(describing: r.page)),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
-                    // A chat's offer to import the role files in its folder.
-                    "designedRoles": JSON(r.designedRoles),
+                    // A chat's open proposal of digital employees, as the server gave it.
+                    "proposal": r.proposal ?? .null,
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.events.last { $0.type == .memoryConsolidated }.map { $0.data } ?? .null,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.

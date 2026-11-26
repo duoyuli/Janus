@@ -14,9 +14,9 @@ enum RunPage: Hashable {
 final class RunModel {
     let id: String
     unowned let store: AppStore
-    /// For a chat: how many role files its folder held when its last turn ended (招聘顾问 writes
-    /// them there), which the chat offers to import.
-    var designedRoles = 0
+    /// For a chat: the digital employees its digital employee proposed that the person has not
+    /// acted on yet (`GET /api/runs/{id}/proposal`), as the server tells it; `nil` for none.
+    var proposal: JSON?
     var api: API { store.api }
 
     var runJSON: JSON = .null

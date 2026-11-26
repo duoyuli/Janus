@@ -617,3 +617,28 @@ fn default_roles_join_their_groups() {
     }
     assert_eq!(config(&conn, "role", "recruiter")["seed"]["id"], "recruiter", "招聘顾问 arrives as a default role");
 }
+
+/// Version 27: only the default 招聘顾问 proposes digital employees; everyone else, and every
+/// member of a past run, does not.
+#[test]
+fn only_the_recruiter_proposes_employees() {
+    let path = old_database("hires");
+    open(&path).unwrap();
+    let conn = Connection::open(&path).unwrap();
+    for (id, hires) in [("recruiter", true), ("pmo", false), ("generalist", false), ("rmwm60uas", false)] {
+        assert_eq!(config(&conn, "role", id)["hires"], hires, "{id}");
+    }
+    let teams: Vec<String> = conn
+        .prepare("SELECT config FROM runs")
+        .unwrap()
+        .query_map([], |r| r.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    let members: Vec<Value> = teams
+        .iter()
+        .flat_map(|c| serde_json::from_str::<Value>(c).unwrap()["team"].as_array().cloned().unwrap_or_default())
+        .collect();
+    assert!(!members.is_empty() && members.iter().all(|m| m["hires"] == false), "{members:?}");
+    assert_eq!(problems(&conn).unwrap(), Vec::<String>::new());
+}

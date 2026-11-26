@@ -219,6 +219,15 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "默认数字员工加上招聘顾问：在对话里为你设计一组数字员工，写成可以导入的文件",
         steps: &[Step::Custom(steps::roles::add_recruiter)],
     },
+    Migration {
+        version: 27,
+        name: "数字员工多一个「可以在对话里提议数字员工」（hires）：只有招聘顾问打开，Run 快照的成员记下它",
+        steps: &[
+            Step::Add { at: Target::Config(ConfigKind::Role), field: "hires", default: || serde_json::json!(false) },
+            Step::Custom(steps::roles::recruiter_hires),
+            Step::Add { at: Target::RunMember, field: "hires", default: || serde_json::json!(false) },
+        ],
+    },
 ];
 
 /// The data version this build reads and writes.

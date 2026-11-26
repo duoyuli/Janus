@@ -345,6 +345,7 @@ fn test_run(team_size: usize) -> Run {
                 role_prompt: String::new(),
                 resources: vec![],
                 role_id: String::new(),
+                hires: false,
             })
             .collect(),
         git: false,
@@ -546,7 +547,7 @@ fn each_caller_lists_its_own_tools_once() {
     let (lead, t1) = (Seat::Lead, Seat::Task("T1".into()));
     for (kind, seat) in [(RunKind::Goal, &lead), (RunKind::Goal, &t1), (RunKind::Loop, &lead), (RunKind::Dream, &lead)]
     {
-        let c = Caller::of(kind, seat).unwrap();
+        let c = Caller::of(kind, seat, false).unwrap();
         let listed = names(c);
         let unique: HashSet<&String> = listed.iter().collect();
         assert_eq!(unique.len(), listed.len(), "{c:?} lists a tool twice: {listed:?}");
@@ -554,15 +555,16 @@ fn each_caller_lists_its_own_tools_once() {
         assert_eq!(listed.contains(&"forget".to_string()), c == Caller::Consolidation, "{c:?}");
         assert!(listed.contains(&"recall".to_string()), "{c:?}");
     }
-    assert_eq!(names(Caller::of(RunKind::Dream, &lead).unwrap()), ["recall", "remember", "forget"]);
-    assert!(names(Caller::of(RunKind::Goal, &lead).unwrap()).contains(&"orchestrate".to_string()));
-    let member = names(Caller::of(RunKind::Goal, &t1).unwrap());
+    assert_eq!(names(Caller::of(RunKind::Dream, &lead, false).unwrap()), ["recall", "remember", "forget"]);
+    assert!(names(Caller::of(RunKind::Goal, &lead, false).unwrap()).contains(&"orchestrate".to_string()));
+    let member = names(Caller::of(RunKind::Goal, &t1, false).unwrap());
     assert!(["board_post", "submit", "ask"].iter().all(|t| member.contains(&t.to_string())), "{member:?}");
     // A subtask whose id is `lead` is still a subtask: its seat says so, not its id.
-    let named_lead = names(Caller::of(RunKind::Goal, &Seat::Task("lead".into())).unwrap());
+    let named_lead = names(Caller::of(RunKind::Goal, &Seat::Task("lead".into()), false).unwrap());
     assert!(named_lead.contains(&"submit".to_string()) && !named_lead.contains(&"orchestrate".to_string()));
-    assert!(names(Caller::of(RunKind::Loop, &lead).unwrap()).contains(&"dispatch".to_string()));
-    assert!(Caller::of(RunKind::Chat, &lead).is_none());
+    assert!(names(Caller::of(RunKind::Loop, &lead, false).unwrap()).contains(&"dispatch".to_string()));
+    assert!(Caller::of(RunKind::Chat, &lead, false).is_none(), "a chat has no tools of its own");
+    assert_eq!(names(Caller::of(RunKind::Chat, &lead, true).unwrap()), ["propose_employees"], "nor team memory");
 }
 
 /// The board speaks the run's language: every tool description and parameter description, and
@@ -646,6 +648,6 @@ fn a_subtask_named_lead_has_its_own_seat() {
     let (a, b) = (session_token("secret", &lead), session_token("secret", &task));
     assert_ne!(a, b);
     assert_eq!(task.who(), "lead", "inside the run it is still the subtask called lead");
-    assert_eq!(Caller::of(RunKind::Goal, &task), Some(Caller::Member));
-    assert_eq!(Caller::of(RunKind::Goal, &lead), Some(Caller::Lead));
+    assert_eq!(Caller::of(RunKind::Goal, &task, false), Some(Caller::Member));
+    assert_eq!(Caller::of(RunKind::Goal, &lead, false), Some(Caller::Lead));
 }

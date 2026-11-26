@@ -51,6 +51,7 @@ mod mcp_router;
 mod mcp_server;
 mod memory;
 mod merge;
+use chat::ChatTool;
 use loops::LoopTool;
 use memory::{MemoryAccess, MemoryTool};
 use merge::{DeliveryMerge, MergeState};
@@ -172,6 +173,9 @@ pub struct Member {
     /// appear here.
     pub resources: Vec<crate::library::Item>,
     pub role_id: String,
+    /// Whether the role may propose digital employees, as it was when the run started: a chat
+    /// with such a member gets `propose_employees`.
+    pub hires: bool,
 }
 
 /// A goal for a workspace (`POST /api/runs`). A field this build does not know is refused, so a

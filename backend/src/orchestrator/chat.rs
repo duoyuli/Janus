@@ -6,6 +6,7 @@
 // @project-doc docs/domains/20261120-chats.md#chat_model
 
 use super::*;
+use crate::agents::{Candidate, Found, RoleFile, picked};
 use crate::lang::{Lang, tr};
 
 impl App {
@@ -90,6 +91,171 @@ impl App {
             t => t,
         };
         self.db.set_run_goal(&run.id, title)
+    }
+}
+
+/// The most digital employees one proposal holds.
+const MAX_PROPOSED: usize = 20;
+
+/// The digital employees a chat proposed that the person has not created or declined yet: the
+/// chat's latest proposal (each new one replaces the one before), by its event's seq. The
+/// employees come numbered from 1 (`Found::file`), each marked with a saved one of the same name.
+#[derive(Serialize)]
+pub struct Proposal {
+    pub proposal: i64,
+    pub roles: Vec<Found>,
+}
+
+impl App {
+    /// `propose_employees`: check the employees the chat's digital employee designed and put them
+    /// on record for the person, who sees them in the chat and creates the ones they pick.
+    // @project-doc docs/domains/20261120-chats.md#proposed_employees
+    pub(super) fn propose_employees(&self, run: &Run, args: &Value) -> std::result::Result<String, String> {
+        let lang = run.lang;
+        let list = args["employees"].as_array().filter(|a| !a.is_empty()).ok_or_else(|| {
+            tr!(lang, "employees 要列出至少一位数字员工", "employees must list at least one digital employee")
+        })?;
+        if list.len() > MAX_PROPOSED {
+            return Err(tr!(lang, "一次最多 {MAX_PROPOSED} 位", "At most {MAX_PROPOSED} at a time"));
+        }
+        let text = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_string();
+        let mut roles = vec![];
+        for (i, e) in list.iter().enumerate() {
+            let role = RoleFile {
+                id: String::new(),
+                name: text(e, "name"),
+                desc: text(e, "desc"),
+                group: text(e, "group"),
+                color: text(e, "color"),
+                init: text(e, "init"),
+                lead: e["lead"] == true,
+                prompt: text(e, "instructions"),
+            }
+            .checked()
+            .map_err(|why| {
+                let n = i + 1;
+                tr!(lang, "第 {n} 位：{why}", "Employee {n}: {why}")
+            })?;
+            roles.push(role);
+        }
+        let names = roles.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join(list_sep(lang));
+        let n = roles.len();
+        let e = ev(EventKind::RolesProposed, "lead", format!("提议了 {n} 位数字员工：{names}"))
+            .data(json!({ "employees": roles }));
+        self.emit_kept(run, e).ok_or_else(|| tr!(lang, "没能记下这一批", "Could not record them"))?;
+        Ok(tr!(
+            lang,
+            "已交给用户：{n} 位（{names}）。用户在对话里逐个看过、选好 Agent 后才会创建；再交一批会替换这一批。",
+            "Handed to the person: {n} ({names}). They are created only after the person reads them in the chat and picks an agent; another proposal replaces this one."
+        ))
+    }
+
+    /// The chat's open proposal, if any (`Proposal`).
+    // @project-doc docs/domains/20261120-chats.md#proposed_employees
+    pub fn open_proposal(&self, run_id: &str) -> Result<Option<Proposal>> {
+        let Some(asked) = self.db.latest_event(run_id, EventKind::RolesProposed)? else { return Ok(None) };
+        let settled =
+            [EventKind::RolesCreated, EventKind::RolesDeclined].into_iter().try_fold(false, |done, kind| {
+                Ok::<_, anyhow::Error>(
+                    done || self
+                        .db
+                        .events_of(run_id, kind, asked.seq)?
+                        .iter()
+                        .any(|e| e.data.as_ref().is_some_and(|d| d["proposal"] == asked.seq)),
+                )
+            })?;
+        if settled {
+            return Ok(None);
+        }
+        let employees: Vec<RoleFile> =
+            asked.data.as_ref().and_then(|d| serde_json::from_value(d["employees"].clone()).ok()).unwrap_or_default();
+        let mut roles: Vec<Found> = employees
+            .into_iter()
+            .enumerate()
+            .map(|(i, role)| Found { file: (i + 1).to_string(), role, picture: false, existing: None })
+            .collect();
+        self.mark_existing(&mut roles)?;
+        Ok(Some(Proposal { proposal: asked.seq, roles }))
+    }
+
+    /// The person creates the employees `picks` (their numbers) of the chat's open proposal
+    /// `proposal`, all on the agent `connection`, and the chat records it.
+    // @project-doc docs/domains/20261120-chats.md#proposed_employees
+    pub fn create_proposed(
+        &self,
+        run_id: &str,
+        proposal: i64,
+        picks: &[String],
+        connection: &str,
+    ) -> Result<Vec<Role>> {
+        let open = self.still_open(run_id, proposal)?;
+        let picked = picked(open.roles, picks, |n| anyhow!("这一批里没有第 {n} 位"))?;
+        let made = self.make_roles(
+            picked.into_iter().map(|f| Candidate { role: f.role, stem: String::new(), picture: None }),
+            connection,
+        )?;
+        let names = made.iter().map(|r| r.name.as_str()).collect::<Vec<_>>().join("、");
+        let created: Vec<Value> = made.iter().map(|r| json!({ "id": r.id, "name": r.name })).collect();
+        let e = ev(EventKind::RolesCreated, "user", format!("创建了 {} 位数字员工：{names}", made.len()))
+            .data(json!({ "proposal": proposal, "roles": created }));
+        self.note(run_id, e)?;
+        Ok(made)
+    }
+
+    /// The person creates none of the chat's open proposal `proposal`.
+    pub fn decline_proposed(&self, run_id: &str, proposal: i64) -> Result<()> {
+        self.still_open(run_id, proposal)?;
+        self.note(
+            run_id,
+            ev(EventKind::RolesDeclined, "user", "不创建这一批数字员工").data(json!({ "proposal": proposal })),
+        )?;
+        Ok(())
+    }
+
+    /// The chat's open proposal, when it is `proposal`: one already acted on, or replaced by a
+    /// newer one, is not acted on again.
+    fn still_open(&self, run_id: &str, proposal: i64) -> Result<Proposal> {
+        self.open_proposal(run_id)?
+            .filter(|p| p.proposal == proposal)
+            .ok_or_else(|| anyhow!("这一批数字员工已经处理过，或者被新的一批替换了"))
+    }
+}
+
+wire_enum! {
+    /// A tool a chat has, for what its digital employee may do (`Caller::Hiring`).
+    pub(super) enum ChatTool {
+        ProposeEmployees = "propose_employees",
+    }
+}
+
+impl ChatTool {
+    /// What `tools/list` says about the tool, in `lang`.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#chat_tools
+    pub(super) fn definition(self, lang: Lang) -> Value {
+        let t = |zh, en| lang.pick(zh, en);
+        let s = |zh, en| json!({ "type": "string", "description": lang.pick(zh, en) });
+        let mut d = match self {
+            ChatTool::ProposeEmployees => json!({
+                "description": t(
+                    "把你为用户设计的一批数字员工交给用户。用户在对话里逐个看过指令、选好由哪个 Agent 来做后，才创建他勾选的人；这一批没处理之前再调用，新的一批替换它。创建后用户可以在设置里改。",
+                    "Hand the person a set of digital employees you designed for them. The person reads each one's instructions in the chat and picks the agent that runs them; only the ones they tick are created. Calling again before they act replaces this set. They can edit them in Settings afterwards."
+                ),
+                "inputSchema": { "type": "object", "properties": {
+                    "employees": { "type": "array", "items": { "type": "object", "properties": {
+                        "name": s("名字。", "Name."),
+                        "desc": s("一句话写什么样的子任务交给它：负责人只凭名字和这句话派活。", "One sentence on which subtasks go to it: a lead assigns work by name and this alone."),
+                        "group": s("分组名，同一支团队用同一个。", "Group name, the same for one team."),
+                        "color": s("头像颜色，# 加 6 位十六进制，每人不同。", "Picture color, # and 6 hex digits, different for each."),
+                        "init": s("头像上的一两个字。", "One or two characters on the picture."),
+                        "lead": { "type": "boolean", "description": t("能不能当负责人。", "Whether it may lead a team.") },
+                        "instructions": s("指令全文：用第二人称写给它，怎样做事、做到什么程度算完、怎样核对、什么时候停下来问人。", "Its full instructions, addressed to it: how it works, when it is done, how it checks its work, when it stops to ask.")
+                    }, "required": ["name", "desc", "instructions"] } }
+                }, "required": ["employees"] },
+                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+            }),
+        };
+        d["name"] = json!(self.as_str());
+        d
     }
 }
 

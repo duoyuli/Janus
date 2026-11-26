@@ -178,6 +178,8 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/runs/{id}/export", get(runs::export))
         .route("/api/runs/{id}/usage", get(runs::usage))
         .route("/api/runs/{id}/files", get(runs::files))
+        .route("/api/runs/{id}/proposal", get(runs::proposal).post(runs::create_proposed))
+        .route("/api/runs/{id}/proposal/decline", post(runs::decline_proposed))
         .route("/mcp/{run}/{token}/lead", post(streams::lead_board).get(streams::no_stream))
         .route("/mcp/{run}/{token}/task/{task}", post(streams::task_board).get(streams::no_stream))
         .route("/mcp/{run}/{token}/lead/tools", post(streams::lead_tools).get(streams::no_stream))

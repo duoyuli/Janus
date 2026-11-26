@@ -43,8 +43,8 @@ impl Takers {
 }
 
 /// Who reaches the `janus` MCP server, from the run's kind and the session's `who`: the tools it
-/// has. A chat has none. The server gives no `instructions`: each tool's description says how it
-/// is used.
+/// has. A chat has none, unless its digital employee proposes digital employees. The server gives
+/// no `instructions`: each tool's description says how it is used.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Caller {
     /// A goal run's lead: the board.
@@ -57,12 +57,18 @@ pub(super) enum Caller {
     /// The lead consolidating the workspace's team memory: the memory tools alone.
     // @project-doc docs/interfaces/20261031-board_mcp.md#memory_tools
     Consolidation,
+    /// A chat whose digital employee proposes digital employees (`Member::hires`): that tool
+    /// alone. A chat belongs to no workspace, so it has no team memory.
+    // @project-doc docs/interfaces/20261031-board_mcp.md#chat_tools
+    Hiring,
 }
 
 impl Caller {
-    pub(super) fn of(kind: RunKind, seat: &Seat) -> Option<Caller> {
+    /// The caller in a run of `kind` at `seat`; `hires` is whether the run's member proposes
+    /// digital employees, which only a chat reads.
+    pub(super) fn of(kind: RunKind, seat: &Seat, hires: bool) -> Option<Caller> {
         match (kind, seat) {
-            (RunKind::Chat, _) => None,
+            (RunKind::Chat, _) => hires.then_some(Caller::Hiring),
             (RunKind::Loop, _) => Some(Caller::Loop),
             (RunKind::Dream, _) => Some(Caller::Consolidation),
             (RunKind::Goal, Seat::Lead) => Some(Caller::Lead),
@@ -70,9 +76,18 @@ impl Caller {
         }
     }
 
-    /// What the caller may do with the workspace's notes.
-    fn memory(self) -> MemoryAccess {
-        if self == Caller::Consolidation { MemoryAccess::Consolidate } else { MemoryAccess::Write }
+    /// The caller of one of `run`'s sessions.
+    pub(super) fn of_run(run: &Run, seat: &Seat) -> Option<Caller> {
+        Caller::of(run.kind, seat, run.team.first().is_some_and(|m| m.hires))
+    }
+
+    /// What the caller may do with the workspace's notes; nothing without a workspace.
+    fn memory(self) -> Option<MemoryAccess> {
+        match self {
+            Caller::Hiring => None,
+            Caller::Consolidation => Some(MemoryAccess::Consolidate),
+            _ => Some(MemoryAccess::Write),
+        }
     }
 
     /// Every tool the caller has (`tools/list`), described in the run's language: its own, then
@@ -82,9 +97,13 @@ impl Caller {
             Caller::Lead => LeadTool::ALL.iter().map(|t| t.definition(lang)).collect(),
             Caller::Member => MemberTool::ALL.iter().map(|t| t.definition(lang)).collect(),
             Caller::Loop => LoopTool::ALL.iter().map(|t| t.definition(lang)).collect(),
+            Caller::Hiring => ChatTool::ALL.iter().map(|t| t.definition(lang)).collect(),
             Caller::Consolidation => vec![],
         };
-        let memory = MemoryTool::ALL.iter().filter(|t| t.allowed(self.memory())).map(|t| t.definition(lang));
+        let memory = MemoryTool::ALL
+            .iter()
+            .filter(|t| self.memory().is_some_and(|access| t.allowed(access)))
+            .map(|t| t.definition(lang));
         own.into_iter().chain(memory).collect()
     }
 }
@@ -102,9 +121,9 @@ impl App {
     pub async fn mcp(self: &Arc<Self>, run_id: &str, token: &str, seat: &Seat, req: Value) -> Result<Option<Value>> {
         let run = self.session_run(run_id, token, seat)?;
         // A chat's agent holds a valid token for its library router; the same token must not
-        // reach a board, which a chat does not have.
+        // reach a board, which a chat does not have, nor a tool its digital employee lacks.
         // @project-doc docs/domains/20261120-chats.md#chat_model
-        let caller = Caller::of(run.kind, seat).ok_or_else(|| anyhow!("对话没有共享看板"))?;
+        let caller = Caller::of_run(&run, seat).ok_or_else(|| anyhow!("这个对话没有 Janus 工具"))?;
         let Some(id) = req.get("id").cloned() else {
             return Ok(None);
         };
@@ -165,14 +184,17 @@ impl App {
     ) -> std::result::Result<String, String> {
         let missing = || Err(tr!(run.lang, "没有这个工具：{name}", "No such tool: {name}"));
         if let Some(tool) = MemoryTool::parse(name) {
-            return if tool.allowed(caller.memory()) {
-                self.memory_tool(run, who, caller.memory(), tool, args)
-            } else {
-                missing()
+            return match caller.memory().filter(|access| tool.allowed(*access)) {
+                Some(access) => self.memory_tool(run, who, access, tool, args),
+                None => missing(),
             };
         }
         match caller {
             Caller::Consolidation => missing(),
+            Caller::Hiring => match ChatTool::parse(name) {
+                Some(ChatTool::ProposeEmployees) => self.propose_employees(run, args),
+                None => missing(),
+            },
             Caller::Loop => match LoopTool::parse(name) {
                 Some(tool) => self.loop_tool(run, tool, args).await,
                 None => missing(),

@@ -99,6 +99,9 @@ enum EventKind: String {
     case inputRequested = "input.requested"
     case inputAnswered = "input.answered"
     case decisionWithdrawn = "decision.withdrawn"
+    case rolesProposed = "roles.proposed"
+    case rolesCreated = "roles.created"
+    case rolesDeclined = "roles.declined"
     /// A kind this build does not know.
     case unknown
 
