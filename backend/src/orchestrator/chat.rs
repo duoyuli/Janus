@@ -272,7 +272,7 @@ impl ChatTool {
                         "instructions": s("指令全文：用第二人称写给它，怎样做事、做到什么程度算完、怎样核对、什么时候停下来问人。", "Its full instructions, addressed to it: how it works, when it is done, how it checks its work, when it stops to ask.")
                     }, "required": ["name", "desc", "instructions"] } }
                 }, "required": ["employees"] },
-                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+                "annotations": board_act()
             }),
         };
         d["name"] = json!(self.as_str());

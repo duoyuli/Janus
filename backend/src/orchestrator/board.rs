@@ -155,10 +155,6 @@ impl Caller {
                     "ask_user：把只有用户能做的决定交给用户。",
                     "ask_user: hand a decision only the user can make to the user.",
                 ),
-                (
-                    "recall、remember：查团队记忆；记下之后的任务还用得上的事。",
-                    "recall, remember: search the team memory; keep what later runs will need.",
-                ),
             ],
             Caller::Member => &[
                 ("submit：交子任务的结果。", "submit: hand in your subtask's result."),
@@ -174,10 +170,6 @@ impl Caller {
                     "board：看其他子任务的状态、负责和改过的文件，以及某个子任务的完整结果。",
                     "board: see the other subtasks' status, owned and changed files, and any subtask's full result.",
                 ),
-                (
-                    "recall、remember：查团队记忆；记下之后的任务还用得上的事。",
-                    "recall, remember: search the team memory; keep what later runs will need.",
-                ),
             ],
             Caller::Loop => &[
                 (
@@ -189,16 +181,8 @@ impl Caller {
                     "ask_user: hand a decision only the person can make to them.",
                 ),
                 ("next_wake：在时间表之外约一次醒来。", "next_wake: wake once more outside your schedule."),
-                (
-                    "recall、remember：查团队记忆；记下之后还用得上的事。",
-                    "recall, remember: search the team memory; keep what later runs will need.",
-                ),
             ],
-            Caller::Consolidation => &[
-                ("recall：搜笔记，读全文。", "recall: search the notes and read them in full."),
-                ("remember：写一条笔记，或改写已有的一条。", "remember: write a note, or rewrite one."),
-                ("forget：删一条笔记。", "forget: remove a note."),
-            ],
+            Caller::Consolidation => &[],
             Caller::Hiring => &[(
                 "propose_employees：把你为用户设计的一批数字员工交给用户，由用户挑选后创建。",
                 "propose_employees: hand the person a set of digital employees you designed; they pick which to create.",
@@ -209,7 +193,9 @@ impl Caller {
             "Janus 的协作工具。每个工具的详细用法和限制写在它自己的说明里，用到时再看：",
             "Janus's collaboration tools. Each tool's own description has its full usage and limits; read it when you need the tool:"
         );
-        let lines: Vec<String> = lines.iter().map(|(zh, en)| format!("- {}", lang.pick(zh, en))).collect();
+        let memory = self.memory().map_or(&[][..], MemoryAccess::lines);
+        let lines: Vec<String> =
+            lines.iter().chain(memory).map(|(zh, en)| format!("- {}", lang.pick(zh, en))).collect();
         format!("{head}\n{}", lines.join("\n"))
     }
 }

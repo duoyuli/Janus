@@ -15,6 +15,29 @@ pub(super) fn board_act() -> Value {
     json!({ "readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false })
 }
 
+/// A tool that removes something for good.
+pub(super) fn board_remove() -> Value {
+    json!({ "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false })
+}
+
+/// What `ask_user` takes, from the lead and from a Loop alike.
+pub(super) fn ask_user_schema(lang: Lang) -> Value {
+    let t = |zh: &str, en: &str| lang.pick(zh, en).to_string();
+    json!({
+        "type": "object",
+        "required": ["question", "why"],
+        "properties": {
+            "question": { "type": "string" },
+            "why": { "type": "string", "description": t(
+                "为什么必须由用户决定，不同答案会怎样影响结果",
+                "Why the user must decide, and how the answers would change the result"
+            ) },
+            "options": { "type": "array", "items": { "type": "string" } },
+            "recommend": { "type": "string", "description": t("你建议的选项", "The option you recommend") }
+        }
+    })
+}
+
 wire_enum! {
     /// A tool on the lead's board.
     pub(super) enum LeadTool {
@@ -186,19 +209,7 @@ impl LeadTool {
                     "把只有用户能做的决定交给用户：需求有多种理解且结果明显不同、需要用户的账号或付费资源、不可逆的操作。目标范围内的做法和取舍由你自己决定，不要用这个工具。不会等待：用户的回答出现在 janus.wait 里，在那之前继续做不依赖这个决定的工作。",
                     "Hand the user a decision only they can make: the requirement reads several ways with clearly different results, it needs the user's account or paid resources, or the action cannot be undone. How to do the work and the trade-offs within the goal are yours to decide; do not use this tool for them. It does not wait: the answer arrives in janus.wait, and meanwhile you carry on with work that does not depend on it."
                 ),
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["question", "why"],
-                    "properties": {
-                        "question": { "type": "string" },
-                        "why": { "type": "string", "description": t(
-                            "为什么必须由用户决定，不同答案会怎样影响结果",
-                            "Why the user must decide, and how the answers would change the result"
-                        ) },
-                        "options": { "type": "array", "items": { "type": "string" } },
-                        "recommend": { "type": "string", "description": t("你建议的选项", "The option you recommend") }
-                    }
-                },
+                "inputSchema": ask_user_schema(lang),
                 "annotations": board_act()
             }),
         };

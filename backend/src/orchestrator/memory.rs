@@ -610,6 +610,23 @@ wire_enum! {
     }
 }
 
+impl MemoryAccess {
+    /// How the `janus` server's instructions name the memory tools a session with this access has.
+    pub(super) fn lines(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            MemoryAccess::Write => &[(
+                "recall、remember：查团队记忆；记下之后的任务还用得上的事。",
+                "recall, remember: search the team memory; keep what later runs will need.",
+            )],
+            MemoryAccess::Consolidate => &[
+                ("recall：搜笔记，读全文。", "recall: search the notes and read them in full."),
+                ("remember：写一条笔记，或改写已有的一条。", "remember: write a note, or rewrite one."),
+                ("forget：删一条笔记。", "forget: remove a note."),
+            ],
+        }
+    }
+}
+
 impl MemoryTool {
     /// What `tools/list` says about the tool, in `lang`: what it does and how and when to use it;
     /// its name is the enum's.
@@ -629,7 +646,7 @@ impl MemoryTool {
                         "What you want to know, in a few words; titles count most, then hooks, then bodies."
                     ) }
                 } },
-                "annotations": { "readOnlyHint": true }
+                "annotations": board_read()
             }),
             MemoryTool::Remember => json!({
                 "description": t(
@@ -652,7 +669,7 @@ impl MemoryTool {
                         "The note, standing on its own; dates absolute."
                     ) }
                 }, "required": ["kind", "title", "hook", "body"] },
-                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+                "annotations": board_act()
             }),
             MemoryTool::Forget => json!({
                 "description": t(
@@ -663,7 +680,7 @@ impl MemoryTool {
                     "id": { "type": "string" },
                     "reason": { "type": "string", "description": t("为什么删。", "Why it goes.") }
                 }, "required": ["id", "reason"] },
-                "annotations": { "readOnlyHint": false, "destructiveHint": true }
+                "annotations": board_remove()
             }),
         };
         d["name"] = json!(self.as_str());

@@ -1110,23 +1110,15 @@ impl LoopTool {
                     ) },
                     "source_url": { "type": "string", "description": t("请求来源的链接，如果有。", "Link to where the request came from, if any.") }
                 }, "required": ["goal", "key"] },
-                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+                "annotations": board_act()
             }),
             LoopTool::AskUser => json!({
                 "description": t(
                     "把只有用户能做的决定交到用户的收件箱；别人都决定不了时才问。不要等回答：回答会唤醒你，写在那次醒来的提示里。",
                     "Hand a decision only the person can make to their inbox; ask only when nobody else can decide. Do not wait for the answer: it wakes you and comes in that wake's prompt."
                 ),
-                "inputSchema": { "type": "object", "properties": {
-                    "question": { "type": "string" },
-                    "why": { "type": "string", "description": t(
-                        "为什么只有用户能决定，不同的回答会怎样改变后面的事。",
-                        "Why only the person can decide, and how the answers change what happens."
-                    ) },
-                    "options": { "type": "array", "items": { "type": "string" } },
-                    "recommend": { "type": "string" }
-                }, "required": ["question", "why"] },
-                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+                "inputSchema": ask_user_schema(lang),
+                "annotations": board_act()
             }),
             LoopTool::NextWake => json!({
                 "description": t(
@@ -1137,7 +1129,7 @@ impl LoopTool {
                     "after_seconds": { "type": "integer", "description": t("秒数，60 到 86400。", "Seconds, 60 to 86400.") },
                     "reason": { "type": "string", "description": t("一句话说明为什么是那时；用户能看到。", "One short sentence on why then; the person sees it.") }
                 }, "required": ["after_seconds", "reason"] },
-                "annotations": { "readOnlyHint": false, "destructiveHint": false }
+                "annotations": board_act()
             }),
         };
         d["name"] = json!(self.as_str());
