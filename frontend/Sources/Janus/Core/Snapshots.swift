@@ -11,7 +11,7 @@ import SwiftUI
 ///     snooze-first | wake-all | ignore <entry key> | close-window | state <name> (writes <name>.json: inbox and Dock state)
 ///     reload (settings, library and runs read again)
 ///     appearance light|dark|system | review <task> | window <title prefix> (which window `shot` takes)
-///     inbox-act <entry key>:<action> (clicks a quick answer of that inbox entry, actions from 0) | density detail|summary | draft <task or agent> <text>
+///     inbox-act <entry key>:<action> (clicks a quick answer of that inbox entry, actions from 0) | density detail|summary | draft task:<id>|agent:<id> <text>
 ///     send-key commandReturn|return | press return|shift-return|command-return (into the first composer) | update-channel stable|rc
 @MainActor
 enum Snapshots {
@@ -332,16 +332,16 @@ enum Snapshots {
                                             "tookMs": e.type == .loopSlept ? woke.map { JSON(floatLiteral: e.ts - $0.ts) } ?? .null : .null]
                                 })]
                     }() : .null,
-                    // What each session's composer holds, by session key.
-                    "drafts": .object(r.sessionDrafts.mapValues { JSON($0) }),
+                    // What each session's composer holds, by session (`task:T1`, `agent:lead`).
+                    "drafts": .object(Dictionary(uniqueKeysWithValues: r.sessionDrafts.map { ($0.key.label, JSON($0.value)) })),
                     // Each task's conversation and the lead's, as their cards lay them out: the rows in
                     // turns at the display level chosen, what the composer suggests for its draft and the
                     // live preview (docs/architecture/20261031-frontend.md#session_turns).
                     "conversations": .object(Dictionary(uniqueKeysWithValues: (s.orderedTasks.map { (SessionTarget.task($0.id), taskSession(s, $0)) } + [(SessionTarget.agent("lead"), agentSession(s, "lead"))]).map { target, info in
                         let detail = UserDefaults.janus.string(forKey: "janus.chatDensity") == ChatDensity.detail.rawValue
-                        let draft = r.sessionDrafts[target.key] ?? ""
+                        let draft = r.sessionDrafts[target] ?? ""
                         let live: ChatLive.Session? = { if case .task(let t) = target { return r.preview.of(task: t, agent: nil) } else { return r.preview.of(task: nil, agent: "lead") } }()
-                        return (target.key, [
+                        return (target.label, [
                             "rows": JSON.array(ChatCard.rows(run: r, st: s, info: info, target: target, detail: detail, live: r.canAct).map(Self.row)),
                             "suggestions": JSON.array(Suggestions.rows(SessionView.asking(draft), commands: SessionView.commands(info.evs), files: []).map { ["label": JSON($0.label), "group": $0.group.map(JSON.init) ?? .null] }),
                             "ghost": SessionView.argumentHint(draft, SessionView.commands(info.evs)).map(JSON.init) ?? .null,
@@ -403,10 +403,10 @@ enum Snapshots {
                 v.window?.makeFirstResponder(v)
                 v.keyDown(with: e)
             }
-        // Type into a session's composer: `draft <task or agent> <text>`.
+        // Type into a session's composer: `draft task:<id>|agent:<id> <text>`.
         case "draft":
             let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
-            if let run = store.run, let who = p.first { run.sessionDrafts["sess-" + who] = p.count > 1 ? p[1] : "" }
+            if let run = store.run, let target = p.first.flatMap(SessionTarget.init(label:)) { run.sessionDrafts[target] = p.count > 1 ? p[1] : "" }
         // By the entry's key, not its place: other runs come and go in the inbox meanwhile.
         case "inbox-act":
             if kv.count == 2, let n = Int(kv[1]), let e = store.inbox.open.first(where: { $0.key == kv[0] }), n < e.actions.count {

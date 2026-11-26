@@ -90,9 +90,9 @@ final class RunModel {
     var picks: [String: String] = [:]
     var notes: [String: String] = [:]
     var forms: [String: JSON] = [:]
-    var sessionDrafts: [String: String] = [:]
+    var sessionDrafts: [SessionTarget: String] = [:]
     /// Images pasted into each session's composer, by the same key as the drafts.
-    var sessionImages: [String: [PastedImage]] = [:]
+    var sessionImages: [SessionTarget: [PastedImage]] = [:]
     // Board view state
     var goalOpen = false
     var resultOpen = false
@@ -106,9 +106,9 @@ final class RunModel {
     var reviewOpen = false
     /// Bumped to put the cursor in the lead's composer (「让负责人改…」).
     var leadFocus = 0
-    /// Turns and groups of calls the person opened or folded in each conversation (by
-    /// `SessionTarget.key`, then row id), for this opening of the run.
-    var chatOpen: [String: [Int: Bool]] = [:]
+    /// Turns and groups of calls the person opened or folded in each conversation (by session,
+    /// then row id), for this opening of the run.
+    var chatOpen: [SessionTarget: [Int: Bool]] = [:]
     /// The inspector tab chosen for this opening; nil until the board first appears.
     var inspectorTab: String?
     // Audit view state
@@ -240,11 +240,11 @@ final class RunModel {
         Task { [weak self] in await self?.read() }
     }
 
-    /// Events arrive in bursts; derive once per burst, off the main thread: a long run takes
-    /// milliseconds that scrolling needs.
     /// How many events the last derive saw, so the next one knows which are new.
     @ObservationIgnored private var derivedUpTo = 0
 
+    /// Events arrive in bursts; derive once per burst, off the main thread: a long run takes
+    /// milliseconds that scrolling needs.
     private func scheduleDerive() {
         guard deriveTask == nil else { return }
         deriveTask = Task { [weak self] in

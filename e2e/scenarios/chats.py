@@ -102,24 +102,24 @@ def chats(ctx, c):
         c(drawn(ctx.app.picture(f"{chat}-long-reply")), f"应用：带宽表格的长回复画出来了（{chat}-long-reply.png）")
 
     ctx.ui(c, chat, lambda r, s: r.get("chat") and r["status"] == "running" and any(x["id"] == chat for x in s["chats"]),
-           "对话页打开，侧栏的对话列表里有它", pages=("draft lead 第三条", "open chats"))
+           "对话页打开，侧栏的对话列表里有它", pages=("draft agent:lead 第三条", "open chats"))
 
     if ctx.app:
         # The send key from Settings › 通用, pressed in the chat's composer.
-        st = ctx.app.do(f"open run:{chat}", "draft lead 第三条", "press return")
+        st = ctx.app.do(f"open run:{chat}", "draft agent:lead 第三条", "press return")
         c(st["sendKey"] == "commandReturn" and _new_line(st) and not replied("第三条"),
           f"应用：默认 ⌘↩ 发送，↩ 只换行（{st['sendKey']} / {st['run']['drafts']}）")
         st = ctx.app.do("send-key return", "open settings:general", "shot settings-send-key", "close-sheet",
-                        f"open run:{chat}", "draft lead 第三条", "press shift-return")
+                        f"open run:{chat}", "draft agent:lead 第三条", "press shift-return")
         c(st["sendKey"] == "return" and _new_line(st) and not replied("第三条"),
           f"应用：改成 ↩ 发送后，⇧↩ 换行不发送（{st['run']['drafts']}）")
         c(drawn(ctx.app.picture("settings-send-key")), "应用：设置 › 通用里的「发送消息」画出来了（settings-send-key.png）")
         # Scenarios share the app: each batch opens the chat itself, since another one may have
         # opened its own run between batches.
-        ctx.app.do(f"open run:{chat}", "draft lead 第三条", "press return")
+        ctx.app.do(f"open run:{chat}", "draft agent:lead 第三条", "press return")
         wait(lambda: replied("第三条"), "按 ↩ 发出的消息得到回复", 60)
         st = ctx.app.do("send-key commandReturn", f"open run:{chat}")
-        c(st["run"]["drafts"].get("sess-lead", "") == "", "应用：按 ↩ 把第三条发给了数字员工，输入框清空")
+        c(st["run"]["drafts"].get("agent:lead", "") == "", "应用：按 ↩ 把第三条发给了数字员工，输入框清空")
 
     with open(os.path.join(cwd, "notes.md"), "w") as f:
         f.write("scratch\n")
@@ -149,5 +149,5 @@ def _settled(cv):
 
 def _new_line(st):
     """The chat's draft is 第三条 with a new line added where the caret was."""
-    draft = st["run"]["drafts"].get("sess-lead", "")
+    draft = st["run"]["drafts"].get("agent:lead", "")
     return draft.count("\n") == 1 and draft.replace("\n", "") == "第三条"

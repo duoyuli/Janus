@@ -35,7 +35,7 @@ enum Inbox {
         let facts = boardFacts(state, name: { names[$0] ?? $0 })
         return facts.open.filter(\.you).map { f in
             InboxEntry(
-                key: "\(id)/\(f.key)", run: id, goal: run["goal"].str, workspace: workspace,
+                key: "\(id)/\(f.id)", run: id, goal: run["goal"].str, workspace: workspace,
                 title: f.title, text: f.text, sub: f.sub,
                 ts: f.seq.flatMap { state.event($0)?.ts } ?? run["createdAt"].double ?? 0,
                 canWait: ["lead_stall", "loop_touched", "loop_failed"].contains(f.kind) || (f.kind == "question" && f.tasks.isEmpty),

@@ -181,14 +181,22 @@ final class Msg {
 
 /// Something in front of the person.
 struct InboxItem: Identifiable {
+    /// What it belongs to: a decision the backend waits on (by its key), or a session whose turn
+    /// ended and waits for the person to reply. Never read from the shape of a string.
+    enum Ref: Hashable {
+        case decision(String)
+        case session(SessionTarget)
+    }
     let kind: String
-    let key: String
+    let ref: Ref
     let seq: Int
     var task: String?
     var agent: String?
     /// The rest of the request: reason, recommend, question, options, schema, url, command …
     var d: JSON = [:]
-    var id: String { key }
+    var id: Ref { ref }
+    /// The backend's key of the decision it answers; empty for a session's turn.
+    var key: String { if case .decision(let k) = ref { return k } else { return "" } }
 }
 
 struct RunInfo {
@@ -271,13 +279,13 @@ func derive(_ events: [Event]) -> RunState {
         s.agents[id] = a
         return a
     }
-    func dropSess(_ id: String) { s.inbox.removeAll { $0.key == "sess-" + id } }
+    func dropSess(_ target: SessionTarget) { s.inbox.removeAll { $0.ref == .session(target) } }
     func endLive(_ t: TaskState?) {
         guard let t else { return }
-        t.session = nil; dropSess(t.id)
+        t.session = nil; dropSess(.task(t.id))
         if let at = t.attempts.last, at.end == nil { at.end = s.run.now }
     }
-    func dropKey(_ k: String) { s.inbox.removeAll { $0.key == k } }
+    func dropKey(_ k: String) { s.inbox.removeAll { $0.ref == .decision(k) } }
 
     for e in events {
         s.run.now = e.ts
@@ -367,12 +375,12 @@ func derive(_ events: [Event]) -> RunState {
             if d["turn"].str == "idle" && !s.run.singleSession {
                 if let t {
                     t.session = t.session?.after(e)
-                    if !s.inbox.contains(where: { $0.key == "sess-" + t.id }) { s.inbox.append(InboxItem(kind: "session", key: "sess-" + t.id, seq: e.seq, task: t.id)) }
-                } else if !(e.actor == "lead" && s.result != nil), !s.inbox.contains(where: { $0.key == "sess-" + e.actor }) {
+                    if !s.inbox.contains(where: { $0.ref == .session(.task(t.id)) }) { s.inbox.append(InboxItem(kind: "session", ref: .session(.task(t.id)), seq: e.seq, task: t.id)) }
+                } else if !(e.actor == "lead" && s.result != nil), !s.inbox.contains(where: { $0.ref == .session(.agent(e.actor)) }) {
                     // After a delivery the review says where the lead is (`reviewStage`): waiting
                     // for acceptance, or done with what the person asked, so its turn ending is not
                     // a second entry.
-                    s.inbox.append(InboxItem(kind: "session", key: "sess-" + e.actor, seq: e.seq, agent: e.actor))
+                    s.inbox.append(InboxItem(kind: "session", ref: .session(.agent(e.actor)), seq: e.seq, agent: e.actor))
                 }
             }
         case .toolStarted:
@@ -381,18 +389,18 @@ func derive(_ events: [Event]) -> RunState {
             if ["janus.wait", "janus.reply", "janus.orchestrate"].contains(d["tool"].str) { let a = ag(e.actor); a.phase = e.actor == "lead" ? "coordinating" : "thinking"; a.note = e.text }
         case .controlTaken, .sessionInterrupted: t?.session = t?.session?.after(e)
         case .controlReleased:
-            if let t { t.session = t.session?.after(e); dropSess(t.id) } else if let to = e.to { dropSess(to) }
+            if let t { t.session = t.session?.after(e); dropSess(.task(t.id)) } else if let to = e.to { dropSess(.agent(to)) }
         case .userMessage:
             if let id = d["id"].string {
                 s.msgs[id] = Msg(id: id, text: d["text"].str, by: e.actor, to: e.to ?? "", task: e.task, seq: e.seq, images: Attach.paths(d))
                 break
             }
-            if let t, d["delivery"].str == "prompt" { t.session = t.session?.after(e); dropSess(t.id); ag(t.agent).phase = "thinking" }
-            else if t == nil, d["delivery"].str == "prompt", let to = e.to { dropSess(to) }
+            if let t, d["delivery"].str == "prompt" { t.session = t.session?.after(e); dropSess(.task(t.id)); ag(t.agent).phase = "thinking" }
+            else if t == nil, d["delivery"].str == "prompt", let to = e.to { dropSess(.agent(to)) }
         case .messageRouted:
             if let m = s.msgs[d["id"].str] { m.delivery = d["delivery"].str; m.routedTask = e.task; m.routedSeq = e.seq }
             if d["delivery"].str == "prompt" {
-                if let t { t.session = t.session?.after(e); dropSess(t.id); ag(t.agent).phase = "thinking" } else if let to = e.to { dropSess(to) }
+                if let t { t.session = t.session?.after(e); dropSess(.task(t.id)); ag(t.agent).phase = "thinking" } else if let to = e.to { dropSess(.agent(to)) }
             }
         case .messageDelivered:
             t?.session = t?.session?.after(e)
@@ -405,7 +413,7 @@ func derive(_ events: [Event]) -> RunState {
         // A collaborator's question passed on to the person, or a decision the lead hands over itself (no task).
         case .questionEscalated:
             dropKey(d["key"].str)
-            var item = InboxItem(kind: "question", key: d["key"].str, seq: e.seq, task: e.task, d: ["reason": d["reason"], "recommend": d["recommend"]])
+            var item = InboxItem(kind: "question", ref: .decision(d["key"].str), seq: e.seq, task: e.task, d: ["reason": d["reason"], "recommend": d["recommend"]])
             if e.task == nil { item.d["question"] = d["question"]; item.d["options"] = d["options"].or([]); item.d["from"] = JSON(e.actor) }
             s.inbox.append(item)
         case .questionAnswered:
@@ -416,11 +424,11 @@ func derive(_ events: [Event]) -> RunState {
             ag(t.agent).phase = "thinking"
         case .approvalRequested:
             t?.status = .waitingApproval
-            s.inbox.append(InboxItem(kind: "approval", key: d["key"].str, seq: e.seq, task: e.task, agent: e.actor, d: d))
+            s.inbox.append(InboxItem(kind: "approval", ref: .decision(d["key"].str), seq: e.seq, task: e.task, agent: e.actor, d: d))
             let a = ag(e.actor); a.phase = "waiting_approval"; a.note = e.text
         case .inputRequested:
             t?.status = .waitingInput
-            s.inbox.append(InboxItem(kind: "input", key: d["key"].str, seq: e.seq, task: e.task, agent: e.actor, d: d))
+            s.inbox.append(InboxItem(kind: "input", ref: .decision(d["key"].str), seq: e.seq, task: e.task, agent: e.actor, d: d))
             let a = ag(e.actor); a.phase = "waiting_for_input"; a.note = e.text
         case .inputAnswered:
             s.answers[d["key"].str] = d["action"]; dropKey(d["key"].str)
@@ -489,7 +497,7 @@ func derive(_ events: [Event]) -> RunState {
             s.run.status = .delivered; s.result = r; s.deliveries.append(r)
             let a = ag("lead"); a.phase = "idle"; a.note = ""
             s.leadTurn = .agent(idle: true)
-            dropSess("lead")
+            dropSess(.agent("lead"))
         case .riskAccepted:
             s.run.status = .accepted; s.result?.accepted = e.ts
             if !s.deliveries.isEmpty { s.deliveries[s.deliveries.count - 1].accepted = e.ts }
@@ -504,8 +512,36 @@ func derive(_ events: [Event]) -> RunState {
 
 // MARK: - Shared board
 
+/// Which open item a fact is, built from typed parts so two never share an id: a task id can be
+/// any string the board allows, so ids made by gluing a prefix, a task and a number together
+/// could collide (`T1` + `23` and `T12` + `3`).
+enum OpenKey: Hashable {
+    /// The person's own items. Their text is what the inbox remembers a snooze or an ignore by,
+    /// so it stays as it was.
+    case request(seq: Int, kind: String), loop(seq: Int), leadStall(seq: Int)
+    case conflict(seq: Int), split(task: String, seq: Int), gap(seq: Int), stall(task: String, seq: Int)
+    case blocker(seq: Int), leadQuestion(task: String, seq: Int), failed(task: String), blocked(task: String)
+
+    /// A string id: task ids never hold `:` (letters, digits, `-` and `_`), so it is unique too.
+    var text: String {
+        switch self {
+        case .request(let seq, let kind): return "o\(seq)\(kind)"
+        case .loop(let seq): return "oloop\(seq)"
+        case .leadStall(let seq): return "olead\(seq)"
+        case .conflict(let seq): return "conflict:\(seq)"
+        case .split(let task, let seq): return "split:\(task):\(seq)"
+        case .gap(let seq): return "gap:\(seq)"
+        case .stall(let task, let seq): return "stall:\(task):\(seq)"
+        case .blocker(let seq): return "blocker:\(seq)"
+        case .leadQuestion(let task, let seq): return "lead_question:\(task):\(seq)"
+        case .failed(let task): return "failed:\(task)"
+        case .blocked(let task): return "blocked:\(task)"
+        }
+    }
+}
+
 struct OpenFact: Identifiable {
-    let key: String
+    let key: OpenKey
     let seq: Int?
     let title: String
     let text: String
@@ -519,7 +555,7 @@ struct OpenFact: Identifiable {
     /// Choices that answer the request in one click, where it is a plain choice: an approval's
     /// options, or a question's options. A form or a free-form answer has none.
     var actions: [QuickAction] = []
-    var id: String { key }
+    var id: String { key.text }
 }
 
 /// One click that settles a request: the body of `POST /api/runs/{id}/actions`.
@@ -580,7 +616,7 @@ struct BoardFacts {
 func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
     var f = BoardFacts()
     var notes: [String: [(seq: Int, text: String)]] = [:]
-    var blockers: [(key: String, seq: Int, task: String, text: String, actor: String)] = []
+    var blockers: [(seq: Int, task: String, text: String, actor: String)] = []
     // The watchdog's latest report per task, until the backend says the agent moved again, the
     // agent itself acts, or a new attempt starts.
     var stalls: [String: (seq: Int, text: String)] = [:]
@@ -627,7 +663,7 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
             f.decisions.append(DecisionFact(key: "d\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, title: L.text("派工方案没通过校验"), text: errs.isEmpty ? e.text : errs.joined(separator: "\n"), agents: ["lead"]))
         case .boardPosted:
             let text = d["text"].string ?? e.text
-            if d["kind"].str == "blocker" { blockers.append((key: "ob\(e.seq)", seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
+            if d["kind"].str == "blocker" { blockers.append((seq: e.seq, task: e.task ?? "", text: text, actor: e.actor)) }
             else { f.handoffs.append(HandoffFact(key: "h\(e.seq)", seq: e.seq, ts: e.ts, by: e.actor, from: e.task ?? "", to: "lead", agent: "lead", summary: L.text("\(d["kind"].str == "note" ? L.text("备注") : L.text("进展"))：\(text)"), artifacts: [])) }
         case .questionAnswered:
             if let task = e.task { splits[task] = nil }
@@ -728,15 +764,15 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         default: text = ""
         }
         if text.isEmpty { text = i.d["reason"].str }
-        f.open.append(OpenFact(key: "o\(i.seq)\(i.kind)", seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
+        f.open.append(OpenFact(key: .request(seq: i.seq, kind: i.kind), seq: i.seq, title: title, text: text, tasks: [i.task].compactMap { $0 }, agents: [t?.agent ?? i.agent ?? "lead"], you: true, sub: t.map { "\($0.id) · \($0.title)" } ?? "", kind: i.kind, actions: actions))
     }
     if let n = loopNotice {
         let title = n.kind == "loop_touched" ? L.text("值班在自己的副本里改了文件") : L.text("值班没能开工")
         let sub = n.kind == "loop_touched" ? n.files.prefix(5).joined(separator: L.text("、")) : L.text("下次开工会再试；也可以在值班页叫它现在开工")
-        f.open.append(OpenFact(key: "oloop\(n.seq)", seq: n.seq, title: title, text: n.text, tasks: [], agents: ["lead"], you: true, sub: sub, kind: n.kind))
+        f.open.append(OpenFact(key: .loop(seq: n.seq), seq: n.seq, title: title, text: n.text, tasks: [], agents: ["lead"], you: true, sub: sub, kind: n.kind))
     }
     if let ls = leadStall, st.active {
-        f.open.append(OpenFact(key: "olead\(ls.seq)", seq: ls.seq, title: L.text("负责人可能卡住了"), text: ls.text, tasks: [], agents: ["lead"], you: true, sub: L.text("可以在负责人的会话里发消息、打断并接管，或者继续等"), kind: "lead_stall"))
+        f.open.append(OpenFact(key: .leadStall(seq: ls.seq), seq: ls.seq, title: L.text("负责人可能卡住了"), text: ls.text, tasks: [], agents: ["lead"], you: true, sub: L.text("可以在负责人的会话里发消息、打断并接管，或者继续等"), kind: "lead_stall"))
     }
     // Everything else that holds work up is the lead's to settle, not the person's.
     let lead = L.text("负责人在处理，你不用管")
@@ -748,36 +784,36 @@ func boardFacts(_ st: RunState, name: (String) -> String) -> BoardFacts {
         if c.byLead {
             guard !(st.tasks[c.task]?.status.isEnded ?? true) else { continue }
             let title = c.owned ? L.text("负责人改了 \(c.task) 负责的文件") : L.text("负责人和 \(c.task) 改了同一个文件")
-            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: L.text("、")), tasks: [c.task], agents: [st.tasks[c.task]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+            f.open.append(OpenFact(key: .conflict(seq: c.seq), seq: c.seq, title: title, text: c.paths.joined(separator: L.text("、")), tasks: [c.task], agents: [st.tasks[c.task]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
         } else if c.owned ? st.tasks[c.task]?.status == .running : (st.tasks[c.task]?.status == .running || st.tasks[c.other]?.status == .running) {
             let title = c.owned ? L.text("\(c.task) 改了 \(c.other) 负责的文件") : L.text("\(c.task) 和 \(c.other) 改了同一个文件")
-            f.open.append(OpenFact(key: "oc\(c.seq)", seq: c.seq, title: title, text: c.paths.joined(separator: L.text("、")), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
+            f.open.append(OpenFact(key: .conflict(seq: c.seq), seq: c.seq, title: title, text: c.paths.joined(separator: L.text("、")), tasks: [c.task, c.other], agents: [st.tasks[c.task]?.agent ?? "", st.tasks[c.other]?.agent ?? "", "lead"], you: false, sub: lead, kind: c.owned ? "overstep" : "conflict"))
         }
     }
     for (task, sp) in splits.sorted(by: { $0.value.seq < $1.value.seq }) where !(st.tasks[task]?.status.isEnded ?? true) {
-        f.open.append(OpenFact(key: "osp\(task)\(sp.seq)", seq: sp.seq, title: L.text("\(task) 请求拆分子任务"), text: sp.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "split_request"))
+        f.open.append(OpenFact(key: .split(task: task, seq: sp.seq), seq: sp.seq, title: L.text("\(task) 请求拆分子任务"), text: sp.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "split_request"))
     }
     // Until the lead redoes or corrects the task, or the run is handed over.
     if !(st.run.status.isDone || st.run.status == .cancelled) {
         for (task, g) in gaps.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == .succeeded {
-            f.open.append(OpenFact(key: "og\(g.seq)", seq: g.seq, title: L.text("\(task) 的结果和工作目录对不上"), text: g.gaps.joined(separator: "\n"), tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "trace"))
+            f.open.append(OpenFact(key: .gap(seq: g.seq), seq: g.seq, title: L.text("\(task) 的结果和工作目录对不上"), text: g.gaps.joined(separator: "\n"), tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "trace"))
         }
     }
     for (task, s) in stalls.sorted(by: { $0.value.seq < $1.value.seq }) where st.tasks[task]?.status == .running {
-        f.open.append(OpenFact(key: "os\(task)\(s.seq)", seq: s.seq, title: L.text("\(task) 可能卡住了"), text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "stall"))
+        f.open.append(OpenFact(key: .stall(task: task, seq: s.seq), seq: s.seq, title: L.text("\(task) 可能卡住了"), text: s.text, tasks: [task], agents: [st.tasks[task]?.agent ?? "", "lead"], you: false, sub: lead, kind: "stall"))
     }
     for b in blockers where !(st.tasks[b.task]?.status.isEnded ?? false) {
-        f.open.append(OpenFact(key: b.key, seq: b.seq, title: L.text("\(b.task) 遇到阻塞"), text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead, kind: "blocker"))
+        f.open.append(OpenFact(key: .blocker(seq: b.seq), seq: b.seq, title: L.text("\(b.task) 遇到阻塞"), text: b.text, tasks: [b.task], agents: [b.actor, "lead"], you: false, sub: lead, kind: "blocker"))
     }
     for t in st.orderedTasks where t.status == .waitingInput {
         guard let q = t.question, q.answer == nil, !st.inbox.contains(where: { $0.key == q.key }) else { continue }
-        f.open.append(OpenFact(key: "oq\(t.id)\(q.seq)", seq: q.seq, title: L.text("\(t.id) 问负责人"), text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
+        f.open.append(OpenFact(key: .leadQuestion(task: t.id, seq: q.seq), seq: q.seq, title: L.text("\(t.id) 问负责人"), text: q.question, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "lead_question"))
     }
     for t in st.orderedTasks where t.status == .failed || t.status == .verificationFailed {
-        f.open.append(OpenFact(key: "of\(t.id)", seq: t.attempts.last?.seq, title: L.text("\(t.id) 失败，等负责人决定"), text: t.error.isEmpty ? t.verificationFailures.joined(separator: L.text("；")) : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: L.text("负责人可以重做、接受结果或取消"), kind: "failed"))
+        f.open.append(OpenFact(key: .failed(task: t.id), seq: t.attempts.last?.seq, title: L.text("\(t.id) 失败，等负责人决定"), text: t.error.isEmpty ? t.verificationFailures.joined(separator: L.text("；")) : t.error, tasks: [t.id], agents: [t.agent, "lead"], you: false, sub: L.text("负责人可以重做、接受结果或取消"), kind: "failed"))
     }
     for t in st.orderedTasks where t.status == .blocked {
-        f.open.append(OpenFact(key: "ob\(t.id)", seq: nil, title: L.text("\(t.id) 等待 \(t.blockedBy)"), text: L.text("依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。"), tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "blocked"))
+        f.open.append(OpenFact(key: .blocked(task: t.id), seq: nil, title: L.text("\(t.id) 等待 \(t.blockedBy)"), text: L.text("依赖的 \(t.blockedBy) 没有完成，\(t.id) 还不能开始。"), tasks: [t.blockedBy, t.id], agents: [t.agent, "lead"], you: false, sub: lead, kind: "blocked"))
     }
     // Once the run is over, a message that never arrived is marked on its decision card.
     if st.run.status.isDone || st.run.status == .cancelled || st.run.status == .failed {

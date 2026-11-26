@@ -50,7 +50,7 @@ def sessions(ctx, c):
     t.fake.wait_call("links README.md")
     c("missing.md" not in t.fake.calls().split("links README.md", 1)[1].split("\n", 1)[0], "@ 引用只带工作区里存在的文件")
     ctx.ui(c, run.id, lambda r, s: next(x for x in r["tasks"] if x["id"] == "T1")["status"] == "succeeded", "T1 的会话已完成",
-           pages=("task:T2", "task:T1", "density summary", "task:T1", "density detail", "draft T1 /", "agent:lead"))
+           pages=("task:T2", "task:T1", "density summary", "task:T1", "density detail", "draft task:T1 /", "agent:lead"))
     if ctx.app:
         conversation_in_turns(ctx, c, run)
 
@@ -64,9 +64,9 @@ def conversation_in_turns(ctx, c, run):
     edited = {d["path"] for e in evs if e["type"] == "tool.call" for d in e["data"].get("diffs") or []}
 
     def conv(st):
-        return st["run"]["conversations"]["sess-T1"]
+        return st["run"]["conversations"]["task:T1"]
 
-    st = ctx.app.do(f"open run:{run.id}", "density summary", "draft T1 /")
+    st = ctx.app.do(f"open run:{run.id}", "density summary", "draft task:T1 /")
     rows = conv(st)["rows"]
     kinds = [r["kind"] for r in rows]
     c(kinds[0] == "section" and "system" in rows[0]["injected"],
@@ -82,9 +82,9 @@ def conversation_in_turns(ctx, c, run):
     labels = [x["label"] for x in conv(st)["suggestions"]]
     c(labels == ["/" + n for n in commands], f"输入 / 列出 Agent 的斜杠命令：{labels}")
 
-    st = ctx.app.do("density detail", "draft T1 /review ")
+    st = ctx.app.do("density detail", "draft task:T1 /review ")
     kinds = [r["kind"] for r in conv(st)["rows"]]
     c("activity" in kinds and next(r for r in conv(st)["rows"] if r["kind"] == "head")["open"] is True, f"详细档：每一轮都展开：{kinds}")
     c(conv(st)["ghost"] == hint, f"选中命令后灰字显示它的参数：{conv(st)['ghost']}")
     c(conv(st)["preview"] == {"text": "", "tools": 0}, "会话结束后没有残留的实时预览")
-    ctx.app.do("draft T1 ")
+    ctx.app.do("draft task:T1 ")

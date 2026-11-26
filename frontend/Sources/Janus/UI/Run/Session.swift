@@ -8,10 +8,22 @@ let leadMarks: Set<EventKind> = [.runCreated, .loopWoke, .loopSlept, .loopFailed
 
 func isSessionEvent(_ e: Event) -> Bool { sessionTypes.contains(e.type) || (e.type == .agentStatus && e.data["turn"].str == "idle") }
 
-/// Who a session view is about: a task's attempts, or everything one agent did in the run.
+/// Who a session view is about: a task's attempts, or everything one agent did in the run. Task
+/// ids and agent ids are separate names (a task may be called `lead`), so the case is part of
+/// every key built from it: drafts, pasted images, folds and inbox entries.
 enum SessionTarget: Hashable {
     case task(String), agent(String)
-    var key: String { switch self { case .task(let t): return "sess-" + t; case .agent(let a): return "sess-" + a } }
+    /// How the end-to-end driver names it, as its `page` command does: `task:T1`, `agent:lead`.
+    var label: String { switch self { case .task(let t): return "task:" + t; case .agent(let a): return "agent:" + a } }
+    init?(label: String) {
+        let p = label.split(separator: ":", maxSplits: 1).map(String.init)
+        guard p.count == 2 else { return nil }
+        switch p[0] {
+        case "task": self = .task(p[1])
+        case "agent": self = .agent(p[1])
+        default: return nil
+        }
+    }
     var body: JSON { switch self { case .task(let t): return ["task": JSON(t), "agent": ""]; case .agent(let a): return ["task": "", "agent": JSON(a)] } }
 }
 
@@ -139,7 +151,7 @@ struct ChatCard: View {
             Divider()
             PlanStrip(steps: SessionView.plan(info.evs))
             ChatScroll(run: run, st: st, rows: rows(live: live), target: target, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent, density: density, docked: docked) { id, open in
-                run.chatOpen[target.key, default: [:]][id] = open
+                run.chatOpen[target, default: [:]][id] = open
             }
                 // Each conversation keeps its own place; another task's session opens at its newest.
                 .id(target)
@@ -156,9 +168,9 @@ struct ChatCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 let commands = SessionView.commands(info.evs)
-                let draft = Binding(get: { run.sessionDrafts[target.key] ?? "" }, set: { run.sessionDrafts[target.key] = $0 })
+                let draft = Binding(get: { run.sessionDrafts[target] ?? "" }, set: { run.sessionDrafts[target] = $0 })
                 if enabled { Suggestions(run: run, draft: draft, commands: commands, picker: picker) }
-                Composer(text: draft, images: Binding(get: { run.sessionImages[target.key] ?? [] }, set: { run.sessionImages[target.key] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0,
+                Composer(text: draft, images: Binding(get: { run.sessionImages[target] ?? [] }, set: { run.sessionImages[target] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0,
                          onNavigate: { picker.handle($0, draft: draft) }, ghost: SessionView.argumentHint(draft.wrappedValue, commands)) { send("message") }
                 HStack(spacing: 10) {
                     if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
@@ -237,8 +249,8 @@ struct ChatCard: View {
         }
     }
 
-    private var draft: String { (run.sessionDrafts[target.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var images: [PastedImage] { run.sessionImages[target.key] ?? [] }
+    private var draft: String { (run.sessionDrafts[target] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var images: [PastedImage] { run.sessionImages[target] ?? [] }
 
     private func send(_ type: String) {
         if type == "finish" && !confirm(L.text("用当前产出完成这个子任务？"), L.text("子任务里已有的改动会照常记录成 diff。"), ok: L.text("完成"), destructive: false) { return }
@@ -250,7 +262,7 @@ struct ChatCard: View {
             guard !text.isEmpty || !images.isEmpty else { return }
             body["text"] = JSON(text)
             if !images.isEmpty { body["images"] = .array(images.map(\.json)) }
-            let key = target.key
+            let key = target
             run.sessionDrafts[key] = ""
             run.sessionImages[key] = []
             sent += 1
@@ -283,7 +295,7 @@ struct ChatCard: View {
         }
         // The newest turn runs while the session works on its own or on the person's message.
         let busy = info.open && live && !info.idle && !run.isReplaying
-        return ChatTurns.rows(shown, ChatTurns.Options(detail: detail, busy: busy, cwd: st.run.cwd, open: run.chatOpen[target.key] ?? [:]))
+        return ChatTurns.rows(shown, ChatTurns.Options(detail: detail, busy: busy, cwd: st.run.cwd, open: run.chatOpen[target] ?? [:]))
     }
 }
 

@@ -74,7 +74,7 @@ private func goalRun() -> Log {
     // The lead deals with failures: the person is not asked.
     #expect(s.inbox.isEmpty)
     let f = boardFacts(s) { $0 }
-    #expect(f.open.contains { $0.key == "ofT1" && !$0.you })
+    #expect(f.open.contains { $0.key == .failed(task: "T1") && !$0.you })
 }
 
 @Test func messagesAreTrackedUntilDelivered() {
@@ -675,4 +675,37 @@ private func goalRun() -> Log {
     #expect(LoopSchedule.minuteMarks(keeping: 0) == Array(stride(from: 0, to: 60, by: 5)))
     #expect(LoopSchedule.minuteMarks(keeping: 7) == [0, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
     #expect(LoopSchedule.cron("0 9-18 * * 1-5").words == expectedCopy("cron：0 9-18 * * 1-5", "cron: 0 9-18 * * 1-5"))
+}
+
+/// A task may be called `lead`: its turn ending and the lead's are two inbox entries, and the lead
+/// taking its session back leaves the task's entry in place (rule 10: owner as a field).
+@Test func aTaskNamedLeadKeepsItsOwnInboxEntry() {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["mode": "goal", "goal": "g", "cwd": "/tmp/x", "git": true])
+    log.add("orchestration.accepted", actor: "lead", data: ["tasks": [["id": "lead", "title": "叫 lead 的子任务", "agent": "m1", "deps": [], "accept": []]]])
+    log.add("attempt.started", to: "m1", task: "lead", attempt: 1, data: ["session": "s1"])
+    log.add("agent.status", actor: "m1", task: "lead", data: ["turn": "idle"])
+    log.add("agent.status", actor: "lead", data: ["turn": "idle"])
+    #expect(Set(derive(log.events).inbox.map(\.ref)) == [.session(.task("lead")), .session(.agent("lead"))])
+    log.add("control.released", actor: "user", to: "lead")
+    #expect(derive(log.events).inbox.map(\.ref) == [.session(.task("lead"))])
+}
+
+/// Open items never share an id, whatever the task ids: `T1` stalled at 24 and `T12` at 4 are two.
+@Test func openItemsNeverShareAnId() {
+    var log = Log()
+    log.add("run.created", actor: "user", data: ["mode": "goal", "goal": "g", "cwd": "/tmp/x", "git": true])
+    log.add("orchestration.accepted", actor: "lead", data: ["tasks": [
+        ["id": "T1", "title": "a", "agent": "m1", "deps": [], "accept": []],
+        ["id": "T12", "title": "b", "agent": "m2", "deps": [], "accept": []],
+    ]])
+    log.add("attempt.started", to: "m2", task: "T12", attempt: 1, data: ["session": "s2"])
+    log.add("task.stalled", task: "T12", text: "卡住")
+    while log.events.count < 22 { log.add("task.ready", task: "T1") }
+    log.add("attempt.started", to: "m1", task: "T1", attempt: 1, data: ["session": "s1"])
+    log.add("task.stalled", task: "T1", text: "卡住")
+    #expect(log.events[3].seq == 4 && log.events.last?.seq == 24)
+    let open = boardFacts(derive(log.events)) { $0 }.open
+    #expect(open.filter { $0.kind == "stall" }.count == 2)
+    #expect(Set(open.map(\.id)).count == open.count)
 }

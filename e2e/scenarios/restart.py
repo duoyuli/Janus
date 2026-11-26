@@ -102,7 +102,7 @@ def restart(ctx, c):
               f"（live {st['run']['live']}，阶段 {rv['stage']}，按钮 {rv['actions']}，只读 {st['run']['readOnly']}）")
             # Replaying it shows the lead's session read-only: a draft typed there stays and is not sent.
             shot = f"{done.id}-replay-draft"
-            ctx.app.do(f"open run:{done.id}", "page replay:3", "draft lead 回放时写的草稿", f"shot {shot}")
+            ctx.app.do(f"open run:{done.id}", "page replay:3", "draft agent:lead 回放时写的草稿", f"shot {shot}")
             c(drawn(ctx.app.picture(shot)), f"应用：回放中负责人会话显示「回放中」、输入框只读、草稿保留（{shot}.png）")
             ctx.app.do("page board")
             c(not done.has("user.message"), "回放中写的草稿没有发出去")

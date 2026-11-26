@@ -89,7 +89,7 @@ struct ProgressBoard: View {
         }
         for x in f.open {
             guard let seq = x.seq, let e = st.event(seq) else { continue }
-            out.append(TimelineMark(id: x.key, seq: seq, ts: e.ts, kind: .open, title: x.title, by: x.agents.first ?? e.actor, what: x.kind, you: x.you))
+            out.append(TimelineMark(id: x.id, seq: seq, ts: e.ts, kind: .open, title: x.title, by: x.agents.first ?? e.actor, what: x.kind, you: x.you))
         }
         return out
     }
