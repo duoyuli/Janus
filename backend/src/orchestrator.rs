@@ -401,8 +401,8 @@ const MESSAGE_QUIET: Duration = Duration::from_secs(1);
 
 fn release_prompt(lang: crate::lang::Lang) -> &'static str {
     lang.pick(
-        "人工介入结束。请结合上面的对话，自主完成原来的子任务，做完后用 janus.submit 交结果。",
-        "The person has handed the session back. Taking the conversation above into account, finish the original subtask on your own, and hand in your result with janus.submit when you are done.",
+        "人工介入结束。请结合上面的对话，自主完成原来的子任务。",
+        "The person has handed the session back. Taking the conversation above into account, finish the original subtask on your own.",
     )
 }
 

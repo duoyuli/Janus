@@ -308,16 +308,16 @@ pub(super) fn continued_prompt(
     p.push_str(&tr!(lang, "\n\n验收标准：\n{accept}", "\n\nAcceptance criteria:\n{accept}"));
     p.push_str(match (reopen, review) {
         (Reopen::Reverify { .. }, _) => lang.pick(
-            "\n\n做完后用 janus.submit 交结果：checks 逐条写明你做了什么、看到了什么，并给出 verdict：approved、rejected 或 inconclusive。",
-            "\n\nWhen done, hand in your result with janus.submit: in checks, say for each criterion what you did and what you saw, and give your verdict: approved, rejected or inconclusive.",
+            "\n\n交结果时 checks 逐条写明你做了什么、看到了什么，并给出 verdict：approved、rejected 或 inconclusive。",
+            "\n\nIn your result, say in checks for each criterion what you did and what you saw, and give your verdict: approved, rejected or inconclusive.",
         ),
         (Reopen::Retry { .. }, Some(_)) => lang.pick(
-            "\n\n同意的意见就修改并重新验证；不同意的、或和任务范围冲突的不要硬改：在对应的 check 写 passed: false 说明理由，或用 janus.ask 请负责人决定。做完后用 janus.submit 交结果，checks 按验收标准逐条更新。",
-            "\n\nFix what you agree with and check it again; do not force changes you disagree with or that conflict with the subtask's scope: set passed: false on that check with your reason, or ask the lead to decide with janus.ask. When done, hand in your result with janus.submit, with checks updated for every criterion.",
+            "\n\n同意的意见就修改并重新验证；不同意的、或和任务范围冲突的不要硬改：在对应的 check 写 passed: false 说明理由，或请负责人决定。交结果时 checks 按验收标准逐条更新。",
+            "\n\nFix what you agree with and check it again; do not force changes you disagree with or that conflict with the subtask's scope: set passed: false on that check with your reason, or ask the lead to decide. In your result, update checks for every criterion.",
         ),
         (Reopen::Retry { .. }, None) => lang.pick(
-            "\n\n做完后用 janus.submit 交结果，checks 按验收标准逐条更新。",
-            "\n\nWhen done, hand in your result with janus.submit, with checks updated for every criterion.",
+            "\n\n交结果时 checks 按验收标准逐条更新。",
+            "\n\nIn your result, update checks for every criterion.",
         ),
     });
     p.push_str(notes);

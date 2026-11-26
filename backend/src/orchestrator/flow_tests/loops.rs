@@ -453,12 +453,13 @@ async fn a_dispatched_runs_end_wakes_its_loop_with_what_it_came_to() {
     let prompt = wake_prompts(&h).pop().unwrap();
     assert!(prompt.contains(&format!("- {c}（key c）：已交付")) && !prompt.contains(&b), "{prompt}");
 
-    // Its system layer says the run owns its goal and its end wakes the Loop; dispatch's
-    // description says how to pass on what it knows.
+    // Its system layer says the run owns its goal; dispatch's description, said once there, says
+    // how to pass on what it knows and that the run's end wakes the Loop.
     let layer = h.app.loop_brief(&h.app.run(&run).unwrap());
-    assert!(layer.contains("在结束前对自己的目标负责") && layer.contains("它结束时会唤醒你"), "{layer}");
+    assert!(layer.contains("在结束前对自己的目标负责") && !layer.contains("唤醒你"), "{layer}");
     let dispatch = LoopTool::Dispatch.definition(crate::lang::Lang::Zh);
-    assert!(dispatch["description"].as_str().unwrap().contains("转告给它的负责人"), "{dispatch}");
+    let dispatch = dispatch["description"].as_str().unwrap();
+    assert!(dispatch.contains("转告给它的负责人") && dispatch.contains("任务结束时会唤醒你"), "{dispatch}");
     let _ = std::fs::remove_dir_all(&h.dir);
 }
 

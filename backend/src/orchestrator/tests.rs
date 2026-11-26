@@ -687,8 +687,8 @@ fn a_subtask_named_lead_has_its_own_seat() {
     assert_eq!(Caller::of(RunKind::Goal, &lead, false), Some(Caller::Lead));
 }
 
-/// Every reopened attempt is told, in either language, to hand in with `janus.submit`; none asks
-/// for the result as text in its reply.
+/// A reopened attempt's prompt, in either language, says what its result must cover and never
+/// asks for the result as text in its reply: how to hand in is in the collaborator's rules.
 #[test]
 fn reopened_attempts_hand_in_with_the_tool_in_both_languages() {
     use crate::lang::Lang;
@@ -710,7 +710,7 @@ fn reopened_attempts_hand_in_with_the_tool_in_both_languages() {
     for lang in [Lang::Zh, Lang::En] {
         for (reopen, review) in [(&retry, None), (&retry, Some(&findings)), (&reverify, None)] {
             let p = continued_prompt(&def, 2, reopen, review, None, "", lang);
-            assert!(p.contains("janus.submit") && !p.contains("```"), "{lang:?}: {p}");
+            assert!(p.contains("checks") && !p.contains("```") && !p.contains("json"), "{lang:?}: {p}");
         }
     }
 }

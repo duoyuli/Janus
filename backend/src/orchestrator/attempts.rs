@@ -504,8 +504,8 @@ impl App {
             let notes = self.take_notes(run, &agent, Some(id));
             tr!(
                 lang,
-                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分，做完后用 janus.submit 交结果。{notes}",
-                "{why}Carry on with your subtask from where it stopped; do not redo finished parts, and hand in your result with janus.submit when you are done.{notes}"
+                "{why}请从中断的地方继续完成原来的子任务，不要重做已经完成的部分。{notes}",
+                "{why}Carry on with your subtask from where it stopped; do not redo finished parts.{notes}"
             )
         } else {
             let notes = self.take_notes(run, &agent, Some(id));
@@ -519,8 +519,8 @@ impl App {
                     let task = task_prompt(run, &def, &team_note, &upstream, &peers, last_error.as_deref());
                     tr!(
                         lang,
-                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行，做完后用 janus.submit 交结果。\n\n{task}{notes}",
-                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria, and hand in your result with janus.submit when you are done.\n\n{task}{notes}"
+                        "你在子任务 {from} 的原会话中继续工作，之前的上下文和读过的文件都还在。请按下面新的子任务要求和验收标准执行。\n\n{task}{notes}",
+                        "You go on working in the session of subtask {from}; its context and the files you read are still here. Do the new subtask below to its acceptance criteria.\n\n{task}{notes}"
                     )
                 }
                 (None, _) => format!(
@@ -692,8 +692,8 @@ impl App {
                         };
                         next = Some(tr!(
                             lang,
-                            "你的问题已得到回答：{answer}{note}\n请据此继续完成子任务，做完后用 janus.submit 交结果。",
-                            "Your question has been answered: {answer}{note}\nGo on with the subtask accordingly, and hand in your result with janus.submit when you are done."
+                            "你的问题已得到回答：{answer}{note}\n请据此继续完成子任务。",
+                            "Your question has been answered: {answer}{note}\nGo on with the subtask accordingly."
                         ));
                     }
                     cmd = ctl.rx.recv() => {
