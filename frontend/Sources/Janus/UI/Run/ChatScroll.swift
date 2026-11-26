@@ -103,8 +103,11 @@ struct ChatScroll: View {
 
     /// The live preview's row, always last.
     static let liveId = Int.min / 2
-    /// How many of the newest lines are always built (`body`).
-    static let tail = 8
+    /// How many of the newest lines are always built (`body`): more than a screen of them, so no
+    /// lazily estimated row is in view at the end. With fewer, macOS 15 measured the rows in view
+    /// after it last reported the content's size, and the view stopped about a screen short of the
+    /// end, sure it was there.
+    static let tail = 30
 
     /// One line of the list: a conversation row at its place, or the live preview after them all.
     struct Line: Identifiable {
