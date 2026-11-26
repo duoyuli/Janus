@@ -188,3 +188,19 @@ private func kinds(_ rows: [ChatTurns.Row]) -> [String] {
     l.add("agent.status", actor: "lead", task: nil, text: "会话已打开，等待你的消息", data: ["turn": "idle"])
     #expect(kinds(ChatTurns.rows(l.events, .init())) == ["item:agent.status"])
 }
+
+/// While a turn runs, the two levels differ at the bottom too: the summary folds the newest calls
+/// to one line and shows only the step the agent is on; the detail lists every one.
+@Test func theLevelsDifferWhereARunningTurnIs() {
+    var l = Log()
+    l.add("agent.thought", data: ["text": "先看看"])
+    l.add("tool.call", data: ["callId": "c1", "tool": "read", "input": "a.py", "status": "completed"])
+    l.add("tool.call", data: ["callId": "c2", "tool": "execute", "input": "pytest", "status": "completed"])
+    l.add("tool.started", data: ["callId": "c3", "tool": "execute", "input": "curl", "live": true])
+    #expect(kinds(ChatTurns.rows(l.events, .init(busy: true))) == ["head:open", "activity:3:folded", "activity:1:-"])
+    #expect(kinds(ChatTurns.rows(l.events, .init(detail: true, busy: true))) == ["head:open", "activity:4:-"])
+    // Opened by hand, the summary lists them all like the detail.
+    guard case .activity(let id, _, _) = ChatTurns.rows(l.events, .init(busy: true))[1] else { return }
+    let opened = ChatTurns.rows(l.events, .init(busy: true, open: [-(id * 8 + 2): true]))
+    #expect(kinds(opened) == ["head:open", "activity:4:-"])
+}

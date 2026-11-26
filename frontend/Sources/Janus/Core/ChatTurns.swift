@@ -297,13 +297,20 @@ enum ChatTurns {
         }
         flushGroup()
         flushText()
+        let last = rows.lastIndex { if case .activity = $0 { return true } else { return false } }
+        // The summary of a running turn: its newest calls fold too, all but the step the agent is
+        // on, so switching levels changes what is in view at the bottom, not only rows above it.
+        if running, !o.detail, let k = last, case .activity(let id, let es, _) = rows[k], es.count > 2, o.open[-(id * 8 + 2)] == nil {
+            let now = es[es.count - 1]
+            rows.replaceSubrange(k...k, with: [.activity(id: id, events: Array(es.dropLast()), open: false), .activity(id: now.seq, events: [now], open: nil)])
+            return rows
+        }
         // Calls are all the turn did: the turn's own line sums them up, so they need no line of their own.
         if open, rows.count == 1, case .activity(let id, let es, _) = rows[0] {
             return [.activity(id: id, events: es, open: nil)]
         }
         // While the turn runs, its newest calls are open: that is where the agent is now.
-        if running, let k = rows.lastIndex(where: { if case .activity = $0 { return true } else { return false } }),
-           case .activity(let id, let es, _) = rows[k], o.open[-(id * 8 + 2)] == nil {
+        if running, let k = last, case .activity(let id, let es, _) = rows[k], o.open[-(id * 8 + 2)] == nil {
             rows[k] = .activity(id: id, events: es, open: true)
         }
         return rows
