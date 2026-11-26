@@ -137,25 +137,36 @@ private let docs: JSON = [
         #expect(s.transport == .stdio ? !s.command.isEmpty && s.url.isEmpty : s.url.hasPrefix("https://") && s.command.isEmpty, "\(s.name)")
     }
     for s in Catalog.skills {
-        #expect(s.repo.split(separator: "/").count == 2 && s.path.hasPrefix("skills/"), "\(s.id)")
+        #expect(s.repo.split(separator: "/").count == 2 && (s.path.isEmpty || s.path.hasPrefix("skills/")), "\(s.id)")
     }
+    #expect(Catalog.skills.first?.title == "ego-browser", "the browser comes first")
 }
 
 /// A pick says when the library has it already, and a server that needs a key starts the editor
 /// with the key's place written up to the user's part.
 @Test func catalogPicksKnowWhatTheLibraryHas() throws {
-    let sources: [JSON] = [["id": "s1", "repo": "anthropics/skills", "path": "", "gitRef": ""]]
+    let sources: [JSON] = [
+        ["id": "s1", "repo": "anthropics/skills", "path": "", "gitRef": ""],
+        ["id": "s2", "repo": "unclebob/ub-mode", "path": "", "gitRef": ""],
+    ]
     let pdf = try #require(Catalog.skills.first { $0.path == "skills/pdf" })
     let docx = try #require(Catalog.skills.first { $0.path == "skills/docx" })
     let items: [JSON] = [
         ["kind": "skill", "name": "pdf-tools", "origin": ["type": "git", "source": "s1", "path": "skills/pdf"]],
-        ["kind": "mcp", "name": "my-fetch", "server": ["transport": "stdio", "command": "uvx", "args": ["mcp-server-fetch"]]],
+        ["kind": "skill", "name": "uncle-bob", "origin": ["type": "git", "source": "s2", "path": ""]],
+        ["kind": "mcp", "name": "my-devtools", "server": ["transport": "stdio", "command": "npx", "args": ["-y", "chrome-devtools-mcp@latest"]]],
     ]
     #expect(Catalog.item(for: pdf, items: items, sources: sources)?["name"] == "pdf-tools", "the same folder of the same repository")
     #expect(Catalog.item(for: docx, items: items, sources: sources) == nil)
-    let fetch = try #require(Catalog.servers.first { $0.name == "fetch" })
-    #expect(Catalog.item(for: fetch, items: items)?["name"] == "my-fetch", "the same command")
-    #expect(fetch.oneClick && fetch.draft.command == "uvx" && fetch.draft.args == ["mcp-server-fetch"])
+    // A skill whose SKILL.md is at its repository's top: the repository names it.
+    let ub = try #require(Catalog.skills.first { $0.repo == "unclebob/ub-mode" })
+    #expect(ub.id == "unclebob/ub-mode" && ub.folder == "ub-mode" && ub.location == "SKILL.md")
+    #expect(Catalog.item(for: ub, items: items, sources: sources)?["name"] == "uncle-bob", "the top of the same repository")
+    let chinese = try #require(Catalog.skills.first { $0.repo == "Fenng/tech-doc-style-chinese" })
+    #expect(Catalog.item(for: chinese, items: [["kind": "skill", "name": "tech-doc-style-chinese"]], sources: []) != nil, "by its name")
+    let devtools = try #require(Catalog.servers.first { $0.name == "chrome-devtools" })
+    #expect(Catalog.item(for: devtools, items: items)?["name"] == "my-devtools", "the same command")
+    #expect(devtools.oneClick && devtools.draft.command == "npx" && devtools.draft.args == ["-y", "chrome-devtools-mcp@latest"])
 
     let github = try #require(Catalog.servers.first { $0.name == "github" })
     #expect(!github.oneClick)

@@ -127,7 +127,7 @@ struct CatalogShelf: View {
                 }
                 guard source["offers"].array.contains(where: { $0["path"].str == s.path }) else {
                     await store.loadLibrary()
-                    store.show(L.text("\(s.repo) 里没有找到 \(s.path)，可以在来源里「更新」后再试"))
+                    store.show(L.text("\(s.repo) 里没有找到 \(s.location)，可以在来源里「更新」后再试"))
                     return
                 }
                 let r = try await store.api.post("/api/library/sources/\(source["id"].str)/import", ["paths": JSON([s.path])])

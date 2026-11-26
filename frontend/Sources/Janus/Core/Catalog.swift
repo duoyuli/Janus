@@ -8,15 +8,20 @@ import Foundation
 /// would, and adding a server writes a new MCP server like the editor does.
 // @project-doc docs/domains/20261116-resource_library.md#catalog
 enum Catalog {
-    /// A skill in a GitHub repository: the folder holding its SKILL.md.
+    /// A skill in a GitHub repository: the folder holding its SKILL.md, empty when the SKILL.md
+    /// is at the repository's top.
     struct Skill: Identifiable, Equatable {
         let repo: String
-        let path: String
+        var path = ""
         let title: String
         let publisher: String
         /// What it is for, in Chinese; `L.catalogText` gives the app's language.
         let blurb: String
-        var id: String { "\(repo)/\(path)" }
+        var id: String { path.isEmpty ? repo : "\(repo)/\(path)" }
+        /// The folder the skill is in, which names it: its own, or the repository's.
+        var folder: String { ((path.isEmpty ? repo : path) as NSString).lastPathComponent }
+        /// Where the SKILL.md is, as the person reads it.
+        var location: String { path.isEmpty ? "SKILL.md" : path }
     }
 
     /// Something a server needs from the user before it works: an environment variable (command
@@ -72,10 +77,9 @@ enum Catalog {
     /// The library's item a pick already is: a skill imported from the same folder of the same
     /// repository, or one with its name.
     static func item(for s: Skill, items: [JSON], sources: [JSON]) -> JSON? {
-        let name = (s.path as NSString).lastPathComponent
         return items.first { i in
             guard i["kind"].str == "skill" else { return false }
-            if i["name"].str == name { return true }
+            if i["name"].str == s.folder { return true }
             let o = i["origin"]
             guard o["type"].str == "git", let src = sources.first(where: { $0["id"].str == o["source"].str }) else { return false }
             let full = [src["path"].str, o["path"].str].filter { !$0.isEmpty }.joined(separator: "/")
@@ -97,22 +101,24 @@ enum Catalog {
 
     // MARK: Skills
 
+    /// In the order the shelf shows them (reviewed 2026-11-26): the browser first, then
+    /// documents, interfaces, making skills, the ways of writing code, and web practices.
     static let skills: [Skill] = [
+        Skill(repo: "citrolabs/ego-lite", path: "skills/ego-browser", title: "ego-browser", publisher: "Citro Labs", blurb: "用 ego lite 浏览器打开网站、登录、填表、点击、截图、提取数据，可以带着你已登录的账号；需要先安装 ego lite。"),
         Skill(repo: "anthropics/skills", path: "skills/pdf", title: "PDF", publisher: "Anthropic", blurb: "读取、合并、拆分和填写 PDF，提取其中的文字和表格。"),
         Skill(repo: "anthropics/skills", path: "skills/docx", title: "Word", publisher: "Anthropic", blurb: "创建和编辑 Word 文档，包括修订和批注。"),
         Skill(repo: "anthropics/skills", path: "skills/xlsx", title: "Excel", publisher: "Anthropic", blurb: "读写 Excel 表格，处理公式、格式和图表。"),
         Skill(repo: "anthropics/skills", path: "skills/pptx", title: "PowerPoint", publisher: "Anthropic", blurb: "创建和编辑 PowerPoint 演示文稿。"),
+        Skill(repo: "Fenng/tech-doc-style-chinese", title: "中文技术文档规范", publisher: "Fenng", blurb: "写、改、校对中文技术文档和产品文案时，用克制、准确、可扫读的中文技术写作风格。"),
         Skill(repo: "anthropics/skills", path: "skills/frontend-design", title: "Frontend Design", publisher: "Anthropic", blurb: "做出有设计感、不像模板的前端界面。"),
         Skill(repo: "anthropics/skills", path: "skills/webapp-testing", title: "Web App Testing", publisher: "Anthropic", blurb: "用 Playwright 测试本地 Web 应用，截图、查看浏览器日志。"),
-        Skill(repo: "anthropics/skills", path: "skills/mcp-builder", title: "MCP Builder", publisher: "Anthropic", blurb: "按最佳实践编写高质量的 MCP 服务器。"),
         Skill(repo: "anthropics/skills", path: "skills/skill-creator", title: "Skill Creator", publisher: "Anthropic", blurb: "创建、改进和评测 Skill。"),
-        Skill(repo: "anthropics/skills", path: "skills/doc-coauthoring", title: "Doc Co-authoring", publisher: "Anthropic", blurb: "按结构化的流程和用户一起写文档、方案和规格。"),
-        Skill(repo: "obra/superpowers", path: "skills/brainstorming", title: "Brainstorming", publisher: "Superpowers", blurb: "动手之前，先和用户把需求和设计想清楚。"),
         Skill(repo: "obra/superpowers", path: "skills/systematic-debugging", title: "Systematic Debugging", publisher: "Superpowers", blurb: "按找根因的步骤排查 bug，不靠猜。"),
         Skill(repo: "obra/superpowers", path: "skills/test-driven-development", title: "Test-Driven Development", publisher: "Superpowers", blurb: "先写一个失败的测试，再写让它通过的实现。"),
         Skill(repo: "obra/superpowers", path: "skills/writing-plans", title: "Writing Plans", publisher: "Superpowers", blurb: "把需求拆成一步步可以执行的实现计划。"),
+        Skill(repo: "unclebob/ub-mode", title: "ub-mode", publisher: "Uncle Bob", blurb: "写或改代码时按精简的原则走：先能用，再写对，再守规范。"),
         Skill(repo: "obra/superpowers", path: "skills/verification-before-completion", title: "Verification Before Completion", publisher: "Superpowers", blurb: "说完成之前先运行验证，拿出证据。"),
-        Skill(repo: "mattpocock/skills", path: "skills/productivity/grill-me", title: "Grill Me", publisher: "Matt Pocock", blurb: "就一个计划或设计反复追问，直到每个分支都想清楚。"),
+        Skill(repo: "mattpocock/skills", path: "skills/productivity/grilling", title: "Grilling", publisher: "Matt Pocock", blurb: "就一个计划、决定或想法反复追问：每轮问一批能问的问题并给出建议答案，直到想清楚。"),
         Skill(repo: "mattpocock/skills", path: "skills/engineering/improve-codebase-architecture", title: "Improve Codebase Architecture", publisher: "Matt Pocock", blurb: "找出代码库里值得加深的模块，改善架构。"),
         Skill(repo: "vercel-labs/agent-skills", path: "skills/react-best-practices", title: "React Best Practices", publisher: "Vercel", blurb: "Vercel 总结的 React 和 Next.js 性能最佳实践。"),
         Skill(repo: "vercel-labs/agent-skills", path: "skills/web-design-guidelines", title: "Web Design Guidelines", publisher: "Vercel", blurb: "按 Web 界面规范审查 UI 代码。"),
@@ -120,6 +126,8 @@ enum Catalog {
 
     // MARK: Servers
 
+    /// In the order the shelf shows them (reviewed 2026-11-26): documentation and search that
+    /// need nothing first, then GitHub, the browser's insides, models, and services that need a key.
     static let servers: [Server] = [
         Server(name: "context7", title: "Context7", publisher: "Upstash", blurb: "任意库最新的文档和代码示例，直接交给 Agent。",
                homepage: "https://context7.com", transport: .http, url: "https://mcp.context7.com/mcp",
@@ -131,27 +139,10 @@ enum Catalog {
         Server(name: "github", title: "GitHub", publisher: "GitHub", blurb: "GitHub 上的仓库、Issue、Pull Request、Actions 和代码搜索。",
                homepage: "https://github.com/github/github-mcp-server", transport: .http, url: "https://api.githubcopilot.com/mcp/",
                inputs: [Input(key: "Authorization", label: "Personal access token", hint: "在 github.com/settings/personal-access-tokens 创建", format: "Bearer {}")]),
-        Server(name: "playwright", title: "Playwright", publisher: "Microsoft", blurb: "驱动真实的浏览器：打开页面、点击、输入，通过无障碍树读取页面。",
-               homepage: "https://github.com/microsoft/playwright-mcp", transport: .stdio, command: ["npx", "-y", "@playwright/mcp@latest"], process: .perSession),
         Server(name: "chrome-devtools", title: "Chrome DevTools", publisher: "Google", blurb: "控制和检查一个真实的 Chrome：控制台、网络、性能追踪和截图。",
                homepage: "https://github.com/ChromeDevTools/chrome-devtools-mcp", transport: .stdio, command: ["npx", "-y", "chrome-devtools-mcp@latest"], process: .perSession),
-        Server(name: "fetch", title: "Fetch", publisher: "Model Context Protocol", blurb: "抓取网页，转成 Markdown 交给 Agent。",
-               homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch", transport: .stdio, command: ["uvx", "mcp-server-fetch"]),
-        Server(name: "memory", title: "Memory", publisher: "Model Context Protocol", blurb: "跨对话保留的知识图谱记忆。",
-               homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory", transport: .stdio, command: ["npx", "-y", "@modelcontextprotocol/server-memory"]),
-        Server(name: "sequential-thinking", title: "Sequential Thinking", publisher: "Model Context Protocol", blurb: "一步一步把问题想清楚，可以修正和分支。",
-               homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking", transport: .stdio, command: ["npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]),
-        Server(name: "time", title: "Time", publisher: "Model Context Protocol", blurb: "任意时区的当前时间和时区换算。",
-               homepage: "https://github.com/modelcontextprotocol/servers/tree/main/src/time", transport: .stdio, command: ["uvx", "mcp-server-time"]),
-        Server(name: "microsoft-learn", title: "Microsoft Learn", publisher: "Microsoft", blurb: "微软和 Azure 的官方文档与代码示例。",
-               homepage: "https://learn.microsoft.com/api/mcp", transport: .http, url: "https://learn.microsoft.com/api/mcp"),
-        Server(name: "cloudflare-docs", title: "Cloudflare Docs", publisher: "Cloudflare", blurb: "搜索 Cloudflare 的文档。",
-               homepage: "https://github.com/cloudflare/mcp-server-cloudflare", transport: .http, url: "https://docs.mcp.cloudflare.com/mcp"),
         Server(name: "huggingface", title: "Hugging Face", publisher: "Hugging Face", blurb: "搜索 Hugging Face 上的模型、数据集、Spaces 和论文。",
                homepage: "https://huggingface.co/settings/mcp", transport: .http, url: "https://huggingface.co/mcp"),
-        Server(name: "brave-search", title: "Brave Search", publisher: "Brave", blurb: "Brave 独立索引的网页、新闻、图片和本地搜索。",
-               homepage: "https://github.com/brave/brave-search-mcp-server", transport: .stdio, command: ["npx", "-y", "@brave/brave-search-mcp-server"],
-               inputs: [Input(key: "BRAVE_API_KEY", label: "API key", hint: "在 brave.com/search/api 获取")]),
         Server(name: "firecrawl", title: "Firecrawl", publisher: "Firecrawl", blurb: "抓取、爬取和搜索网页，转成干净的 Markdown。",
                homepage: "https://github.com/firecrawl/firecrawl-mcp-server", transport: .stdio, command: ["npx", "-y", "firecrawl-mcp"],
                inputs: [Input(key: "FIRECRAWL_API_KEY", label: "API key", hint: "在 firecrawl.dev/app/api-keys 获取")]),
