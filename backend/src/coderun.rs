@@ -400,14 +400,19 @@ fn write_line(v: &Value) {
     let _ = out.flush();
 }
 
-/// The `janus` binary next to this test binary (`target/debug/janus`), which `cargo test` builds
-/// for the integration tests: the helper for tests that run a script end to end.
+/// The `janus` binary `cargo test` builds for the integration tests (`target/debug/janus`): the
+/// helper for tests that run a script end to end. The test binary sits somewhere below it, how
+/// deep depends on Cargo's build-directory layout (`target/debug/deps/` before 1.9x,
+/// `target/debug/build/janus/<hash>/` after), so each folder above it is tried, then the package's
+/// own `target/debug`.
 #[cfg(test)]
 pub fn test_exe() -> std::path::PathBuf {
     let exe = std::env::current_exe().expect("the test binary's path");
-    let janus = exe.parent().and_then(Path::parent).expect("target/debug").join("janus");
-    assert!(janus.exists(), "{} is not built: run the whole `cargo test`, which builds it", janus.display());
-    janus
+    let fallback = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/debug/janus");
+    let found = exe.ancestors().skip(1).map(|d| d.join("janus")).chain([fallback]).find(|p| p.is_file() && *p != exe);
+    found.unwrap_or_else(|| {
+        panic!("no janus binary above {}: run the whole `cargo test`, which builds it", exe.display())
+    })
 }
 
 #[cfg(test)]
