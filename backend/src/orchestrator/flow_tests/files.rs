@@ -138,3 +138,40 @@ async fn the_stream_sends_each_conversations_preview() {
     finish_lead(&h);
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// The global stream carrying one run (`?run=`) sends that run's events and previews as the run's
+/// own stream does, beside its notices: a web page keeps one stream, not two, within a browser's
+/// six connections to the host.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_global_stream_carries_one_runs_events_and_previews() {
+    let h = harness("one-stream", &[("lead", false), ("m1", true)], json!({ "T1": ["done"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
+    let last = events(&h.app, &run).last().unwrap().seq;
+    let mut stream = reqwest::get(format!("http://{}/api/stream?run={run}&after={}&lang=zh", h.app.cfg.addr, last - 1))
+        .await
+        .unwrap();
+    assert_eq!(stream.status(), 200);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let frame = json!({ "kind": "say", "actor": "m1", "task": "T1", "attempt": 1, "seq": last, "text": "一条流里", "thought": "" });
+    h.app.live.send(crate::orchestrator::live::Live { run: run.clone(), data: frame }).unwrap();
+    let mut seen = String::new();
+    while !seen.contains("一条流里") {
+        let chunk = tokio::time::timeout(Duration::from_secs(5), stream.chunk()).await.unwrap().unwrap().unwrap();
+        seen.push_str(&String::from_utf8_lossy(&chunk));
+    }
+    assert!(seen.contains("event: ready"), "{seen}");
+    // The backlog after `after`: the run's last event, unnamed, whole.
+    let backlog = seen
+        .lines()
+        .filter(|l| l.starts_with("data:"))
+        .filter_map(|l| serde_json::from_str::<Value>(l.trim_start_matches("data:").trim()).ok())
+        .find(|v| v["seq"] == last && v["run_id"] == run.as_str());
+    assert!(backlog.is_some(), "{seen}");
+    assert!(seen.contains("event: live"), "{seen}");
+    // A run that is not followed sends nothing of its own.
+    let plain = reqwest::get(format!("http://{}/api/stream?lang=xx&run={run}", h.app.cfg.addr)).await.unwrap();
+    assert_eq!(plain.status(), 400);
+    finish_lead(&h);
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

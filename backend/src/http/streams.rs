@@ -4,6 +4,7 @@
 use super::runs::After;
 use super::{ApiError, ApiResult, reply};
 use crate::db;
+use crate::lang::Lang;
 use crate::orchestrator::{App, Change, SessionKey};
 use crate::run_view::preview::Previews;
 use axum::Json;
@@ -11,6 +12,7 @@ use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -33,11 +35,17 @@ pub(super) async fn run(
     UrlPath(id): UrlPath<String>,
     Query(q): Query<After>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>> {
+    let lang = super::views::lang_of(&app, q.lang.as_deref()).unwrap_or_else(|_| app.language());
+    Sse::new(run_events(&app, id, q.after.unwrap_or(0), lang)).keep_alive(KeepAlive::default())
+}
+
+/// Run `id`'s events after `after` and its `live` frames, as the stream sends them (unnamed
+/// events and `live`), until the client goes: what a run's own stream and the global stream
+/// carrying one run (`/api/stream?run=`) both send.
+fn run_events(app: &Arc<App>, id: String, after: i64, lang: Lang) -> ReceiverStream<Result<SseEvent, Infallible>> {
     // Subscribe before reading the backlog so nothing falls between the two.
     let mut events = app.tx.subscribe();
     let mut frames = app.live.subscribe();
-    let after = q.after.unwrap_or(0);
-    let lang = super::views::lang_of(&app, q.lang.as_deref()).unwrap_or_else(|_| app.language());
     let cwd = app.db.run(&id).ok().flatten().map(|r| r.cwd).unwrap_or_default();
     let backlog = app.db.events(&id, after).unwrap_or_default();
     let last = backlog.last().map(|e| e.seq).unwrap_or(after);
@@ -86,7 +94,17 @@ pub(super) async fn run(
             }
         }
     });
-    Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default())
+    ReceiverStream::new(rx)
+}
+
+/// What the global stream also carries: run `run`'s own events from `after` on, as its own stream
+/// sends them. A browser holds at most six connections to one host, so a web page keeps a single
+/// stream open (a run page as well as the lists), not one per run on top of the global one.
+#[derive(Deserialize)]
+pub(super) struct AllQuery {
+    run: Option<String>,
+    after: Option<i64>,
+    lang: Option<String>,
 }
 
 /// Everything the app follows across runs, as it happens: a short notice for each new event of any
@@ -98,7 +116,15 @@ pub(super) async fn run(
 // @project-doc docs/interfaces/20261031-http_api.md#global_stream
 pub(super) async fn all(
     State(app): State<Arc<App>>,
-) -> Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>> {
+    Query(q): Query<AllQuery>,
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
+    let one_run = match q.run {
+        Some(id) => {
+            let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+            Some(run_events(&app, id, q.after.unwrap_or(0), lang))
+        }
+        None => None,
+    };
     let events = BroadcastStream::new(app.tx.subscribe()).map(move |msg| match msg {
         Ok(e) => Ok(SseEvent::default()
             .event("event")
@@ -128,7 +154,9 @@ pub(super) async fn all(
         Err(_) => lagged(),
     });
     let ready = tokio_stream::once(Ok(SseEvent::default().event("ready").data("{}")));
-    Sse::new(ready.chain(events.merge(changes))).keep_alive(KeepAlive::default())
+    // Without a run, a stream that ends at once: its sender is dropped here.
+    let one_run = one_run.unwrap_or_else(|| ReceiverStream::new(tokio::sync::mpsc::channel(1).1));
+    Ok(Sse::new(ready.chain(events.merge(changes).merge(one_run))).keep_alive(KeepAlive::default()))
 }
 
 /// The answer to one MCP message: its response, or 202 for a notification. A request whose
