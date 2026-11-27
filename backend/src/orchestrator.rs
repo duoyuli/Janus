@@ -1224,6 +1224,8 @@ pub struct App {
     pub runs: StdMutex<HashMap<String, Arc<Run>>>,
     /// What each run's log comes to for the person, kept at the newest event read (`run_view`).
     pub views: crate::run_view::Views,
+    /// Browsers and phones paired with Janus, and the network listener (`devices`).
+    pub devices: crate::devices::DeviceState,
     /// One change of a kind at a time (`Gates`).
     pub gates: Gates,
     pub adapter_state: crate::adapters::AdapterState,
@@ -1268,6 +1270,8 @@ pub enum Change {
     Adapters,
     /// The person put an inbox entry off, brought it back or ignored it, from some client.
     Inbox,
+    /// A device was paired or unpaired, or the network switch turned (`devices`).
+    Devices,
 }
 
 /// Builder for an event before the orchestrator stamps it with seq and time.
@@ -1382,6 +1386,7 @@ impl App {
             live,
             runs: Default::default(),
             views: Default::default(),
+            devices: Default::default(),
             gates: Default::default(),
             adapter_state: Default::default(),
             checks: Default::default(),

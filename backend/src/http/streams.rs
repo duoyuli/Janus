@@ -85,6 +85,7 @@ pub(super) async fn all(
         }
         Ok(Change::Adapters) => Ok(SseEvent::default().event("adapters").data("{}")),
         Ok(Change::Inbox) => Ok(SseEvent::default().event("inbox").data("{}")),
+        Ok(Change::Devices) => Ok(SseEvent::default().event("devices").data("{}")),
         Err(_) => lagged(),
     });
     let ready = tokio_stream::once(Ok(SseEvent::default().event("ready").data("{}")));

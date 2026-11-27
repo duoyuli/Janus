@@ -1,12 +1,11 @@
 //! The resource library: skills, MCP servers and the Git sources they come from.
 // @project-doc docs/interfaces/20261031-http_api.md#library
 
-use super::{ApiError, ApiResult, local_app_only, ok, reply};
+use super::{ApiError, ApiResult, Client, local_app_only, ok, reply};
 use crate::library::Item;
 use crate::orchestrator::App;
 use axum::Json;
-use axum::extract::{Path as UrlPath, State};
-use axum::http::HeaderMap;
+use axum::extract::{Extension, Path as UrlPath, State};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -31,9 +30,9 @@ pub(super) async fn item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<Strin
 pub(super) async fn mcp_values(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,
-    headers: HeaderMap,
+    Extension(client): Extension<Client>,
 ) -> ApiResult {
-    local_app_only(&headers, "MCP 的值")?;
+    local_app_only(&client, "MCP 的值")?;
     reply(app.mcp_values_view(&id)?)
 }
 

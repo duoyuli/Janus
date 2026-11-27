@@ -31,6 +31,7 @@
 │   ├── janus.db                     # SQLite：Agent、角色、工作区、Run、事件
 │   ├── secrets/                     # 0700，Janus 保存的全部凭据，文件 0600
 │   │   ├── agents/<agent>.json      # Agent 的凭据字段和环境变量中的私有值
+│   │   ├── devices/<设备>.json      # 配对的浏览器和手机：名字、时间和设备令牌的 SHA-256，取消配对时删除
 │   │   └── library/<资源>.json      # 资源库 MCP 服务器的环境变量和 HTTP header 值
 │   ├── roles/<数字员工>/avatar.png  # 数字员工的头像，256×256 PNG，删除数字员工时一起删
 │   ├── agents/<agent>/

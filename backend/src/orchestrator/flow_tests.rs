@@ -79,7 +79,9 @@ pub(super) fn served_app(dir: &Path, set: impl FnOnce(&mut Config)) -> Arc<App> 
     let served = app.clone();
     tokio::spawn(async move {
         let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-        let _ = axum::serve(listener, crate::http::router(served)).await;
+        let service = crate::http::router(served, crate::http::Via::Local)
+            .into_make_service_with_connect_info::<std::net::SocketAddr>();
+        let _ = axum::serve(listener, service).await;
     });
     app
 }

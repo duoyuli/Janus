@@ -93,6 +93,17 @@ impl Layout {
         self.data().join("secrets")
     }
 
+    /// The browsers and phones paired with Janus, one owner-only file per device: its name, its
+    /// times and the SHA-256 of its token (`devices`). Written when a device is paired and as it
+    /// is used, removed when it is unpaired.
+    pub fn devices(&self) -> PathBuf {
+        self.secrets().join("devices")
+    }
+
+    pub fn device(&self, id: &str) -> PathBuf {
+        self.devices().join(format!("{id}.json"))
+    }
+
     // ---- Agents
 
     /// What Janus keeps for one agent: `config/` and `home/`.

@@ -9,6 +9,7 @@ mod coderun;
 mod config;
 mod data_shape;
 mod db;
+mod devices;
 mod events;
 mod evidence;
 mod front_matter;
@@ -187,7 +188,10 @@ async fn main() -> Result<()> {
     // Each Loop wakes when it last said; one that missed its time while Janus was down wakes once now.
     app.start_loops()?;
     config::log(format!("janus {VERSION}: http://{addr}  ·  home {}", app.cfg.layout.home().display()));
-    axum::serve(listener, http::router(app)).await?;
+    // Phones on the local network, if the person let them in (`devices`).
+    http::lan::apply(&app);
+    let service = http::router(app, http::Via::Local).into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, service).await?;
     Ok(())
 }
 

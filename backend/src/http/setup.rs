@@ -1,14 +1,14 @@
 //! Setup: agents (connections), roles, workspaces, the ACP adapters, and what the setup screens
 //! read about this machine.
 
-use super::{ApiError, ApiResult, local_app_only, ok, reply};
+use super::{ApiError, ApiResult, Client, local_app_only, ok, reply};
 use crate::agents;
 use crate::orchestrator::App;
 use crate::util::expand_home;
 use crate::wire::wire_enum;
 use axum::Json;
-use axum::extract::{Path as UrlPath, Query, State};
-use axum::http::{HeaderMap, header};
+use axum::extract::{Extension, Path as UrlPath, Query, State};
+use axum::http::header;
 use axum::response::IntoResponse;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -79,8 +79,8 @@ pub(super) async fn setup(State(app): State<Arc<App>>) -> ApiResult {
 /// What of the person's home agents do not see. It names what is in the home folder and decides
 /// what agents can reach, so only the app on this Mac may use it.
 // @project-doc docs/operations/20261031-security.md#host_env
-pub(super) async fn host_env(State(app): State<Arc<App>>, headers: HeaderMap) -> ApiResult {
-    local_app_only(&headers, "本机环境")?;
+pub(super) async fn host_env(State(app): State<Arc<App>>, Extension(client): Extension<Client>) -> ApiResult {
+    local_app_only(&client, "本机环境")?;
     reply(app.host_env()?)
 }
 
@@ -95,10 +95,10 @@ pub(super) async fn save_language(State(app): State<Arc<App>>, Json(body): Json<
 
 pub(super) async fn save_host_env(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
+    Extension(client): Extension<Client>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    local_app_only(&headers, "本机环境")?;
+    local_app_only(&client, "本机环境")?;
     reply(app.save_host_env(&body)?)
 }
 
@@ -106,10 +106,10 @@ pub(super) async fn save_host_env(
 /// runs what it is given.
 pub(super) async fn try_host_command(
     State(app): State<Arc<App>>,
-    headers: HeaderMap,
+    Extension(client): Extension<Client>,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    local_app_only(&headers, "试命令")?;
+    local_app_only(&client, "试命令")?;
     reply(app.try_host_command(body["command"].as_str().unwrap_or("")).await?)
 }
 
@@ -154,9 +154,9 @@ pub(super) async fn login_connection(State(app): State<Arc<App>>, UrlPath(id): U
 pub(super) async fn connection_env(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,
-    headers: HeaderMap,
+    Extension(client): Extension<Client>,
 ) -> ApiResult {
-    local_app_only(&headers, "Agent 的环境变量")?;
+    local_app_only(&client, "Agent 的环境变量")?;
     reply(app.connection_env(&id)?)
 }
 

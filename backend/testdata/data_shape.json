@@ -66,6 +66,12 @@
       ],
       "optional": []
     },
+    "lan_access": {
+      "required": [
+        "enabled"
+      ],
+      "optional": []
+    },
     "connection": {
       "required": [
         "id",

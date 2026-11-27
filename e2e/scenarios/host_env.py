@@ -22,7 +22,7 @@ def host_env(ctx, c):
     for method, path, body in (("GET", "/api/host-env", None), ("PUT", "/api/host-env", {"paths": []}),
                                ("POST", "/api/host-env/try", {"command": "true"})):
         code, _ = ctx.api_error(method, path, body, headers={"Origin": "https://evil.example"})
-        c(code == 403, f"网页发来的 {method} {path} 被拒绝，只给本机的应用（{code}）")
+        c(code in (401, 403), f"网页发来的 {method} {path} 被拒绝，只给本机的应用（{code}）")
     v = ctx.api("GET", "/api/host-env")
     hidden = {h["path"]: h for h in v["hidden"]}
     c(v["defaults"] and hidden[".codex"]["why"] == "agent" and hidden[".codex"]["here"] and hidden[".agents"]["why"] == "agent"

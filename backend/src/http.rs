@@ -13,6 +13,8 @@ use axum::{Json, Router};
 use serde_json::json;
 use std::sync::Arc;
 
+mod devices;
+pub mod lan;
 mod library;
 mod loops;
 mod memory;
@@ -100,19 +102,40 @@ fn from_local_app(headers: &HeaderMap) -> bool {
         && !headers.contains_key("sec-fetch-site")
 }
 
-/// Refuse a request for what only the app may read unless it comes from the app (`from_local_app`).
-fn local_app_only(headers: &HeaderMap, what: &str) -> Result<(), ApiError> {
-    if from_local_app(headers) {
-        Ok(())
-    } else {
-        Err(ApiError::forbidden(format!("{what}只返回给本机的 Janus 应用")))
+/// Which listener a request came in on: this Mac's own address, or the local network's while the
+/// person lets phones reach Janus (`lan`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Via {
+    Local,
+    Lan,
+}
+
+/// Who a request is from, as `devices::guard` found: the app on this Mac (`from_local_app`, over
+/// the loopback listener from a loopback address), or a paired device.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Client {
+    App,
+    Device(String),
+}
+
+/// Refuse what only the app on this Mac may read or do to any other client, paired devices too.
+fn local_app_only(client: &Client, what: &str) -> Result<(), ApiError> {
+    match client {
+        Client::App => Ok(()),
+        Client::Device(_) => Err(ApiError::forbidden(format!("{what}只给本机的 Janus 应用"))),
     }
 }
 
-/// Every route Janus serves.
+/// Every route Janus serves on listener `via`, each request through `devices::guard`.
 // @project-doc docs/interfaces/20261031-http_api.md#routes
-pub fn router(app: Arc<App>) -> Router {
+pub fn router(app: Arc<App>, via: Via) -> Router {
     Router::new()
+        .route("/api/devices", get(devices::list))
+        .route("/api/devices/pairing", post(devices::pairing))
+        .route("/api/devices/claim", post(devices::claim))
+        .route("/api/devices/me", get(devices::me))
+        .route("/api/devices/{id}", delete(devices::revoke))
+        .route("/api/lan-access", get(devices::lan_access).put(devices::save_lan_access))
         .route("/api/meta", get(setup::meta))
         .route("/api/inspect", get(setup::inspect))
         .route("/api/local-config", get(setup::local_preview))
@@ -188,6 +211,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/mcp/{run}/{token}/task/{task}/tools", post(streams::task_tools).get(streams::no_stream))
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
         .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))
+        .layer(axum::middleware::from_fn_with_state((app.clone(), via), devices::guard))
         .with_state(app)
 }
 

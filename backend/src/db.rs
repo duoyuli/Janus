@@ -63,6 +63,9 @@ wire_enum! {
         /// The MCP router's settings (`code`: whether it gives `run_code`), one row; none means
         /// code mode on.
         McpRouter = "mcp_router",
+        /// Whether phones on the local network may reach Janus (`enabled`), one row; none means
+        /// off.
+        LanAccess = "lan_access",
         /// Janus's own marks, such as `seeded` once the default roles were written.
         Meta = "meta",
     }
