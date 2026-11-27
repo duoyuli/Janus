@@ -2,16 +2,17 @@ import Foundation
 import Testing
 @testable import Janus
 
-/// Every English string has a Chinese key still written somewhere: in the app (`L.text`), or in
-/// the backend, whose Chinese text the app translates when it shows it (`L.catalogText`). A key
-/// whose text left both is dead weight that keeps a removed screen's wording around.
+/// Every English string has a Chinese key still written somewhere: in the app (`L.text`), in the
+/// web client (`t` templates, web/src, which share this table), or in the backend, whose Chinese
+/// text the app translates when it shows it (`L.catalogText`). A key whose text left them all is
+/// dead weight that keeps a removed screen's wording around.
 ///
 /// A key matches when its literal pieces appear in that order on one source line. Format
 /// specifiers (`%@`, `%lld`) stand for Swift's `\(…)`; numbers stand for the backend's `{CONST}`.
 @Test func everyTranslatedStringIsStillUsed() throws {
     let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../..").standardizedFileURL
     var sources: [String] = []
-    for (dir, ext) in [("frontend/Sources", "swift"), ("backend/src", "rs")] {
+    for (dir, ext) in [("frontend/Sources", "swift"), ("backend/src", "rs"), ("web/src", "ts"), ("web/src", "tsx")] {
         let base = repo.appendingPathComponent(dir)
         for case let url as URL in FileManager.default.enumerator(at: base, includingPropertiesForKeys: nil)! where url.pathExtension == ext {
             sources.append(try String(contentsOf: url, encoding: .utf8))

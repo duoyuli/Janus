@@ -32,13 +32,14 @@ Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库�
 
 - `backend/`：Rust 编排器（Cargo 包名 `janus`），各模块的职责见[模块与启动顺序](architecture/20261116-modules.md#modules)。`backend/roles/` 是默认数字员工，一人一个 Markdown 文件（元数据加指令），格式见[默认角色](domains/20261031-agents_and_roles.md#product_launch_roles)。`backend/testdata/` 放测试用的脚本化 ACP Agent、前后端共用的用量用例、数据结构快照和旧版本写出的样本数据。
 - `frontend/`：macOS 应用（SwiftUI，Swift Package），源码结构见 [macOS 应用](architecture/20261031-frontend.md#source_layout)。`frontend/scripts/` 放打包脚本。
-- `e2e/`：端到端验证脚本（Python 标准库）：`product.py` 在真实构建的服务和应用上跑每条用户旅程，场景在 `e2e/scenarios/`；`upgrade.py` 是数据升级测试；`screenshots.py` 重拍 `docs/assets/screenshots/` 里的界面截图；`lib.py` 是它们共用的部分。见[端到端验证](operations/20261031-testing.md#e2e)。
+- `web/`：Web 客户端（TypeScript、Vite、Preact），和 macOS 应用功能对齐、支持手机，构建后嵌进编排器，见 [Web 客户端](architecture/20261126-web.md)。
+- `e2e/`：端到端验证脚本（Python 标准库）：`product.py` 在真实构建的服务和应用上跑每条用户旅程，场景在 `e2e/scenarios/`；`upgrade.py` 是数据升级测试；`web.py` 在嵌着 Web 客户端的真实服务上用 Chrome 跑浏览器测试（`web/e2e/`）；`screenshots.py` 重拍 `docs/assets/screenshots/` 里的界面截图；`lib.py` 是它们共用的部分。见[端到端验证](operations/20261031-testing.md#e2e)。
 - `docs/`：本文档库。`docs/assets/` 放 README 和文档引用的图片，不是文档库的成员：`icon.png` 是应用图标（由 `frontend/scripts/make-icon.swift` 画出），`screenshots/` 是界面截图，命名为 `<页面>-<en|zh>-<light|dark>.png`，内容是真实应用里的演示数据，中英文界面、浅色和深色各一张，由 `just screenshots` 重拍，见[界面截图](operations/20261031-testing.md#screenshots)。`README.md` 是产品入口，`CHANGELOG.md` 是更新记录，`LESSONS.md` 是清理 Agent 合并的代码时积累的经验教训和 `AGENTS.md` 每条合并规则的来由，它们都在仓库根目录，不属于本库。
 - `justfile`：开发、构建、安装和服务命令，见[部署方案](operations/20261031-deployment.md)。
 - `.github/workflows/`：测试和发布工作流，见 [CI 与发布](operations/20261101-ci_release.md)。
 - `examples/calc/`：最小示例项目（普通文件，随仓库提交），用作工作区前先复制到仓库之外。
 
-仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/20261031-deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`frontend/.build/`、`dist/` 和 `.DS_Store`。
+仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/20261031-deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`frontend/.build/`、`dist/`（包括 `web/dist/`）、`web/node_modules/` 和 `.DS_Store`。
 
 ## 文档范围
 
@@ -48,7 +49,7 @@ Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库�
 
 ## 分类
 
-- [架构](architecture/index.md)：设计原则、组件与一次 Run 的数据流（写在分类索引中），模块与启动顺序、存储布局、ACP 适配器管理、macOS 应用。阅读时机：修改模块边界、启动流程、SQLite 表、数据目录、适配器安装与升级，新增内置运行时，或改动 `frontend/` 的状态推导和页面结构。
+- [架构](architecture/index.md)：设计原则、组件与一次 Run 的数据流（写在分类索引中），模块与启动顺序、存储布局、ACP 适配器管理、macOS 应用、Web 客户端。阅读时机：修改模块边界、启动流程、SQLite 表、数据目录、适配器安装与升级，新增内置运行时，或改动 `frontend/`、`web/` 的页面结构。
 - [领域](domains/index.md)：协作三方（负责人、协作者和编排器各能做什么）、Run 生命周期、目标模式与共享看板、Agent / 角色 / 工作区与权限模式、资源库。阅读时机：涉及 Run 或任务状态、调度、重试、验证、交付、恢复、负责人行为、协作者提问、权限模式、角色配置，或角色的 Skill 和 MCP 资源。
 - [接口](interfaces/index.md)：HTTP API、事件、看板 MCP 工具、ACP 集成和配置项。阅读时机：改动路由、Run 操作、事件类型或字段、MCP 工具、ACP 请求与 `_meta`、环境变量或 `config.toml`。
 - [运维](operations/index.md)：部署方案（目录规范、安装、服务、升级）、CI 与发布、运行手册、测试、安全边界。阅读时机：安装、启动、升级或卸载 Janus，修改 `justfile`、CI 工作流或打包脚本，发布版本，排查失败的 Run，运行或编写测试，评估隔离与凭据风险。

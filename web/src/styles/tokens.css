@@ -1,0 +1,79 @@
+/* The Janus palette, the same values as the Mac app's UI/Components.swift
+   (docs/architecture/20261031-frontend.md#design_tokens): cool slate surfaces in light, the
+   neutral grays and soft blue of One Dark in dark. `data-theme` on <html> picks one; without it
+   the system's appearance decides. */
+
+:root {
+  --accent: #0757c2;
+  --ink: #15181d;
+  --on-ink: #ffffff;
+  --page: #f3f5f8;
+  --card: #ffffff;
+  --soft: #eef1f5;
+  --line: #e1e6ec;
+  --sidebar: #e9edf2;
+  --memory: #0b7285;
+  --text: #15181d;
+  --secondary: rgba(60, 64, 72, 0.72);
+  --tint: rgba(110, 118, 130, 0.1);
+  --hover: rgba(110, 118, 130, 0.08);
+  --tone-gray: rgba(60, 64, 72, 0.6);
+  --tone-blue: var(--accent);
+  --tone-green: #087049;
+  --tone-amber: #8a5800;
+  --tone-red: #c0283f;
+  --tone-violet: #6a42d6;
+  --radius: 10px;
+  --radius-small: 7px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --font-display: "New York", ui-serif, "Songti SC", "STSong", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --tap: 44px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --accent: #61afef;
+    --ink: #e5e9f0;
+    --on-ink: #1e2227;
+    --page: #1e2227;
+    --card: #282c34;
+    --soft: #1b1f24;
+    --line: #3a3f4a;
+    --sidebar: #21252b;
+    --memory: #56b6c2;
+    --text: #e5e9f0;
+    --secondary: rgba(229, 233, 240, 0.6);
+    --tint: rgba(229, 233, 240, 0.08);
+    --hover: rgba(229, 233, 240, 0.06);
+    --tone-gray: rgba(229, 233, 240, 0.5);
+    --tone-green: #98c379;
+    --tone-amber: #e5c07b;
+    --tone-red: #ef8089;
+    --tone-violet: #c678dd;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --accent: #61afef;
+  --ink: #e5e9f0;
+  --on-ink: #1e2227;
+  --page: #1e2227;
+  --card: #282c34;
+  --soft: #1b1f24;
+  --line: #3a3f4a;
+  --sidebar: #21252b;
+  --memory: #56b6c2;
+  --text: #e5e9f0;
+  --secondary: rgba(229, 233, 240, 0.6);
+  --tint: rgba(229, 233, 240, 0.08);
+  --hover: rgba(229, 233, 240, 0.06);
+  --tone-gray: rgba(229, 233, 240, 0.5);
+  --tone-green: #98c379;
+  --tone-amber: #e5c07b;
+  --tone-red: #ef8089;
+  --tone-violet: #c678dd;
+  color-scheme: dark;
+}

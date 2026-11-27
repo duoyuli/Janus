@@ -1,6 +1,7 @@
 backend/target/
 frontend/.build/
 dist/
+web/node_modules/
 .DS_Store
 
 # Locally installed design skill (Apple HIG pages), not part of the repo

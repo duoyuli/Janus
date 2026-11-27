@@ -1,0 +1,59 @@
+.ws-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ws-name {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.ws-team {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.ws-avatars {
+  display: inline-flex;
+}
+
+.ws-avatars > span + span {
+  margin-left: -4px;
+}
+
+.ws-avatars .avatar {
+  box-shadow: 0 0 0 1.5px var(--page);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ws-heading {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 640px) {
+  .ws-name {
+    font-size: 24px;
+  }
+
+  /* A row keeps the goal and its state; the date is on the run's page. */
+  .run-row .run-date {
+    display: none;
+  }
+}

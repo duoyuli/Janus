@@ -1,0 +1,26 @@
+{
+  "name": "janus-web",
+  "private": true,
+  "type": "module",
+  "description": "Janus's web client: draws what the Janus service works out (docs/architecture/20261126-web.md).",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "vite",
+    "check": "tsc --noEmit -p .",
+    "test": "node --test \"tests/**/*.test.ts\"",
+    "build": "npm run check && vite build",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "dependencies": {
+    "@preact/signals": "2.11.4",
+    "preact": "11.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  }
+}

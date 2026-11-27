@@ -1697,3 +1697,20 @@
 "局域网" = "Local network";
 "配对于 %@ · 最近使用 %@" = "Paired %@ · last used %@";
 "取消配对" = "Unpair";
+
+/* The web client (web/src), which shares this table with the app */
+"侧栏" = "Sidebar";
+"页签" = "Tabs";
+"返回" = "Back";
+"正在连接服务…" = "Connecting to the service…";
+"这个页面在网页上还没有做完：先在 Mac 上的 Janus 打开它。" = "This page is not in the web version yet. Open it in Janus on the Mac for now.";
+"Janus 服务 %@" = "Janus service %@";
+"没有这个页面。" = "There is no such page.";
+"没有这个工作区。" = "There is no such workspace.";
+"还没有工作区：在 Mac 上的 Janus 新建一个。" = "No workspaces yet. Create one in Janus on the Mac.";
+"配对" = "Pairing";
+"配对没有成功" = "Pairing failed";
+"正在和 Janus 配对…" = "Pairing with Janus…";
+"在 Mac 上的 Janus 设置 › 手机访问 重新扫码。" = "Scan the code again in Janus on the Mac under Settings › Phone Access.";
+"这个浏览器还没有和 Janus 配对" = "This browser is not paired with Janus yet";
+"请在 Mac 上的 Janus 设置 › 手机访问 扫码配对" = "To pair it, scan the code in Janus on the Mac under Settings › Phone Access";

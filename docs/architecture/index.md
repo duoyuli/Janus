@@ -11,6 +11,7 @@
 - [模块与启动顺序](20261116-modules.md)：编排器每个源码模块的职责、`App` 的方法分布和进程的启动顺序。阅读时机：第一次修改编排器，需要确定某项职责在哪个文件，调整模块职责或启动流程。
 - [数据模型与存储](20261031-data_model.md)：Janus home 中的数据、SQLite 表、Run 快照和产物。阅读时机：修改 `backend/src/db.rs`、数据目录结构、产物保存或快照内容。
 - [ACP 适配器管理](20261031-adapters.md)：适配器清单、按版本存放、按需安装、安装步骤、自动升级、固定与回滚、对运行中会话的影响。阅读时机：修改 `backend/src/adapters.rs`、新增内置运行时，或排查适配器安装和升级问题。
+- [Web 客户端](20261126-web.md)：`web/` 中和 Mac 应用对齐的浏览器客户端（桌面和手机）：嵌进服务的方式、构建、状态和同步、共用的翻译、手机布局、配对和加一个页面的做法。阅读时机：修改 `web/`、`backend/build.rs` 或 `backend/src/http/web.rs`。
 - [macOS 应用](20261031-frontend.md)：应用与 Janus 服务的关系（连接或启动包内服务、端口被占用）、源码结构、由事件推导状态、同步方式、页面、跨 Run 的收件箱、请求卡片和会话中的消息。阅读时机：修改 `frontend/`，或新增、修改需要在应用中展示的事件。
 
 <a id="principles"></a>
@@ -53,7 +54,8 @@ ACP 适配器（~/.janus/cache/adapters/，按需安装）
 | 编排器进程 | 一个 Rust 二进制 `janus`，默认监听 `127.0.0.1:7878`。进行中的 Run 保存在内存的 `App.runs` 中，事实写入 SQLite |
 | ACP 子进程 | 每个会话启动一个独立的适配器子进程：负责人会话一个，每个任务的每次尝试一个。环境变量由 Janus 完整构造，见[安全边界](../operations/20261031-security.md#agent_isolation) |
 | 看板 MCP 服务 | 编排器自己提供的 HTTP MCP 端点，供负责人和协作者会话调用，见[看板 MCP 工具](../interfaces/20261031-board_mcp.md) |
-| macOS 应用 | `frontend/` 中的 SwiftUI 应用，Janus 唯一的界面。安装包内带编排器和 Node.js；打开时连接已有的编排器，没有就启动包内的，见 [macOS 应用](20261031-frontend.md) |
+| Web 客户端 | `web/` 中的浏览器客户端，和 macOS 应用功能对齐，手机也能用；编译时嵌进编排器，由编排器提供，见 [Web 客户端](20261126-web.md) |
+| macOS 应用 | `frontend/` 中的 SwiftUI 应用。安装包内带编排器和 Node.js；打开时连接已有的编排器，没有就启动包内的，见 [macOS 应用](20261031-frontend.md) |
 | 适配器管理 | 按需下载、升级、回滚 ACP 适配器，见 [ACP 适配器管理](20261031-adapters.md) |
 
 <a id="run_data_flow"></a>
