@@ -1658,3 +1658,6 @@
 "请在 Mac 上的 Janus 设置 › 手机访问 扫码配对" = "To pair it, scan the code in Janus on the Mac under Settings › Phone Access";
 "打开或关闭手机访问、配对新的设备，在 Mac 上的 Janus 里。" = "Turn phone access on or off and pair new devices in Janus on the Mac.";
 "（这台设备）" = " (this device)";
+"已交付" = "Delivered";
+"负责人上岗中" = "Lead getting started";
+"和 %@ 的新对话" = "New chat with %@";

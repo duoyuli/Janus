@@ -304,8 +304,9 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
         # Version 1 dropped `role`, version 9 may unbind a custom-command agent, version 11 dropped
         # `resources`, version 16 added `avatar` (empty: no picture), version 25 `group` and version
-        # 27 `hires` (both checked above).
-        changed = ("role", "connection", "resources", "avatar", "group", "hires")
+        # 27 `hires` (both checked above). `unavailable` is not stored: the service says why the
+        # role cannot run now.
+        changed = ("role", "connection", "resources", "avatar", "group", "hires", "unavailable")
         check({k: v for k, v in t.items() if k not in changed} == {k: v for k, v in b.items() if k not in changed},
               "自定义数字员工除「定位」、选的资源和绑定的 Agent 外不变")
         check("resources" not in t and t.get("avatar") == "", "数字员工不再带选的资源，没有头像（显示文字）")
@@ -320,7 +321,9 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             w["lead"] = RENAMED.get(w["lead"], w["lead"])
             for m in w["members"]:
                 m["role"] = RENAMED.get(m["role"], m["role"])
-        check(setup["workspaces"] == renamed, "工作区除了默认数字员工的新 id 外不变")
+        # `problems` is not stored: the service says what keeps the team from running now.
+        stored = [{k: v for k, v in w.items() if k != "problems"} for w in setup["workspaces"]]
+        check(stored == renamed, "工作区除了默认数字员工的新 id 外不变")
         db = sqlite3.connect(home_db(home))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]
         worktree = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-wt'").fetchone()[0])["worktree"]
