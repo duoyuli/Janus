@@ -22,11 +22,18 @@ def review(ctx, c):
       f"合并结果和这一轮改的文件（{first['merge']['state']}，{first['changed']}）")
     c([a["task"] for a in first["acceptance"]] == ["T1"] and first["risks"] == [],
       "交付的风险只放 Janus 查出来的，任务自己的风险留在它的记录里")
-    ctx.ui(c, run.id, lambda r, s: (r.get("review") or {}).get("stage") == "awaiting"
-           and r["review"]["headline"] == first["headline"] and r["review"]["decisions"] == first["decisions"]
-           and r["review"]["changed"] == first["changed"] and r["review"]["merge"] == "merged" and r["review"]["tasks"] == ["T1"]
-           and (r["review"]["signals"] or [{}])[0] == {"source": "lead", "text": "要不要发布？"},
-           "交付卡片的结论、要你决定的事、改的文件和子任务与服务端一致，要你决定的事排在最前", pages=("page board",))
+    st = ctx.ui(c, run.id, lambda r, s: (r.get("review") or {}).get("stage") == "awaiting"
+                and r["review"]["headline"] == first["headline"] and r["review"]["decisions"] == first["decisions"]
+                and r["review"]["changed"] == first["changed"] and r["review"]["merge"] == "merged" and r["review"]["tasks"] == ["T1"]
+                and (r["review"]["signals"] or [{}])[0] == {"source": "lead", "text": "要不要发布？"},
+                "交付卡片的结论、要你决定的事、改的文件和子任务与服务端一致，要你决定的事排在最前", pages=("page board",))
+    if st:
+        view = ctx.api("GET", f"/api/runs/{run.id}/view")
+        served = [{"id": t["id"], "bars": len(t["bars"]), "waiting": t.get("waiting"), "result": (t.get("result") or {}).get("title")}
+                  for t in view["timeline"]["tasks"]]
+        marks = [f"{m['kind']}:{m['title']}" for m in view["timeline"]["milestones"]]
+        c(st["run"]["timeline"] == {"tasks": served, "milestones": marks} and served[0]["result"],
+          f"应用：进展时间线的子任务、尝试、结论和上面一栏的决定与服务端一致（{st['run']['timeline']}）")
 
     code, text = run.act_error("cancel")
     c(code == 400 and "已经交付过" in text, f"交付后停止被拒绝：结果已经在分支上（{code}）")

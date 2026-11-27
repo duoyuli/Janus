@@ -21,6 +21,7 @@ pub mod suggest;
 #[cfg(test)]
 mod tests;
 mod turns;
+mod timeline;
 mod words;
 
 use crate::db::Event;
@@ -68,6 +69,11 @@ impl TaskShown {
     /// No more work happens on it without a retry.
     pub fn is_ended(self) -> bool {
         matches!(self, TaskShown::Succeeded | TaskShown::Failed | TaskShown::Cancelled | TaskShown::SkippedByDecision)
+    }
+
+    /// Not started yet: waiting for its dependencies or the scheduler.
+    fn is_waiting_to_start(self) -> bool {
+        matches!(self, TaskShown::Pending | TaskShown::Ready | TaskShown::Assigned | TaskShown::Blocked)
     }
 
     /// Its attempt waits for the person to answer or approve.
@@ -1053,11 +1059,13 @@ impl RunState {
 }
 
 /// Everything one fold keeps: the run's state, what the board needs besides it, the events the
-/// conversations show, the lines each of their changes shows, and the run's Markdown files.
+/// conversations show, the lines each of their changes shows, the run's Markdown files, and each
+/// event's time and actor (for what the timeline places at an event).
 #[derive(Clone, Default)]
 pub struct Fold {
     pub state: RunState,
     board: board::BoardFold,
+    stamps: BTreeMap<i64, (i64, String)>,
     shown: HashMap<i64, Event>,
     diffs: BTreeMap<i64, Vec<DiffView>>,
     docs: docs::DocsFold,
@@ -1079,6 +1087,7 @@ impl Fold {
     pub fn apply(&mut self, e: &Event) {
         self.state.apply(e);
         self.board.apply(&self.state, e);
+        self.stamps.insert(e.seq, (e.ts, e.actor.clone()));
         let null = Value::Null;
         let d = e.data.as_ref().unwrap_or(&null);
         self.docs.apply(e, d);
@@ -1148,6 +1157,7 @@ impl Fold {
             |seq: i64, i: usize| self.diffs.get(&seq).and_then(|c| c.get(i)).map_or((0, 0), |c| (c.added, c.removed));
         let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail };
         let sessions = sessions::sessions(&self.state, live, replaying, &drawn);
+        let timeline = timeline::timeline(&self.state, &board, &self.stamps, replaying, words);
         let status = self.state.run.status;
         let read_only = !live && status == Some(RunStatus::Cancelled);
         let resume_note = match status {
@@ -1163,6 +1173,7 @@ impl Fold {
             sessions,
             diffs: self.diffs.clone(),
             docs: vec![],
+            timeline,
             live,
             actions: BTreeMap::new(),
             read_only,
@@ -1217,6 +1228,8 @@ pub struct RunView {
     pub diffs: BTreeMap<i64, Vec<DiffView>>,
     /// The run's Markdown files that exist (`docs`).
     pub docs: Vec<docs::Doc>,
+    /// The progress timeline's rows and marks.
+    pub timeline: timeline::Timeline,
     /// The run is in the service's memory.
     pub live: bool,
     /// What can be done to the whole run now, by `RunOp` (`run_ops::answers`); filled in by the
@@ -1308,6 +1321,47 @@ fn is_delivery(s: &str) -> bool {
 /// The stored paths of a goal's or a message's images.
 fn image_paths(d: &Value) -> Vec<String> {
     list(&d["images"]).iter().map(|i| text(&i["path"])).filter(|p| !p.is_empty()).collect()
+}
+
+/// At most `n` characters of `t`, marked with `…` when cut: a preview in a list or a tooltip.
+fn short(t: &str, n: usize) -> String {
+    if t.chars().count() > n { t.chars().take(n).collect::<String>() + "…" } else { t.to_string() }
+}
+
+/// `t` with its Markdown marks dropped (links to their text, `**`, backticks, heading marks), for
+/// a preview cut to a length.
+fn plain(t: &str) -> String {
+    // A link `[text](target)` keeps its text: the target has no whitespace, the text no newline.
+    let mut s = String::with_capacity(t.len());
+    let mut rest = t;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        let link = after.find(']').filter(|&close| close > 0 && !after[..close].contains('\n')).and_then(|close| {
+            let target = after[close + 1..].strip_prefix('(')?;
+            let end = target.find(')').filter(|&e| e > 0 && !target[..e].contains(char::is_whitespace))?;
+            Some((close, close + 2 + end + 1))
+        });
+        match link {
+            Some((close, len)) => {
+                s.push_str(&rest[..open]);
+                s.push_str(&after[..close]);
+                rest = &after[len..];
+            }
+            None => {
+                s.push_str(&rest[..=open]);
+                rest = after;
+            }
+        }
+    }
+    s.push_str(rest);
+    let s = s.replace("**", "").replace('`', "");
+    s.split('\n')
+        .map(|line| {
+            let marks = line.len() - line.trim_start_matches('#').len();
+            if marks > 0 { line[marks..].trim_start() } else { line }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A message's text without the lines that name its attached images.

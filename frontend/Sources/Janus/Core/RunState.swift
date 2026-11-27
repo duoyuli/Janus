@@ -352,6 +352,8 @@ struct RunState {
     var diffs: [Int: [ServedDiff]] = [:]
     /// The run's Markdown documents that exist.
     var docs: [RunDoc] = []
+    /// The progress timeline's rows and marks, as the server lays out what is on it.
+    var timeline: JSON = .null
     /// What can be done to the whole run now, as the server answers it.
     var allowed = RunActions()
     /// Nothing can be done in it any more: a stopped run the service no longer holds.
@@ -382,6 +384,7 @@ struct RunState {
         sessions = j["sessions"].object
         diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
         docs = j["docs"].array.map(RunDoc.init)
+        timeline = j["timeline"]
         allowed = RunActions(answers: j["actions"].object)
         readOnly = j["readOnly"].bool ?? false
         resumeNote = j["resumeNote"].string
@@ -465,95 +468,14 @@ struct QuickAction: Equatable {
     }
 }
 
-struct ResultFact: Identifiable {
-    let key: String, seq: Int, ts: Double, by: String, task: String
-    let summary: String
-    let evidence: [String], risks: [String]
-    let checks: [Check]
-    let usedBy: [String]
-    let old: Bool
-    let amended: [String]
-    var id: String { key }
-
-    init(_ j: JSON) {
-        key = j["key"].str; seq = j["seq"].int ?? 0; ts = j["ts"].double ?? 0; by = j["by"].str; task = j["task"].str
-        summary = j["summary"].str
-        evidence = j["evidence"].strings; risks = j["risks"].strings
-        checks = Check.list(j["checks"])
-        usedBy = j["usedBy"].strings
-        old = j["old"].bool ?? false
-        amended = j["amended"].strings
-    }
-}
-
-struct HandoffFact: Identifiable {
-    let key: String, seq: Int, ts: Double, by: String
-    let from: String, to: String, agent: String
-    /// What passed, as the person reads it.
-    let summary: String
-    let artifacts: [String]
-    var id: String { key }
-
-    init(_ j: JSON) {
-        key = j["key"].str; seq = j["seq"].int ?? 0; ts = j["ts"].double ?? 0; by = j["by"].str
-        from = j["from"].str; to = j["to"].str; agent = j["agent"].str
-        summary = j["text"].str
-        artifacts = j["artifacts"].strings
-    }
-}
-
-struct ArtFact: Identifiable {
-    let a: Artifact
-    let old: Bool
-    let usedBy: [String]
-    var id: String { "a\(a.seq)" }
-
-    init(_ j: JSON) {
-        a = Artifact(j["a"])
-        old = j["old"].bool ?? false
-        usedBy = j["usedBy"].strings
-    }
-}
-
-struct DecisionFact: Identifiable {
-    let key: String, seq: Int, ts: Double, by: String
-    let title: String
-    let text: String
-    let tasks: [String]
-    let agents: [String]
-    /// A message to an agent.
-    let msg: Bool
-    let to: String?
-    /// The run is over and this message never reached its agent.
-    let lost: Bool
-    var id: String { key }
-
-    init(_ j: JSON) {
-        key = j["key"].str; seq = j["seq"].int ?? 0; ts = j["ts"].double ?? 0; by = j["by"].str
-        title = j["title"].str
-        text = j["text"].str
-        tasks = j["tasks"].strings
-        agents = j["agents"].strings
-        msg = j["kind"].str == "message"
-        to = j["to"].string
-        lost = j["lost"].bool ?? false
-    }
-}
-
+/// What the shared board holds up, as the server words it; the board's results, handoffs and
+/// decisions reach the app laid out on the timeline (`RunState.timeline`).
 struct BoardFacts {
     var open: [OpenFact] = []
-    var results: [ResultFact] = []
-    var arts: [ArtFact] = []
-    var handoffs: [HandoffFact] = []
-    var decisions: [DecisionFact] = []
 
     init() {}
 
     init(_ j: JSON) {
         open = j["open"].array.map(OpenFact.init)
-        results = j["results"].array.map(ResultFact.init)
-        arts = j["arts"].array.map(ArtFact.init)
-        handoffs = j["handoffs"].array.map(HandoffFact.init)
-        decisions = j["decisions"].array.map(DecisionFact.init)
     }
 }

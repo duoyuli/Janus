@@ -13,10 +13,9 @@ struct ProgressBoard: View {
     let st: RunState
 
     var body: some View {
-        let f = st.board
         let now = nowMs
-        let tasks = timelineTasks(f, now)
-        let milestones = milestoneMarks(f)
+        let tasks = st.timeline["tasks"].array.map { TimelineTask($0, now: now) }
+        let milestones = st.timeline["milestones"].array.map(TimelineMark.init)
         if !tasks.isEmpty || !milestones.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 8) {
@@ -46,52 +45,6 @@ struct ProgressBoard: View {
 
     private var nowMs: Double {
         run.state.active && !run.isReplaying ? Swift.max(st.run.now, L.nowMs()) : st.run.now
-    }
-
-    /// Tasks in the order they started, then the ones still waiting in the order the lead gave them. A task that
-    /// neither ran nor waits (cancelled or skipped before it started) stays as a row without a bar.
-    private func timelineTasks(_ f: BoardFacts, _ now: Double) -> [TimelineTask] {
-        let waits = run.state.active || run.isReplaying
-        var out: [TimelineTask] = []
-        for t in st.orderedTasks {
-            var x = TimelineTask(id: t.id, title: t.title, agent: t.agent, status: t.status, deps: t.deps)
-            for a in t.attempts {
-                // A finished attempt keeps its own outcome; the running one shows the task's status.
-                let ended = a.status != .running
-                x.bars.append(TimelineBar(id: "\(t.id)#\(a.n)", start: a.start, end: a.end ?? now, attempt: a.n,
-                                          status: a.end != nil && ended ? a.status.asTask : t.status, running: a.end == nil))
-            }
-            if t.attempts.isEmpty, waits, t.status.isWaitingToStart {
-                let waiting = t.deps.filter { st.tasks[$0]?.status != .succeeded }
-                x.waiting = t.status == .blocked ? L.text("等待 \(t.blockedBy) 修复") : waiting.isEmpty ? L.text("等待调度") : L.text("等待 \(waiting.joined(separator: L.text("、")))")
-            }
-            if let r = f.results.last(where: { $0.task == t.id }) {
-                // The mark itself stays small; its tooltip and VoiceOver label carry the evidence
-                // methods. Each check with its evidence is on the task page, the delivery and the
-                // audit log.
-                let evidence = EvidenceSummary(accept: t.accept, checks: r.checks)
-                let counts = r.checks.isEmpty ? "" : L.text(" · 证据 \(evidence.countsText)")
-                x.result = TimelineMark(id: r.key, seq: r.seq, ts: r.ts, kind: .result, title: L.short(L.plain(r.summary), 120) + counts, by: r.by)
-            }
-            x.artifacts = f.arts.filter { $0.a.task == t.id && !$0.old }.map { a in
-                TimelineMark(id: "a\(a.a.seq)", seq: a.a.seq, ts: st.event(a.a.seq)?.ts ?? st.run.start, kind: .artifact, title: a.a.name, by: a.a.by)
-            }
-            out.append(x)
-        }
-        let started = out.filter { !$0.bars.isEmpty }.sorted { $0.bars[0].start < $1.bars[0].start }
-        return started + out.filter { $0.bars.isEmpty }
-    }
-
-    /// Decisions (the person's, the lead's) and open items, at the moment they happened.
-    private func milestoneMarks(_ f: BoardFacts) -> [TimelineMark] {
-        var out = f.decisions.map { x in
-            TimelineMark(id: x.key, seq: x.seq, ts: x.ts, kind: .decision, title: L.text("\(x.title)：\(L.short(L.plain(x.text), 120))"), by: x.by)
-        }
-        for x in f.open {
-            guard let seq = x.seq, let e = st.event(seq) else { continue }
-            out.append(TimelineMark(id: x.id, seq: seq, ts: e.ts, kind: .open, title: x.title, by: x.agents.first ?? e.actor, what: x.kind, you: x.you))
-        }
-        return out
     }
 }
 

@@ -324,6 +324,13 @@ enum Snapshots {
                     // What the run's menu and card offer, as the server allows at the shown position.
                     "allowed": .object(r.shown.allowed.answers.mapValues { .bool($0["ok"].bool ?? false) }),
                     "resumeNote": JSON(r.shown.resumeNote),
+                    // The progress timeline's rows and the lane above, as the app decoded them.
+                    "timeline": [
+                        "tasks": JSON.array(r.shown.timeline["tasks"].array.map { TimelineTask($0, now: 0) }.map {
+                            ["id": JSON($0.id), "bars": JSON($0.bars.count), "waiting": JSON($0.waiting), "result": JSON($0.result?.title)]
+                        }),
+                        "milestones": JSON.array(r.shown.timeline["milestones"].array.map(TimelineMark.init).map { JSON("\($0.kind.rawValue):\($0.title)") }),
+                    ],
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     "proposal": proposal,
                     "proposalShown": .bool(r.proposal != nil),

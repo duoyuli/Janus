@@ -56,12 +56,12 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     // A queued run can only start now or be cancelled, and the clients read the same rule from
     // its view; the run at work is paused or stopped, not deleted.
     let ok = |run: &str| -> Vec<&'static str> {
-        let view = app.run_view(run, None, Lang::En).unwrap().unwrap();
+        let view = app.run_view(run, None, Lang::En, false).unwrap().unwrap();
         view.actions.iter().filter(|(_, a)| a.ok).map(|(op, _)| *op).collect()
     };
     assert_eq!(ok(&second), ["cancel", "delete", "start"]);
     assert_eq!(ok(&first), ["cancel", "pause", "resume"]);
-    let view = app.run_view(&first, None, Lang::En).unwrap().unwrap();
+    let view = app.run_view(&first, None, Lang::En, false).unwrap().unwrap();
     assert_eq!(view.actions["delete"].why.as_deref(), Some("This run is still at work; stop it before deleting it"));
     let listed = app.listed(vec![app.db.run(&first).unwrap().unwrap()], Lang::Zh);
     assert!(!listed[0].delete.ok, "the run list says the same");

@@ -146,7 +146,7 @@ struct WaitingRow: Identifiable, Equatable {
         case "failed": return "xmark.octagon.fill"
         case "dream": return "brain.head.profile"
         case "dream_failed": return "exclamationmark.triangle.fill"
-        default: return TimelineMark.openKinds[e.kind]?.0 ?? "exclamationmark.circle.fill"
+        default: return TimelineMark.openSymbols[e.kind] ?? "exclamationmark.circle.fill"
         }
     }
 

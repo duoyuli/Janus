@@ -1,9 +1,12 @@
 import SwiftUI
 
+// What is on the progress timeline is the server's (`timeline` of the run's view,
+// `backend/src/run_view/timeline.rs`); the app lays it out on a time axis.
+
 /// Something that happened at one moment, backed by one event: a decision or an open item on the
 /// timeline's top lane, or a task's conclusion or artifact at the end of its bar.
 struct TimelineMark: Identifiable {
-    enum Kind { case result, artifact, decision, open }
+    enum Kind: String { case result, artifact, decision, open }
     let id: String
     let seq: Int
     let ts: Double
@@ -11,20 +14,33 @@ struct TimelineMark: Identifiable {
     let title: String
     /// Who made it ("user", "lead" or an agent id).
     var by = ""
-    /// For an open item: what it is (`OpenFact.kind`), so each kind has its own glyph.
+    /// For an open item: what it is (`OpenFact.kind`), so each kind has its own glyph, and its name.
     var what = ""
+    var label = ""
     /// For an open item: it waits on the person, not the lead.
     var you = false
 
-    /// Open items, by kind: glyph and name. The person's are red, the lead's amber.
-    static let openKinds: [String: (String, String)] = [
-        "approval": ("hand.raised.fill", "等你审批"), "input": ("square.and.pencil", "等你填写"),
-        "question": ("questionmark.bubble.fill", "等你拍板"), "session": ("text.bubble.fill", "等你回话"),
-        "lead_stall": ("hourglass", "负责人可能卡住了"), "loop_touched": ("doc.badge.ellipsis", "值班改了文件"), "loop_failed": ("exclamationmark.triangle", "值班没能开工"),
-        "conflict": ("arrow.triangle.merge", "同时改了一个文件"), "overstep": ("arrow.right.to.line", "越界"),
-        "trace": ("doc.badge.ellipsis", "结果和工作目录对不上"), "stall": ("hourglass", "可能卡住了"),
-        "blocker": ("exclamationmark.octagon.fill", "阻塞"), "lead_question": ("questionmark.circle.fill", "问负责人"),
-        "failed": ("xmark.octagon.fill", "失败"), "blocked": ("pause.circle.fill", "等上游"),
+    init(_ j: JSON) {
+        id = j["id"].str
+        seq = j["seq"].int ?? 0
+        ts = j["ts"].double ?? 0
+        kind = Kind(rawValue: j["kind"].str) ?? .result
+        title = j["title"].str
+        by = j["by"].str
+        what = j["what"].str
+        label = j["label"].str
+        you = j["you"].bool ?? false
+    }
+
+    /// Open items, by kind: their glyph. The person's are red, the lead's amber.
+    static let openSymbols: [String: String] = [
+        "approval": "hand.raised.fill", "input": "square.and.pencil",
+        "question": "questionmark.bubble.fill", "session": "text.bubble.fill",
+        "lead_stall": "hourglass", "loop_touched": "doc.badge.ellipsis", "loop_failed": "exclamationmark.triangle",
+        "conflict": "arrow.triangle.merge", "overstep": "arrow.right.to.line",
+        "trace": "doc.badge.ellipsis", "stall": "hourglass",
+        "blocker": "exclamationmark.octagon.fill", "lead_question": "questionmark.circle.fill",
+        "failed": "xmark.octagon.fill", "blocked": "pause.circle.fill",
     ]
 
     var symbol: String {
@@ -32,7 +48,7 @@ struct TimelineMark: Identifiable {
         case .result: return "checkmark.seal.fill"
         case .artifact: return "doc.fill"
         case .decision: return by == "user" ? "person.crop.circle.fill" : "diamond.fill"
-        case .open: return Self.openKinds[what]?.0 ?? "exclamationmark.triangle.fill"
+        case .open: return Self.openSymbols[what] ?? "exclamationmark.triangle.fill"
         }
     }
     var tone: Tone {
@@ -48,7 +64,7 @@ struct TimelineMark: Identifiable {
         case .result: return L.text("结论")
         case .artifact: return L.text("产物")
         case .decision: return L.text("决定")
-        case .open: return L.catalogText(Self.openKinds[what]?.1 ?? "待处理")
+        case .open: return label
         }
     }
 }
@@ -61,6 +77,16 @@ struct TimelineBar: Identifiable {
     let attempt: Int
     let status: TaskStatus
     let running: Bool
+
+    /// A bar still running ends at `now`.
+    init(_ j: JSON, now: Double) {
+        id = j["id"].str
+        start = j["start"].double ?? 0
+        end = j["end"].double ?? now
+        attempt = j["attempt"].int ?? 0
+        status = TaskStatus(j["status"].str)
+        running = j["running"].bool ?? false
+    }
 }
 
 /// One task on the timeline: who does it, what it waits for, its attempts and what it produced.
@@ -75,8 +101,19 @@ struct TimelineTask: Identifiable {
     var waiting: String?
     var result: TimelineMark?
     var artifacts: [TimelineMark] = []
-}
 
+    init(_ j: JSON, now: Double) {
+        id = j["id"].str
+        title = j["title"].str
+        agent = j["agent"].str
+        status = TaskStatus(j["status"].str)
+        deps = j["deps"].strings
+        bars = j["bars"].array.map { TimelineBar($0, now: now) }
+        waiting = j["waiting"].string
+        result = j["result"].isNull ? nil : TimelineMark(j["result"])
+        artifacts = j["artifacts"].array.map(TimelineMark.init)
+    }
+}
 /// Maps time to x with long idle stretches cut out: active spans share the width at one scale,
 /// and each gap longer than a few minutes becomes a fixed-width break labeled with its length.
 struct TimeScale {
