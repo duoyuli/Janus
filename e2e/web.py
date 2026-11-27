@@ -5,7 +5,8 @@
 Builds the web client (`just web`) and the server that embeds it (cargo build),
 starts the server on a scratch Janus home at a free port of 127.0.0.1 with the stand-in agents,
 makes runs that wait on the person (questions with and without quick answers, a delivery), then
-runs the Playwright tests in web/e2e against it: each page's drawn state (`window.__janus.state()`)
+runs the Playwright tests in web/e2e against it: Chrome is paired with a code taken as the Mac
+app takes it, then each page's drawn state (`window.__janus.state()`)
 is compared item by item with what the service returns, every page is pictured at desktop and
 phone width, and what the tests click reaches the service. Playwright drives the Chrome installed
 on this Mac; it downloads no browser.

@@ -2,33 +2,11 @@
 // what is clicked in it reaching the service. The runs come from e2e/web.py (`JANUS_WEB_DATA`).
 // See docs/operations/20261031-testing.md#web_e2e.
 
-import { expect, test, type APIRequestContext, type Page, type TestInfo } from "@playwright/test";
-import { join } from "node:path";
-import { readFileSync } from "node:fs";
-import { parseStrings } from "../src/lib/strings.ts";
+import { expect, test, type TestInfo } from "@playwright/test";
+import { data, drawn, english, service, shot } from "./helpers.ts";
 
-const data = JSON.parse(process.env.JANUS_WEB_DATA ?? "{}") as { workspace: string; asked: string; later: string; delivered: string };
-const shots = join(process.env.JANUS_WEB_REPORT ?? "/tmp", "shots");
-const english = parseStrings(readFileSync(new URL("../../frontend/Sources/Janus/en.lproj/Localizable.strings", import.meta.url), "utf8"));
-
-type Drawn = { route: { page: string }; lang: string; connected: boolean; pages: Record<string, any> };
-
-async function drawn(page: Page): Promise<Drawn> {
-  return page.evaluate(() => window.__janus!.state() as unknown as Drawn);
-}
-
-/** What the service answers, asked the way a program on this machine asks (no browser headers). */
-async function service(request: APIRequestContext, path: string): Promise<any> {
-  const res = await request.get(path);
-  expect(res.ok(), `${path}: ${res.status()}`).toBeTruthy();
-  return res.json();
-}
-
-async function shot(page: Page, info: TestInfo, name: string) {
-  await page.screenshot({ path: join(shots, `${name}-${info.project.name}.png`), fullPage: true });
-}
-
-// Every test has a browser context of its own: it starts in the browser's language (Chinese) and appearance.
+// Every test has a browser context of its own, with the cookie `pair` got: it starts in the
+// browser's language (Chinese) and appearance.
 const phone = (info: TestInfo) => info.project.name === "phone";
 
 test("the inbox draws what the service has, entry by entry", async ({ page, request }, info) => {
