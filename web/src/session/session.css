@@ -903,4 +903,9 @@
   .density .choice {
     min-height: 32px;
   }
+
+  /* A control's menu is the whole line it reads on: high enough to hit with a thumb. */
+  .control {
+    min-height: 36px;
+  }
 }
