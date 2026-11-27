@@ -15,6 +15,7 @@ Janus 只有 macOS 应用一个界面：Intel Mac、其他系统和手机都用�
 4. **和 Mac 共用一份翻译**：界面文字用中文写在代码里（`t\`…\``），英文在构建时读 Mac 应用的 `en.lproj/Localizable.strings`，键的写法和 Swift 的字符串插值一致。
 5. **npm 是新的下载来源，只在构建时用**：依赖锁定在 `web/package-lock.json`（版本写死，带完整性哈希），安装一律 `npm ci --ignore-scripts`；只在开发、CI 和打包时下载，Janus 运行时不联网，也不在用户机器上安装这些包。依赖保持最少：运行时只有 `preact` 和 `@preact/signals`，构建和测试只有 `vite`、`typescript`、`@types/node` 和 `@playwright/test`；单元测试用 Node 自带的 `node:test`。浏览器端到端测试用本机已装的 Chrome，不下载浏览器。
 6. **手机布局**：宽度 640 像素以下时，侧栏换成底部页签（收件箱、团队、对话、设置），页面顶部有标题和返回，点按区域至少 44 像素，处理刘海和底部横条的安全区域。
+7. **Agent 的语言只由 Mac 决定**：Web 的语言设置只管 Web 自己的界面和它读服务端文字用的 `?lang=`；Janus 写给 Agent 的说明、提示和工具说明用什么语言，只由 Mac 应用告诉服务端（`PUT /api/language`），Web 不发这个请求。用户在 2026-11-26 定下：两个客户端各发一次会来回改，进行中的工作也会因为换了一台设备看就换了语言。
 
 ## 取舍
 
