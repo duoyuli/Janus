@@ -282,9 +282,24 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
   );
   const actors: string[] = [];
   for (const e of events) for (const a of [e.actor, e.to]) if (a && !actors.includes(a)) actors.push(a);
+  // A run can have thousands of events: draw a page of them, and more as the list's end comes
+  // into view (all at once made a phone wait seconds on tens of thousands of elements).
+  const [limit, setLimit] = useState(AUDIT_PAGE);
+  const opened = seq === null ? -1 : rows.findIndex((e) => e.seq === seq);
+  const shown = rows.slice(0, Math.max(limit, opened + AUDIT_PAGE / 4));
+  const more = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = more.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((es) => {
+      if (es.some((x) => x.isIntersecting)) setLimit((n) => n + AUDIT_PAGE);
+    }, { rootMargin: "600px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [shown.length < rows.length]);
   const invs: Json[] = full?.audit ?? [];
   const broken = invs.filter((i) => !i.ok).length;
-  useDrawn("audit", () => ({ rules: invs.map((i) => ({ text: i.text, ok: i.ok })), rows: rows.length, events: events.length, highlight: seq }));
+  useDrawn("audit", () => ({ rules: invs.map((i) => ({ text: i.text, ok: i.ok })), rows: rows.length, drawn: shown.length, events: events.length, highlight: seq }));
   return (
     <div class="audit-page">
       <section class="disclosure">
@@ -322,7 +337,7 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
         <span class="caption secondary">{t`${rows.length} 条`}</span>
       </div>
       <Card pad={0} class="audit-list">
-        {rows.map((e) => {
+        {shown.map((e) => {
           const on = seq === e.seq;
           return (
             <div class={"audit-row" + (on ? " on" : "")} ref={on ? highlight : undefined} data-seq={e.seq}>
@@ -345,10 +360,18 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
             </div>
           );
         })}
+        {shown.length < rows.length && (
+          <div class="row secondary" ref={more}>
+            {t`还有 ${rows.length - shown.length} 条`}
+          </div>
+        )}
       </Card>
     </div>
   );
 }
+
+/** How many audit rows are drawn at first, and added each time the list's end comes into view. */
+const AUDIT_PAGE = 300;
 
 export function TeamPage({ run }: { run: RunModel }) {
   const full = run.view.value;

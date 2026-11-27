@@ -1535,3 +1535,4 @@
 "已复制" = "Copied";
 "打开子任务" = "Open subtask";
 "文档：%@" = "Document: %@";
+"还有 %lld 条" = "%lld more";
