@@ -10,7 +10,7 @@ import { dateTime, tilde } from "../lib/format.ts";
 import { t } from "../lib/i18n.ts";
 import { go, link } from "../lib/router.ts";
 import { useDrawn } from "../lib/testing.ts";
-import { Avatar, Card, Note, Pill } from "../ui/kit.tsx";
+import { Avatar, Card, Note, Pill, useEdgeFade } from "../ui/kit.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { Inline } from "../session/Markdown.tsx";
 import type { RunModel } from "../session/model.ts";
@@ -258,6 +258,7 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
   const [, redraw] = useState(0);
   const [invOpen, setInvOpen] = useState(false);
   const highlight = useRef<HTMLDivElement>(null);
+  const catFade = useEdgeFade<HTMLDivElement>();
   const set = (k: keyof typeof auditFilter, v: string) => {
     auditFilter[k] = v;
     redraw((n) => n + 1);
@@ -305,7 +306,7 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
         )}
       </section>
       <div class="audit-filters">
-        <div class="segmented scroll" role="tablist" aria-label={t`事件类别`}>
+        <div class="segmented scroll" role="tablist" aria-label={t`事件类别`} ref={catFade}>
           {categories().map(([v, label]) => (
             <button type="button" role="tab" aria-selected={f.cat === v} class={"segment" + (f.cat === v ? " on" : "")} onClick={() => set("cat", v)}>{label}</button>
           ))}

@@ -565,4 +565,19 @@
   .wrap-row.nowrap {
     flex-wrap: wrap;
   }
+  /* A field and its buttons: the field a whole line (its placeholder is read in full), the
+     buttons on the next. */
+  .wrap-row > .input {
+    flex-basis: 100%;
+  }
+  .link-field {
+    flex-wrap: wrap;
+  }
+  .link-field .input {
+    flex: 1 1 calc(100% - 32px);
+  }
+  .link-field > .btn,
+  .link-field > .caption {
+    margin-left: auto;
+  }
 }
