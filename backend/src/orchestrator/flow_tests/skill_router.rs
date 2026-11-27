@@ -51,7 +51,8 @@ async fn a_skill_found_in_the_catalog_is_read_recorded_and_counted() {
     assert_eq!(item(&notes.id)["hints"], json!([]));
     assert_eq!(item(&alpha.id)["uses"], json!({ "sessions": 0, "lastAt": null }));
     assert_eq!(item(&alpha.id)["hints"], json!([{ "kind": "short" }]));
-    assert_eq!(lib["skillRouter"], json!({ "catalog": "list" }));
+    assert_eq!(lib["skillRouter"]["catalog"], "list");
+    assert_eq!(lib["skillRouter"]["order"], json!([notes.id, alpha.id]), "the used one first, as the catalog lists it");
 
     // The next run's catalog lists the used skill first, though alpha comes first by name.
     let team = h.app.run(&run).unwrap().team.clone();

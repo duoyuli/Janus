@@ -13,8 +13,8 @@
 mod aside;
 mod audit;
 mod board;
-pub mod docs;
 mod card;
+pub mod docs;
 mod evidence;
 mod inbox;
 pub mod preview;
@@ -23,8 +23,8 @@ mod sessions;
 pub mod suggest;
 #[cfg(test)]
 mod tests;
-mod turns;
 mod timeline;
+mod turns;
 mod words;
 
 use crate::db::Event;
