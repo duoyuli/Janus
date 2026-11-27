@@ -4,7 +4,7 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
-## 2026.11.27
+## 2026.11.27.2
 
 - 新增 Web 版：在浏览器里用 Janus，功能和 Mac 应用对齐，包括收件箱、工作区、新建任务和对话、任务页（交付审阅、会话、时间线、子任务、审计与回放、团队、diff 审阅、文档）、对话、值班、团队记忆和设置（数字员工、Agent、资源库、用量账单）。页面由 Janus 服务直接提供，不用另装；手机宽度下用底部页签，编辑器占满整屏，删除、停止等操作前从底部弹出确认。只能在 Mac 上做的事（手机访问的开关和配对、更新、macOS 权限、本机环境）在 Web 上写明去 Mac 操作；Web 上新建工作区时手动填写目录路径。
 
@@ -24,7 +24,7 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 - 把负责人建议的内容或一条团队笔记加入共享资料时，草稿由服务写好，Mac 和 Web 打开的一样。
 
-- 内部：应用读的文档、diff、图片和运行组件日志都经 HTTP 读取，不再直接读 Janus home 里的文件；删除 `/api/file`。新增 `web/`（TypeScript、Vite、Preact，构建时用 `npm ci --ignore-scripts` 按 lockfile 安装，运行时不联网），构建结果嵌进 `janus`；CI 新增 Web 任务，`just e2e` 新增第 5 步「Web 端到端测试」，在 Chrome 里按桌面和手机两种宽度比对服务端数据。Swift 中原来的推导和对应测试删掉，改为 Rust 测试。修复一个会话滚动测试在屏幕解锁时卡死的问题（测试数据没跟上服务端排好的行）。新增 ADR：Web 客户端、手机扫码配对、凭据也给配对的设备。
+- 内部：应用读的文档、diff、图片和运行组件日志都经 HTTP 读取，不再直接读 Janus home 里的文件；删除 `/api/file`。新增 `web/`（TypeScript、Vite、Preact，构建时用 `npm ci --ignore-scripts` 按 lockfile 安装，运行时不联网），构建结果嵌进 `janus`；CI 新增 Web 任务，`just e2e` 新增第 5 步「Web 端到端测试」，在 Chrome 里按桌面和手机两种宽度比对服务端数据。Swift 中原来的推导和对应测试删掉，改为 Rust 测试。修复一个会话滚动测试在屏幕解锁时卡死的问题（测试数据没跟上服务端排好的行）。新增 ADR：Web 客户端、手机扫码配对、凭据也给配对的设备。会话滚动测试在 GitHub 的 macOS 15 机器上改为一直滑到底：那里往回滑时惰性列表把内容高度估到实际的四五倍（上一版也如此，已记入未解决项）。
 
 - New: a web version of Janus, matching the Mac app: the inbox, workspaces, new goals and chats, the run page (delivery review, conversations, timeline, subtasks, audit and replay, team, diff review, documents), chats, Loops, team memory and settings (digital employees, agents, library, usage bill). The Janus service serves it; nothing else to install. At phone width it has tabs at the bottom, editors fill the screen, and deleting or stopping asks first in a sheet from the bottom. What only the Mac can do (phone access and pairing, updates, macOS permissions, the host environment) says so on the web; a new workspace on the web takes its folder as a typed path.
 
@@ -44,7 +44,7 @@ Janus versions are named by date, newest first. Each section lists the changes o
 
 - Taking a lead's suggestions or a team note into the shared material opens a draft the service writes, the same on the Mac and the web.
 
-- Internal: documents, diffs, images and runtime logs the app shows are read over HTTP, no longer from files in the Janus home; `/api/file` is removed. New `web/` (TypeScript, Vite, Preact; installed at build time with `npm ci --ignore-scripts` from the lockfile, nothing fetched at run time), built into the `janus` binary; CI gains a web job and `just e2e` a fifth step, the web end-to-end test, comparing what Chrome draws at desktop and phone widths with the service. The Swift derivations and their tests are gone, replaced by Rust tests. Fixed a conversation scrolling test that hung on an unlocked screen (its fixture lacked the rows the service lays out). New ADRs: the web client, pairing phones over the local network, credentials for paired devices.
+- Internal: documents, diffs, images and runtime logs the app shows are read over HTTP, no longer from files in the Janus home; `/api/file` is removed. New `web/` (TypeScript, Vite, Preact; installed at build time with `npm ci --ignore-scripts` from the lockfile, nothing fetched at run time), built into the `janus` binary; CI gains a web job and `just e2e` a fifth step, the web end-to-end test, comparing what Chrome draws at desktop and phone widths with the service. The Swift derivations and their tests are gone, replaced by Rust tests. Fixed a conversation scrolling test that hung on an unlocked screen (its fixture lacked the rows the service lays out). New ADRs: the web client, pairing phones over the local network, credentials for paired devices. The conversation scrolling test now swipes all the way down on GitHub's macOS 15 machines, where scrolling back down makes the lazy list estimate the content at four to five times its height (the previous version does too; kept as an open item).
 
 ## 2026.11.26.14
 
