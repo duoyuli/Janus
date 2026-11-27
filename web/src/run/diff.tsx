@@ -96,7 +96,7 @@ export function DiffPage({ run, path }: { run: RunModel; path: string }) {
                           ) : (
                             <span class="comment-btn" />
                           )}
-                          <span class="code">{(l.kind === "added" ? "+" : l.kind === "removed" ? "−" : " ") + l.text}</span>
+                          <span class="diff-text">{(l.kind === "added" ? "+" : l.kind === "removed" ? "−" : " ") + l.text}</span>
                         </div>
                         {editing === l.id ? (
                           <div class="comment-edit">

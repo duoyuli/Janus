@@ -204,7 +204,7 @@ a.inspector-row:hover { background: var(--hover); }
 .hunk-head { padding: 4px 12px; background: var(--tint); }
 .diff-code { display: flex; align-items: flex-start; font-size: 12px; padding: 1.5px 0; overflow-x: auto; }
 .diff-code .ln { width: 40px; flex: none; text-align: right; padding-right: 6px; color: var(--secondary); }
-.diff-code .code { white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0; }
+.diff-code .diff-text { white-space: pre-wrap; word-break: break-word; flex: 1; min-width: 0; }
 .comment-btn { width: 24px; flex: none; border: 0; background: none; color: var(--accent); cursor: pointer; opacity: 0; padding: 0; }
 .diff-row:hover .comment-btn, .comment-btn:focus-visible { opacity: 1; }
 .comment-edit, .comment { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; background: var(--soft); }
