@@ -1,6 +1,6 @@
 # ADR：用原生 macOS 应用做展示层
 
-- 状态：已采纳（accepted），记录于 2026-11-01；同日修订：删除 Web 工作台，应用移到 `frontend/`。第 4 条被 [ADR：由事件推导的状态只在服务端算](20261126-backend_owns_derived_state.md) 取代（superseded），迁移按那份 ADR 的顺序进行。
+- 状态：已采纳（accepted），记录于 2026-11-01；同日修订：删除 Web 工作台，应用移到 `frontend/`。第 4 条被 [ADR：由事件推导的状态只在服务端算](20261126-backend_owns_derived_state.md) 取代（superseded），迁移按那份 ADR 的顺序进行。第 2 条中「macOS 应用是唯一的界面，编排器不提供 `/` 页面」被 [ADR：Web 客户端用 TypeScript、Vite 和 Preact，由 Janus 服务提供](20261126-web_client.md) 取代（superseded）：服务又提供 Web 客户端，删除 `/api/fs`、选择目录用系统文件夹选择框的部分仍然有效。
 - 相关文档：[macOS 应用](../architecture/20261031-frontend.md)、[部署方案](../operations/20261031-deployment.md#macos_app)、[CI 与发布](../operations/20261101-ci_release.md)。
 
 ## 背景
@@ -29,5 +29,5 @@ Janus 原来只有 Web 工作台（`frontend/app.html`）：先用 `just install
 
 - 新增或修改事件类型时，要同步 `frontend/Sources/Janus/Core/Derive.swift`、看板的 `board_entry` 和 `resume_run`。
 - 安装包约增加一个 Node.js 的体积。Agent CLI（`codex`、`claude` 等）仍需用户自己安装，它们就是被调度的 Agent 本身。
-- Intel Mac 和其他系统不能使用安装包，也没有网页可用，只能从源码运行服务并调用 HTTP API。
+- Intel Mac 和其他系统不能使用安装包，只能从源码运行服务；界面由 2026-11-26 起的 Web 客户端提供。
 - 只装命令行工具的机器可以构建应用，但 Swift 测试需要 Xcode（`@Test` 宏插件只随 Xcode 提供）；CI 的 macOS 运行环境自带 Xcode。
