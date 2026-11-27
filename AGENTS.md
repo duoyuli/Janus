@@ -16,7 +16,7 @@
 在仓库根目录用 `just` 执行，`just` 列出全部命令。
 
 - `just dev` 从源码启动服务，`just mac` 从源码运行应用并连接这个服务。改了 Rust 代码要重启服务，改了 Swift 代码重新 `just mac`。
-- `just test` 运行后端测试，不访问网络、不调用真实 Agent；`just test-mac` 运行应用测试（需要 Xcode）。
+- `just test` 运行后端测试，不访问网络、不调用真实 Agent；`just test-mac` 运行应用测试（需要 Xcode）；`just test-web` 运行 Web 客户端的检查和单元测试，`just web` 构建它（服务编译时嵌进去）。
 - `just fmt` 格式化，`just lint` 执行与 CI 相同的格式和 Clippy 检查。
 - `just e2e` 是每个需求完成后的端到端验证（合并前检查第 12 条），`just e2e-product --only <场景>` 只跑产品端到端测试中的某些场景。
 

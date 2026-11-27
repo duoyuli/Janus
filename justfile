@@ -56,6 +56,22 @@ lint:
 mac:
     cd frontend && swift run Janus
 
+# @project-doc docs/architecture/20261126-web.md#build
+# 构建 Web 版到 web/dist：按 package-lock.json 安装依赖（不执行安装脚本），类型检查后打包；之后构建的 Janus 服务把它嵌进去
+web:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v npm >/dev/null || { echo "找不到 npm：Web 版的构建需要 Node.js 22.18 以上"; exit 1; }
+    cd web && npm ci --ignore-scripts --no-audit --no-fund && npm run build
+
+# Web 版的开发服务器：改了代码就刷新，/api 转给 JANUS_ADDR（默认 127.0.0.1:7878）上的 Janus 服务
+web-dev:
+    cd web && npm run dev
+
+# Web 版的类型检查和单元测试（不需要服务和浏览器）
+test-web:
+    cd web && { [ -d node_modules ] || npm ci --ignore-scripts --no-audit --no-fund; } && npm run check && npm test
+
 # macOS 应用的测试（Swift Testing）
 # 只装了命令行工具、没有 Xcode 时，Swift Testing 的宏插件要显式加载：参数由 swift-test-flags.sh 给出，CI 也用它
 test-mac:
@@ -75,6 +91,8 @@ install:
     #!/usr/bin/env bash
     set -euo pipefail
     command -v cargo >/dev/null || { echo "找不到 cargo：先安装 Rust（https://rustup.rs）"; exit 1; }
+    # The service embeds the web client: built first.
+    just web
     (cd backend && cargo build --release --locked)
     mkdir -p "{{janus_home}}/bin"
     install -m 755 backend/target/release/janus "{{bin}}.new"

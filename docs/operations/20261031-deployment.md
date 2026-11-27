@@ -126,7 +126,7 @@
 2. 第一次打开：安装包没有用 Apple 开发者证书签名，macOS 会提示无法验证开发者。先打开一次 Janus，再到「系统设置 › 隐私与安全性」，在安全性一栏中点「仍要打开」，确认后即可正常使用，以后不再询问。也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/Janus.app` 去掉下载标记。
 3. 只支持 Apple 芯片（M 系列）的 Mac，需要 macOS 15 或更高（只支持最近三个 macOS 大版本，见 [macOS 应用](../architecture/20261031-frontend.md)）。安装包自带 Node.js（运行 ACP 适配器用），不需要 Rust、`just` 和 Node.js。Codex 和 Claude Code 的适配器在第一次使用时从 npm 下载，并自带对应的 CLI。
 
-应用包里带有 Janus 服务。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/20261031-frontend.md#server_process)。
+应用包里带有 Janus 服务，服务里嵌着 Web 客户端。打开应用时，如果 Janus 已经在运行（例如 `just start` 启动的服务），应用直接连接它；否则启动包内的服务，退出应用时停止。配置的端口被其他程序占用时，应用自动改用空闲端口，并在侧栏底部提示。应用启动的服务使用包内的 Node.js；你在 `JANUS_NODE` 或 `config.toml` 的 `node` 中指定了 Node 时，以你的为准。数据都在 Janus home，与从源码安装的 Janus 共用。细节见 [macOS 应用](../architecture/20261031-frontend.md#server_process)。
 
 升级：有新版本时，侧栏底部显示「Janus <版本> 可以更新」，点击打开「设置 › 通用」并滚到「更新」一节，在那里点「更新到 <版本>」后应用下载更新、退出并重新打开；菜单栏 Janus 图标菜单中的「检查更新…」也打开这一节并立即检查。应用内更新不需要再到「隐私与安全性」中允许，见[应用内更新](../architecture/20261031-frontend.md#updates)。应用不在可写的目录中（例如直接从 DMG 中运行）时不能自动更新，先把它拖进「应用程序」。
 
@@ -175,9 +175,9 @@
 just install
 ```
 
-`just install` 执行 `cargo build --release --locked`，把二进制安装到 `~/.janus/bin/janus`。安装时先写到临时文件再改名，不会把正在运行的服务替换成写了一半的文件。
+`just install` 先构建 Web 客户端（`just web`，需要 Node.js 22.18 以上和 npm），再执行 `cargo build --release --locked`，把二进制安装到 `~/.janus/bin/janus`。Web 客户端编译时嵌进二进制，服务在它监听的地址上直接提供，见 [Web 客户端](../architecture/20261126-web.md#serving)。安装时先写到临时文件再改名，不会把正在运行的服务替换成写了一半的文件。
 
-安装后的服务不需要仓库。开发时用 `just dev`（等于 `cargo run`）启动服务，用 `just mac` 从源码运行应用。
+安装后的服务不需要仓库。开发时用 `just dev`（等于 `cargo run`）启动服务，用 `just mac` 从源码运行应用，用 `just web-dev` 运行 Web 客户端的开发服务器（改了代码页面自己刷新，接口转给 `just dev` 的服务）。
 
 <a id="run_as_service"></a>
 ## 启动

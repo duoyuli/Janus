@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Builds Janus.app (the native workbench with the Janus server inside) and Janus-<version>.dmg
-# into dist/. Used by `just app` / `just dmg` and by the release workflow.
+# Builds Janus.app (the native workbench with the Janus server, and the web client the server
+# serves, inside) and Janus-<version>.dmg into dist/. Used by `just app` / `just dmg` and by the
+# release workflow.
 #
 #   frontend/scripts/package.sh [--version 2026.11.01] [--no-dmg]
 #
@@ -42,6 +43,16 @@ out="$root/dist"
 work="$out/work"
 rm -rf "$work" "$out/Janus.app"
 mkdir -p "$work"
+
+# The server embeds the web client (web/dist), so it is built first. `just e2e` builds it once
+# before its steps and sets JANUS_WEB_BUILT, so a packaged test does not rebuild it under the others.
+if [ -z "${JANUS_WEB_BUILT:-}" ]; then
+  echo "==> Janus Web"
+  (cd "$root/web" && npm ci --ignore-scripts --no-audit --no-fund && npm run build) >"$work/web.log" 2>&1 \
+    || { echo "==> Janus Web failed to build:" >&2; cat "$work/web.log" >&2; exit 1; }
+  tail -n 1 "$work/web.log"
+fi
+[ -f "$root/web/dist/index.html" ] || { echo "web/dist 不存在：先运行 just web" >&2; exit 1; }
 
 # The server and the app do not depend on each other: build them side by side, each into its own
 # log, shown when it fails (and its last line when it does not).

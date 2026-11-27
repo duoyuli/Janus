@@ -1,5 +1,5 @@
 # Every push to main or to an rc/ branch (release candidates are tagged there) and every pull request:
-# orchestrator lints and tests, and the macOS app's build and tests.
+# orchestrator lints and tests, the web client's checks, tests and build, and the macOS app's build and tests.
 # Run by hand with leg=local to try the app's tests on the local runner alone.
 # See docs/operations/20261101-ci_release.md.
 name: CI
@@ -49,6 +49,32 @@ jobs:
         working-directory: backend
         run: cargo test --locked
 
+  # The web client (web/): its packages exactly as package-lock.json names them, without their
+  # install scripts; type checks, unit tests and the build the service embeds. Its end-to-end test
+  # needs Chrome and the service and runs in `just e2e` (docs/operations/20261031-testing.md#web_e2e).
+  web:
+    name: Web client (check + test + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check
+        working-directory: web
+        run: npm run check
+      - name: Test
+        working-directory: web
+        run: npm test
+      - name: Build
+        working-directory: web
+        run: npx vite build
+
   # Two legs of one job: GitHub's Mac, and the maintainer's own Mac when GitHub has none for five
   # minutes (.github/scripts/claim-runner.sh). A pull request gets the hosted leg only: it never
   # runs on the maintainer's machine.
@@ -90,13 +116,16 @@ jobs:
   # after the local leg passed and marks the run failed; this job is what the release waits for.
   result:
     name: CI result
-    needs: backend
+    needs: [backend, web]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Orchestrator
         run: |
           [ "${{ needs.backend.result }}" = success ] || { echo "The orchestrator's checks ended with ${{ needs.backend.result }}"; exit 1; }
+      - name: Web client
+        run: |
+          [ "${{ needs.web.result }}" = success ] || { echo "The web client's checks ended with ${{ needs.web.result }}"; exit 1; }
       - name: macOS app
         env:
           GH_TOKEN: ${{ github.token }}

@@ -54,6 +54,12 @@ jobs:
       # maintainer's own default.
       - uses: dtolnay/rust-toolchain@stable
         if: steps.claim.outputs.work == 'true' && runner.environment == 'github-hosted'
+      # Node.js for building the web client the server embeds (package.sh runs `npm ci` from
+      # web/package-lock.json, without install scripts); the local runner uses the machine's own.
+      - uses: actions/setup-node@v7
+        if: steps.claim.outputs.work == 'true' && runner.environment == 'github-hosted'
+        with:
+          node-version: 24
 
       - name: Version
         id: v
