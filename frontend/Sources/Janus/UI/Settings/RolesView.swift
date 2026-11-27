@@ -84,7 +84,7 @@ struct RolesSection: View {
     private func row(_ r: Role) -> some View {
         let c = store.connection(r.connection)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        let facts = [Setup.permLabel(r.session, c), r.prompt.isEmpty ? "" : L.text("提示词")].filter { !$0.isEmpty }
+        let facts = [r.json["permLabel"].str, r.prompt.isEmpty ? "" : L.text("提示词")].filter { !$0.isEmpty }
         return Button { store.editRole(r.json) } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r.displayInitials, color: r.color, size: 30, role: r.id)

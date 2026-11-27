@@ -16,15 +16,6 @@ enum Setup {
         return v.isNull ? ctrl["default"] : v
     }
 
-    /// "Agent · Plan 关闭": a role's permission choices in the agent's own words.
-    static func permLabel(_ session: JSON, _ c: JSON?) -> String {
-        controls(c).filter { $0["permission"].truthy }.map { x -> String in
-            let v = value(session, x)
-            if let b = v.bool { return "\(x["name"].str) \(b ? L.text("开启") : L.text("关闭"))" }
-            return x["options"].array.first { $0["value"] == v }?["name"].str ?? v.str
-        }.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
     /// Icon for a permission option; whether it widens what the agent may do is the agent's call.
     static func permIcon(_ o: JSON) -> (String, Bool) {
         let v = "\(o["value"].str) \(o["name"].str)"

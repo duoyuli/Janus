@@ -494,7 +494,7 @@ struct WorkspaceEditor: View {
                                     Text(c.map { "\($0["name"].str) · \(r.model.isEmpty ? L.text("默认模型") : r.model)" } ?? L.text("未绑定 Agent")).font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text(Setup.permLabel(r.session, c).isEmpty ? "—" : Setup.permLabel(r.session, c)).font(.caption).foregroundStyle(.secondary)
+                                Text(r.json["permLabel"].str.isEmpty ? "—" : r.json["permLabel"].str).font(.caption).foregroundStyle(.secondary)
                                 if on.contains(id) && lead != id {
                                     let count = min(Role.maxSlots, max(1, slots[id] ?? 1))
                                     Stepper(value: Binding(get: { count }, set: { slots[id] = min(Role.maxSlots, max(1, $0)) }), in: 1...Role.maxSlots) {
@@ -503,7 +503,7 @@ struct WorkspaceEditor: View {
                                     .controlSize(.small)
                                     .help(L.text("分身数：大于 1 时可以同时接多个子任务"))
                                 }
-                                if r.lead && Setup.leadCapable(c) {
+                                if r.json["canLead"].bool == true {
                                     Button { lead = id } label: {
                                         Label(L.text("负责人"), systemImage: lead == id ? "largecircle.fill.circle" : "circle")
                                     }

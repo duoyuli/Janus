@@ -148,6 +148,54 @@ pub fn default_team(roles: &[Value], connections: &[Value]) -> DefaultTeam {
     DefaultTeam { lead, members, groups }
 }
 
+/// A role's permission choices in its Agent's own words ("Sandbox Full access · Plan Off"): each
+/// control the Agent marks as a permission, at the role's value or the control's default.
+pub fn perm_label(role: &Value, connections: &[Value], lang: Lang) -> String {
+    let Some(c) = connection(connections, s(&role["connection"])) else { return String::new() };
+    c["options"]["controls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|x| x["permission"] == true)
+        .map(|x| {
+            let v = match &role["session"][s(&x["id"])] {
+                Value::Null => &x["default"],
+                v => v,
+            };
+            if let Some(b) = v.as_bool() {
+                return format!(
+                    "{} {}",
+                    s(&x["name"]),
+                    if b { lang.pick("开启", "On") } else { lang.pick("关闭", "Off") }
+                );
+            }
+            x["options"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|o| &o["value"] == v)
+                .map(|o| s(&o["name"]).to_string())
+                .unwrap_or_else(|| s(v).to_string())
+        })
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// Who does a role's work, in one line: its Agent, its model and its permission line
+/// ("Claude Code · claude-sonnet · Bypass permissions").
+pub fn setup_line(role: &Value, connections: &[Value], lang: Lang) -> String {
+    let agent = connection(connections, s(&role["connection"])).map(|c| s(&c["name"])).unwrap_or_default();
+    let perms = perm_label(role, connections, lang);
+    [agent, s(&role["model"]), perms.as_str()].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join(" · ")
+}
+
+/// Whether `role` can lead a workspace: marked to lead and bound to an Agent Janus knows (Codex
+/// and Claude Code both pursue goals with /goal).
+pub fn can_lead(role: &Value, connections: &[Value]) -> bool {
+    role["lead"].as_bool().unwrap_or(false) && connection(connections, s(&role["connection"])).is_some()
+}
+
 /// One step still to take before a first goal can run, and whether it is done.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Step {
@@ -294,6 +342,26 @@ mod tests {
         assert_eq!(team_line(&ws1, &roles, Lang::En), "Digital employees: 1 · Lead: 开发");
         assert_eq!(brief_status(&ws, Lang::Zh), "3 字");
         assert_eq!(brief_status(&ws1, Lang::En), "Empty");
+    }
+
+    #[test]
+    fn a_roles_permission_line_reads_in_its_agents_words() {
+        let conns = vec![json!({ "id": "c1", "options": { "controls": [
+            { "id": "mode", "name": "模式", "permission": true, "default": "full",
+              "options": [{ "value": "full", "name": "完全访问" }, { "value": "ro", "name": "只读" }] },
+            { "id": "plan", "name": "Plan", "permission": true, "default": false },
+            { "id": "model", "name": "模型", "permission": false, "default": "x" },
+        ] } })];
+        let role = json!({ "connection": "c1", "lead": true, "session": { "mode": "ro" } });
+        assert_eq!(perm_label(&role, &conns, Lang::Zh), "只读 · Plan 关闭");
+        assert_eq!(perm_label(&json!({ "connection": "c1", "session": {} }), &conns, Lang::En), "完全访问 · Plan Off");
+        assert_eq!(perm_label(&json!({ "connection": "gone" }), &conns, Lang::Zh), "");
+        assert!(can_lead(&role, &conns) && !can_lead(&json!({ "lead": true, "connection": "" }), &conns));
+        let named = vec![json!({ "id": "c1", "name": "Claude Code", "options": conns[0]["options"] })];
+        assert_eq!(
+            setup_line(&json!({ "connection": "c1", "model": "sonnet", "session": {} }), &named, Lang::Zh),
+            "Claude Code · sonnet · 完全访问 · Plan 关闭"
+        );
     }
 
     fn conns() -> Vec<Value> {

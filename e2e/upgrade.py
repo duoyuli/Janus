@@ -304,9 +304,9 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
         b = {r["id"]: r for r in before["roles"]}[tester["id"]]
         # Version 1 dropped `role`, version 9 may unbind a custom-command agent, version 11 dropped
         # `resources`, version 16 added `avatar` (empty: no picture), version 25 `group` and version
-        # 27 `hires` (both checked above). `unavailable` is not stored: the service says why the
-        # role cannot run now.
-        changed = ("role", "connection", "resources", "avatar", "group", "hires", "unavailable")
+        # 27 `hires` (both checked above). `unavailable`, `permLabel`, `setupLine` and `canLead` are
+        # not stored: the service says why the role cannot run now, and how its permissions read.
+        changed = ("role", "connection", "resources", "avatar", "group", "hires", "unavailable", "permLabel", "setupLine", "canLead")
         check({k: v for k, v in t.items() if k not in changed} == {k: v for k, v in b.items() if k not in changed},
               "自定义数字员工除「定位」、选的资源和绑定的 Agent 外不变")
         check("resources" not in t and t.get("avatar") == "", "数字员工不再带选的资源，没有头像（显示文字）")

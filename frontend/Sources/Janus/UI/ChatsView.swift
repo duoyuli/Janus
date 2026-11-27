@@ -85,12 +85,6 @@ struct ChatsView: View {
         }
     }
 
-    /// "Claude Code · claude-sonnet · Bypass permissions": who does the work, in one line.
-    static func setup(_ role: Role, store: AppStore) -> String {
-        let conn = store.connection(role.connection)
-        let parts = [conn?["name"].str ?? "", role.model, Setup.permLabel(role.session, conn)]
-        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
-    }
 }
 
 /// One digital employee to chat with: who it is, what it does, and why it cannot run if it can't.
@@ -135,7 +129,7 @@ private struct RoleChoice: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { if why == nil { start() } })
         .hoverable(12)
         .disabled(why != nil)
-        .help(why.map { L.text("\($0)：去「设置 › 数字员工」处理") } ?? ChatsView.setup(role, store: store))
+        .help(why.map { L.text("\($0)：去「设置 › 数字员工」处理") } ?? role.json["setupLine"].str)
         .accessibilityLabel(role.name)
         .accessibilityValue(why ?? (starting ? L.text("正在打开") : selected ? L.text("已选择") : ""))
         .accessibilityAddTraits(selected ? .isSelected : [])

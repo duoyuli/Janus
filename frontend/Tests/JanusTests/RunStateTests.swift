@@ -170,14 +170,13 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     ])
 }
 
-/// A role that leaves the mode open shows the default the server marks (Codex: Full access), not the agent's current mode.
+/// A role that leaves the mode open takes the default the server marks (Codex: Full access), not
+/// the agent's current mode; the role editor shows that value.
 @Test func anOpenModeShowsTheDefault() {
-    let c: JSON = ["base": "codex", "options": ["controls": [
-        ["id": "mode", "type": "select", "permission": true, "current": "agent", "default": "agent-full-access",
-         "options": [["value": "agent", "name": "Auto review"], ["value": "agent-full-access", "name": "Full access"]]],
-    ]]]
-    #expect(Setup.permLabel([:], c) == "Full access")
-    #expect(Setup.permLabel(["mode": "agent"], c) == "Auto review")
+    let mode: JSON = ["id": "mode", "type": "select", "permission": true, "current": "agent", "default": "agent-full-access",
+                      "options": [["value": "agent", "name": "Auto review"], ["value": "agent-full-access", "name": "Full access"]]]
+    #expect(Setup.value([:], mode) == "agent-full-access")
+    #expect(Setup.value(["mode": "agent"], mode) == "agent")
 }
 
 /// The scheduler's seven states plus the six the app derives for display are each a case of

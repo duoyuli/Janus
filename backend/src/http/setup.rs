@@ -83,6 +83,9 @@ pub(super) async fn setup(State(app): State<Arc<App>>, Query(q): Query<SetupQuer
     let mut roles = app.roles()?;
     for r in roles.iter_mut() {
         r["unavailable"] = json!(readiness::unavailable(r, &connections, lang));
+        r["permLabel"] = json!(readiness::perm_label(r, &connections, lang));
+        r["setupLine"] = json!(readiness::setup_line(r, &connections, lang));
+        r["canLead"] = json!(readiness::can_lead(r, &connections));
     }
     let workspaces: Vec<Value> = app
         .workspaces()?
