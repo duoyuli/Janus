@@ -1348,7 +1348,6 @@
 "整理团队记忆" = "Consolidate Team Memory";
 "%@ · %@" = "%1$@ · %2$@";
 "打开工作区" = "Open Workspace";
-"整理完了：改了 %lld 条，删了 %lld 条。%@" = "Consolidated: %1$lld changed, %2$lld removed. %3$@";
 "这次整理没有完成：%@。已经改的笔记保留，可以在工作区页重新整理。" = "This consolidation did not finish: %@. The notes already changed stay; you can consolidate again from the workspace page.";
 "会话中断了" = "the session broke off";
 

@@ -8,7 +8,7 @@ import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { api, type Json } from "../lib/api.ts";
 import { dateTime } from "../lib/format.ts";
-import { t } from "../lib/i18n.ts";
+import { lang, serverLang, t } from "../lib/i18n.ts";
 import { go, link } from "../lib/router.ts";
 import { closeSheet, confirm } from "../lib/confirm.ts";
 import { loadMemories, loadRuns, memories, role, show, workspace } from "../lib/store.ts";
@@ -213,14 +213,14 @@ export function DreamPage({ run, session }: { run: Json; session?: ComponentChil
   const wsId: string = run.workspace ?? "";
   const ws = workspace(wsId);
   usePageTitle(t`整理团队记忆`, ws ? `/workspaces/${encodeURIComponent(wsId)}/memory` : "/inbox");
-  // What it changed, as its last event says (`memory.consolidated`).
+  // What it changed, as the service says it (the view's `consolidated`).
   const done = useSignal<Json>(null);
   useEffect(() => {
-    api.get(`/api/runs/${encodeURIComponent(run.id)}`).then(
-      (j) => (done.value = [...(j.events ?? [])].reverse().find((e: Json) => e.type === "memory.consolidated")?.data ?? null),
+    api.get(`/api/runs/${encodeURIComponent(run.id)}/view?lang=${serverLang()}`).then(
+      (v) => (done.value = v.consolidated ?? null),
       () => {},
     );
-  }, [run.id, run.status]);
+  }, [run.id, run.status, lang.value]);
   const lead = ws ? role(ws.lead) : undefined;
   useDrawn("dream", () => ({ id: run.id, status: run.status, done: done.value }));
   return (
@@ -236,7 +236,7 @@ export function DreamPage({ run, session }: { run: Json; session?: ComponentChil
         </Button>
       </div>
       {done.value ? (
-        <Note text={t`整理完了：改了 ${done.value.saved ?? 0} 条，删了 ${done.value.forgotten ?? 0} 条。${done.value.summary ?? ""}`} tone="green" />
+        <Note text={done.value.text} tone="green" />
       ) : (
         (run.status === "failed" || run.status === "interrupted") && (
           <Note text={t`这次整理没有完成：${run.error || t`会话中断了`}。已经改的笔记保留，可以在工作区页重新整理。`} tone="amber" />

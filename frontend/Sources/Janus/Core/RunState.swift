@@ -378,6 +378,8 @@ struct RunState {
     var readOnly = false
     /// At work at this position (its lead starting, or running), as the server says (`active`).
     var atWork = false
+    /// A finished consolidation of the team memory, as the server says it (`saved`, `forgotten`, `text`); `null` before.
+    var consolidated: JSON = .null
     /// Above the run card while it stopped short and can go on.
     var resumeNote: String?
     /// The run page's own lines and lists around the board, as the server writes them.
@@ -419,6 +421,7 @@ struct RunState {
         allowed = RunActions(answers: j["actions"].object)
         readOnly = j["readOnly"].bool ?? false
         atWork = j["active"].bool ?? false
+        consolidated = j["consolidated"]
         title = j["title"].str
         resumeNote = j["resumeNote"].string
         page = ServedPage(j["page"])

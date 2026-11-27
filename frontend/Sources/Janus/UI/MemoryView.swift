@@ -183,7 +183,6 @@ struct DreamView: View {
         let st = run.shown
         let me = run.who("lead")
         let info = st.session(.agent("lead"))
-        let done = st.events.last { $0.type == .memoryConsolidated }
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .center, spacing: 12) {
                 Avatar(initials: me.initials, color: me.color, size: 34, role: me.role)
@@ -195,8 +194,8 @@ struct DreamView: View {
                 Button(L.text("打开工作区")) { run.store.open(.home(run.workspaceId)) }
                     .disabled(run.store.workspace(run.workspaceId) == nil)
             }
-            if let d = done {
-                Note(text: L.text("整理完了：改了 \(d.data["saved"].int ?? 0) 条，删了 \(d.data["forgotten"].int ?? 0) 条。\(d.data["summary"].str)"), tone: .green)
+            if let done = st.consolidated["text"].string {
+                Note(text: done, tone: .green)
             } else if st.run.status == .failed || st.run.status == .interrupted {
                 Note(text: L.text("这次整理没有完成：\(st.run.error.isEmpty ? L.text("会话中断了") : st.run.error)。已经改的笔记保留，可以在工作区页重新整理。"), tone: .amber)
             }

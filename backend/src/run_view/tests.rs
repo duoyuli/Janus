@@ -613,3 +613,18 @@ fn a_kept_fold_brought_up_to_date_equals_a_fresh_one() {
         serde_json::to_value(fold(&log.events).view(true, false, &Words::of(Lang::Zh, &json!({})), false)).unwrap();
     assert_eq!(serde_json::to_value(all.view(true, false, &Words::of(Lang::Zh, &json!({})), false)).unwrap(), fresh);
 }
+
+/// A consolidation's page says what it changed, as its last `memory.consolidated` says, in the
+/// person's language; before it finishes there is nothing to say.
+#[test]
+fn a_consolidation_says_what_it_changed() {
+    let mut log = Log::default();
+    log.add(ev("run.created").actor("user").data(json!({ "goal": "整理团队记忆" })));
+    assert!(log.view().consolidated.is_none());
+    log.add(ev("memory.consolidated").data(json!({ "saved": 2, "forgotten": 1, "summary": "合并了重复的笔记。" })));
+    let done = log.view().consolidated.unwrap();
+    assert_eq!((done.saved, done.forgotten), (2, 1));
+    assert_eq!(done.text, "整理完了：改了 2 条，删了 1 条。合并了重复的笔记。");
+    let en = log.view_in(Lang::En, true, &json!({})).consolidated.unwrap();
+    assert_eq!(en.text, "Consolidated: 2 changed, 1 removed. 合并了重复的笔记。");
+}

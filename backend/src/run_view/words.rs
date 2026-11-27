@@ -79,6 +79,17 @@ impl Words {
         .into()
     }
 
+    /// What a finished consolidation of the team memory did, on its page.
+    pub fn consolidated(&self, saved: i64, forgotten: i64, summary: &str) -> String {
+        tr!(
+            self.lang,
+            "整理完了：改了 {saved} 条，删了 {forgotten} 条。{summary}",
+            "Consolidated: {saved} changed, {forgotten} removed. {summary}"
+        )
+        .trim_end()
+        .to_string()
+    }
+
     /// Above the run card of a run that stopped short: a restart interrupted it (`interrupted`),
     /// or it failed; either way it goes on from where it stopped.
     pub fn resume_note(&self, interrupted: bool) -> String {

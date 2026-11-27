@@ -1088,6 +1088,8 @@ pub struct Fold {
     traces: page::TraceFold,
     /// The checks events carry (a result, a verification), by seq.
     checks: BTreeMap<i64, Vec<Value>>,
+    /// What a consolidation of the team memory changed, as its last `memory.consolidated` says.
+    consolidated: Option<Value>,
 }
 
 /// One file change an event carries (a tool call's edit, the edit an approval asks about), as it
@@ -1115,6 +1117,9 @@ impl Fold {
         let d = e.data.as_ref().unwrap_or(&null);
         self.docs.apply(e, d);
         self.traces.apply(e, d);
+        if e.kind() == EventKind::MemoryConsolidated {
+            self.consolidated = Some(d.clone());
+        }
         let checks = list(&d["checks"]);
         if !checks.is_empty() {
             self.checks.insert(e.seq, checks.to_vec());
@@ -1221,6 +1226,7 @@ impl Fold {
             title: String::new(),
             read_only,
             resume_note,
+            consolidated: self.consolidated.as_ref().map(|d| Consolidated::of(d, words)),
             page: page::Page::default(),
         }
     }
@@ -1312,8 +1318,29 @@ pub struct RunView {
     /// Above the run card while it stopped short and can go on: what happened and what to do.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_note: Option<String>,
+    /// A consolidation of the team memory that finished: how many notes it changed and removed,
+    /// and its note in a sentence (`text`); `null` before it finishes and for other runs.
+    pub consolidated: Option<Consolidated>,
     /// The run page's lines and lists around the board (`page`).
     pub page: page::Page,
+}
+
+/// What a consolidation of the team memory changed (`memory.consolidated`), as its page says it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Consolidated {
+    pub saved: i64,
+    pub forgotten: i64,
+    pub summary: String,
+    pub text: String,
+}
+
+impl Consolidated {
+    fn of(d: &Value, words: &Words) -> Self {
+        let (saved, forgotten, summary) =
+            (d["saved"].as_i64().unwrap_or(0), d["forgotten"].as_i64().unwrap_or(0), text(&d["summary"]));
+        let text = words.consolidated(saved, forgotten, &summary);
+        Consolidated { saved, forgotten, summary, text }
+    }
 }
 
 /// The folds of the runs someone asked about, each kept at the newest event it has seen, so the
