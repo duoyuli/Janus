@@ -379,11 +379,11 @@ struct WaitingRows: View {
                 Button { store.open(.run(w.id)) } label: {
                     HStack(spacing: 8) {
                         Image(systemName: w.symbol).foregroundStyle(w.tone.color).frame(width: 18).accessibilityHidden(true)
-                        if let l = w.loop {
-                            Text(l["title"].str).lineLimit(1)
+                        if w.loop != nil {
+                            Text(w.title).lineLimit(1)
                             Text(L.text("值班")).font(.caption).foregroundStyle(.secondary)
                         } else {
-                            Text(w.run["title"].str).lineLimit(1)
+                            Text(w.title).lineLimit(1)
                             LoopMark(store: store, run: w.run)
                         }
                         Spacer(minLength: 12)

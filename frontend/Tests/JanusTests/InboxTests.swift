@@ -20,24 +20,18 @@ import Testing
 }
 
 
-/// A workspace's 「待处理」: one row per goal or Loop of that workspace, newest first, saying what
-/// it waits on; other workspaces' entries are left out.
-@Test func aWorkspaceGroupsWhatWaitsByGoalAndLoop() {
-    let labels = ["question": "等你拍板", "delivered": "等你验收", "approval": "等你审批", "interrupted": "已中断"]
-    func e(_ key: String, _ run: String, _ kind: String, wait: Bool = true) -> InboxEntry {
-        InboxEntry(["key": JSON("\(run)/\(key)"), "run": JSON(run), "title": JSON(key), "ts": 0, "canWait": JSON(wait), "kind": JSON(kind), "label": JSON(labels[kind] ?? "")])
+/// A workspace's 「待处理」 row draws what it waits on: a glyph for the one thing's kind or a stack
+/// for several, red when an agent is held up until the person answers.
+@Test func aWaitingRowShowsWhatItWaitsOn() {
+    func e(_ key: String, _ kind: String, wait: Bool = true) -> InboxEntry {
+        InboxEntry(["key": JSON(key), "run": "g", "title": JSON(key), "ts": 0, "canWait": JSON(wait), "kind": JSON(kind)])
     }
-    let open = [e("q", "loop-run", "question"), e("d", "g1", "delivered"), e("a", "g2", "approval", wait: false),
-                e("q2", "g2", "question"), e("x", "elsewhere", "question")]
-    let rows = Inbox.waiting(open, goals: [["id": "g1", "goal": "上线"], ["id": "g2", "goal": "修复"]],
-                             loops: [["id": "l1", "run": "loop-run", "title": "issue 分拣"]])
-    #expect(rows.map(\.id) == ["loop-run", "g1", "g2"])
-    #expect(rows[0].loop?["id"] == "l1" && rows[0].label == "等你拍板" && rows[0].tone == .amber)
-    #expect(rows[1].loop == nil && rows[1].label == "等你验收")
-    #expect(rows[2].entries.count == 2 && rows[2].label == expectedCopy("2 件事", "2 Items") && rows[2].tone == .red, "an approval holds an agent up")
-    // The leading glyph says what it waits on, not who: a Loop's question looks like a question.
-    #expect(rows.map(\.symbol) == ["questionmark.bubble.fill", "checkmark.seal.fill", "tray.full.fill"])
-    #expect(Inbox.waiting([e("i", "g1", "interrupted")], goals: [["id": "g1"]], loops: []).first?.symbol == "pause.circle.fill")
+    func row(_ entries: [InboxEntry]) -> WaitingRow { WaitingRow(id: "g", run: .null, loop: nil, title: "上线", label: "", entries: entries) }
+    #expect(row([e("q", "question")]).symbol == "questionmark.bubble.fill" && row([e("q", "question")]).tone == .amber)
+    #expect(row([e("d", "delivered")]).symbol == "checkmark.seal.fill")
+    #expect(row([e("i", "interrupted")]).symbol == "pause.circle.fill")
+    let two = row([e("a", "approval", wait: false), e("q", "question")])
+    #expect(two.symbol == "tray.full.fill" && two.tone == .red, "an approval holds an agent up")
 }
 
 /// Where a note came from, as the workspace page and its sheet say it.

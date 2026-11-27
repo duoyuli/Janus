@@ -11,7 +11,7 @@ use crate::run_view::{Candidate, Fold, InboxEntry, Pill, RunView, Words, fold, i
 use crate::status::{RunKind, RunStatus};
 use anyhow::Result;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// The inbox as `GET /api/inbox` serves it.
 #[derive(Serialize)]
@@ -23,6 +23,25 @@ pub struct Inbox {
     pub later: Vec<InboxEntry>,
     /// When the next entry put off comes back (ms): ask again then.
     pub next_wake: Option<i64>,
+    /// What waits in each workspace, by its id: one row per goal or Loop, in `open`'s order.
+    pub by_workspace: BTreeMap<String, Vec<Waiting>>,
+}
+
+/// One row of a workspace's 「等你处理」: a goal, or one of its Loops, with what waits there.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Waiting {
+    /// The run that waits: a goal, or the Loop's session.
+    pub run: String,
+    /// The Loop whose session it is; `None` for a goal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#loop: Option<String>,
+    /// The goal's title, or the Loop's.
+    pub title: String,
+    /// What it waits on at a glance: the one thing by name, or how many.
+    pub label: String,
+    /// Its entries in `open`, by key.
+    pub entries: Vec<String>,
 }
 
 /// One run as the run lists show it: its record, and whether it can be deleted now.
@@ -121,7 +140,8 @@ impl App {
         candidates.extend(rows(RunKind::Chat)?.into_iter().filter(|r| r.status.is_active()));
         candidates.extend(rows(RunKind::Loop)?);
         candidates.extend(rows(RunKind::Dream)?);
-        let names: HashMap<String, String> = self.workspaces()?.into_iter().map(|w| (w.id, w.name)).collect();
+        let workspaces = self.workspaces()?;
+        let names: HashMap<String, String> = workspaces.iter().map(|w| (w.id.clone(), w.name.clone())).collect();
         let mut all = vec![];
         let mut read = HashSet::new();
         for row in &candidates {
@@ -163,7 +183,64 @@ impl App {
         open.sort_by_key(|e| std::cmp::Reverse(e.ts));
         later.sort_by_key(|e| e.snoozed_until);
         let next_wake = later.first().and_then(|e| e.snoozed_until);
-        Ok(Inbox { open, later, next_wake })
+        let by_workspace = self.waiting_by_workspace(&open, &candidates, &workspaces, lang)?;
+        Ok(Inbox { open, later, next_wake, by_workspace })
+    }
+
+    /// What waits in each workspace: `open` folded into one row per goal of the workspace (its
+    /// record names the workspace, or works in its folder) or per Loop of it, newest first, so the
+    /// workspace's page, its count in the sidebar and the inbox agree. Chats and consolidations
+    /// are not a workspace's rows.
+    // @project-doc docs/architecture/20261031-frontend.md#screens
+    fn waiting_by_workspace(
+        &self,
+        open: &[InboxEntry],
+        rows: &[RunRow],
+        workspaces: &[crate::agents::Workspace],
+        lang: Lang,
+    ) -> Result<BTreeMap<String, Vec<Waiting>>> {
+        let loops = self.loops(None)?;
+        let mut out: BTreeMap<String, Vec<Waiting>> = BTreeMap::new();
+        for e in open {
+            let place = match e.run_kind {
+                RunKind::Goal => rows.iter().find(|r| r.id == e.run).and_then(|r| {
+                    let id = crate::run_view::text(&r.config["workspace"]["id"]);
+                    let ws = if id.is_empty() {
+                        workspaces.iter().find(|w| w.path == r.cwd).map(|w| w.id.clone())
+                    } else {
+                        Some(id)
+                    };
+                    ws.map(|ws| (ws, None, e.run_title.clone()))
+                }),
+                RunKind::Loop => loops.iter().find(|l| l["run"] == e.run.as_str()).map(|l| {
+                    let text = |k: &str| crate::run_view::text(&l[k]);
+                    (text("workspace"), Some(text("id")), text("title"))
+                }),
+                RunKind::Chat | RunKind::Dream => None,
+            };
+            let Some((ws, r#loop, title)) = place else { continue };
+            let list = out.entry(ws).or_default();
+            match list.iter_mut().find(|w| w.run == e.run) {
+                Some(w) => w.entries.push(e.key.clone()),
+                None => list.push(Waiting {
+                    run: e.run.clone(),
+                    r#loop,
+                    title,
+                    label: String::new(),
+                    entries: vec![e.key.clone()],
+                }),
+            }
+        }
+        for w in out.values_mut().flatten() {
+            w.label = match w.entries.as_slice() {
+                [one] => open.iter().find(|e| &e.key == one).map(|e| e.label.clone()).unwrap_or_default(),
+                many => {
+                    let n = many.len();
+                    crate::lang::tr!(lang, "{n} 件事", "{n} Items")
+                }
+            };
+        }
+        Ok(out)
     }
 
     /// What the person did with inbox entry `key`: put it off until a time (`None` brings it

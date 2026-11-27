@@ -292,6 +292,11 @@ fn the_service_keeps_what_the_person_did_with_each_entry() {
     let question = inbox.open.iter().find(|e| e.kind == "question").unwrap().key.clone();
     let approval = inbox.open.iter().find(|e| e.kind == "approval").unwrap().key.clone();
     assert_eq!(inbox.open[0].key, "r2/interrupted", "newest first");
+    // The workspace's page folds them into one row per goal, in the same order.
+    let rows = &inbox.by_workspace["w1"];
+    assert_eq!(rows.iter().map(|w| (w.run.as_str(), w.entries.len())).collect::<Vec<_>>(), [("r2", 1), ("r1", 2)]);
+    assert_eq!((rows[0].title.as_str(), rows[0].label.as_str()), ("修复", "已中断"));
+    assert_eq!(rows[1].label, "2 件事");
 
     app.mark_inbox(&question, InboxMark { snoozed_until: Some(now + 60_000), ignored: false }).unwrap();
     // An approval holds an agent up: putting it off does not move it.

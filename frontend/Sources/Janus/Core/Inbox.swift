@@ -55,6 +55,8 @@ final class InboxModel {
     private(set) var open: [InboxEntry] = []
     /// What the person put off, the soonest back first.
     private(set) var later: [InboxEntry] = []
+    /// What waits in each workspace, by its id, as the server folds `open` (`byWorkspace`).
+    private(set) var byWorkspace: [String: JSON] = [:]
     @ObservationIgnored private var refreshGeneration = 0
     @ObservationIgnored private var wakeTask: Task<Void, Never>?
     /// The folded sections of the inbox page; runs at work start folded every time.
@@ -71,6 +73,8 @@ final class InboxModel {
         // Unchanged entries leave the views that show them alone.
         if open != self.open { self.open = open }
         if later != self.later { self.later = later }
+        let byWorkspace = j["byWorkspace"].object
+        if byWorkspace != self.byWorkspace { self.byWorkspace = byWorkspace }
         wakeTask?.cancel()
         if let next = j["nextWake"].double {
             let wait = max(0, next - L.nowMs()) / 1000
@@ -127,13 +131,11 @@ struct WaitingRow: Identifiable, Equatable {
     let run: JSON
     /// The Loop whose session waits; nil for a goal.
     let loop: JSON?
+    /// The goal's title, or the Loop's.
+    let title: String
+    /// What it waits on, at a glance: the one thing by name, or how many, as the server words it.
+    let label: String
     var entries: [InboxEntry]
-
-    /// What it waits on, at a glance: the one thing by name, or how many.
-    var label: String {
-        guard entries.count == 1, let e = entries.first else { return L.text("\(entries.count) 件事") }
-        return e.label
-    }
 
     /// What it waits on, as a glyph: the one thing's kind, or a stack for several. It leads the
     /// row, so a Loop that waits does not look like the Loop itself or a goal it dispatched.
@@ -156,29 +158,18 @@ struct WaitingRow: Identifiable, Equatable {
 }
 
 extension AppStore {
-    /// What waits on the person in one workspace, one row per goal or Loop, newest first: the same
-    /// entries as the inbox, so the workspace's count in the sidebar, its page and the inbox agree.
-    /// Goals come from the attention list, so an old run that waits is never left out by newer ones.
+    /// What waits on the person in one workspace, one row per goal or Loop, newest first, as the
+    /// server folds the inbox's entries (`byWorkspace` of `GET /api/inbox`): the same entries as the
+    /// inbox, so the workspace's count in the sidebar, its page and the inbox agree.
     // @project-doc docs/architecture/20261031-frontend.md#screens
     func waiting(in ws: Workspace) -> [WaitingRow] {
-        Inbox.waiting(inbox.open, goals: attention.filter { Self.belongs($0, id: ws.id, path: ws.path) }, loops: loops(of: ws.id))
+        (inbox.byWorkspace[ws.id]?.array ?? []).map { w in
+            let run = w["run"].str
+            return WaitingRow(id: run, run: attention.first { $0["id"].str == run } ?? .null,
+                              loop: w["loop"].string.flatMap { id in loops.first { $0["id"].str == id } },
+                              title: w["title"].str, label: w["label"].str,
+                              entries: w["entries"].strings.compactMap { k in inbox.open.first { $0.key == k } })
+        }
     }
 }
 
-enum Inbox {
-    /// Open entries grouped into rows, one per goal or Loop session among `goals` and `loops`, in
-    /// the entries' order (newest first); entries of other runs are left out.
-    static func waiting(_ open: [InboxEntry], goals: [JSON], loops: [JSON]) -> [WaitingRow] {
-        var rows: [WaitingRow] = []
-        for e in open {
-            if let i = rows.firstIndex(where: { $0.id == e.run }) {
-                rows[i].entries.append(e)
-            } else if let r = goals.first(where: { $0["id"].str == e.run }) {
-                rows.append(WaitingRow(id: e.run, run: r, loop: nil, entries: [e]))
-            } else if let l = loops.first(where: { $0["run"].str == e.run }) {
-                rows.append(WaitingRow(id: e.run, run: .null, loop: l, entries: [e]))
-            }
-        }
-        return rows
-    }
-}
