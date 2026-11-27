@@ -22,23 +22,11 @@ extension AppStore {
         }
     }
 
+    /// Every Loop, in the order the server lists them (what needs the person first). Read again
+    /// whenever the global stream names one: a change of what it is doing can move it in that
+    /// order, and a Loop gone from the server goes here too.
     func loadLoops() async {
         if let r = try? await api.get("/api/loops"), r["loops"].array != loops { loops = r["loops"].array }
-    }
-
-    /// Read one Loop again (the global stream named it); gone from the server, it goes here too.
-    func loadLoop(_ id: String) async {
-        guard !id.isEmpty else { return }
-        do {
-            let l = try await api.get("/api/loops/\(API.q(id))")
-            if let i = loops.firstIndex(where: { $0["id"].str == id }) {
-                if loops[i] != l { loops[i] = l }
-            } else {
-                loops.append(l)
-            }
-        } catch let e as APIError where e.status == 404 {
-            loops.removeAll { $0["id"].str == id }
-        } catch {}
     }
 
     func loops(of workspace: String) -> [JSON] { loops.filter { $0["workspace"].str == workspace } }

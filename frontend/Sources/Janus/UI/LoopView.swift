@@ -54,25 +54,6 @@ enum LoopText {
     /// How many runs it dispatched, from the server's counts by status.
     static func dispatchedCount(_ l: JSON) -> Int { l["status"]["dispatched"].object.values.reduce(0) { $0 + ($1.int ?? 0) } }
 
-    /// The order of a workspace's Loops: one that failed first, then those at work, then the
-    /// sleeping ones by when they wake next (those without a time after them), the paused last.
-    static func byAttention(_ loops: [JSON]) -> [JSON] {
-        func rank(_ l: JSON) -> Int {
-            switch l["status"]["phase"].str {
-            case "failed": return 0
-            case "awake": return 1
-            case "paused": return 3
-            default: return 2
-            }
-        }
-        return loops.enumerated().sorted { a, b in
-            let (ra, rb) = (rank(a.element), rank(b.element))
-            if ra != rb { return ra < rb }
-            let (wa, wb) = (a.element["status"]["nextWakeAt"].double ?? .infinity, b.element["status"]["nextWakeAt"].double ?? .infinity)
-            return wa != wb ? wa < wb : a.offset < b.offset
-        }.map(\.element)
-    }
-
     /// The phase as a pill: sleeping (with when it wakes, unless `short`), awake, paused, failed.
     static func phase(_ l: JSON, short: Bool = false) -> (String, Tone) {
         let s = l["status"]
@@ -98,7 +79,7 @@ struct LoopSection: View {
     static let shown = 4
 
     var body: some View {
-        let loops = LoopText.byAttention(store.loops(of: ws.id))
+        let loops = store.loops(of: ws.id)
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 Text(L.text("值班")).font(.headline)

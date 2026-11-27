@@ -278,8 +278,8 @@ final class AppStore {
                         case .named("run", let c):
                             self.note(lists: true)
                             // A run a Loop dispatched changed: that Loop's counts and list did too.
-                            if let loop = c["loop"].string, !loop.isEmpty { await self.loadLoop(loop) }
-                        case .named("loop", let c): await self.loadLoop(c["loop"].str)
+                            if let loop = c["loop"].string, !loop.isEmpty { await self.loadLoops() }
+                        case .named("loop", _): await self.loadLoops()
                         // A workspace's team memory changed: read it again if its page has shown.
                         case .named("memory", let c): if self.memories[c["workspace"].str] != nil { await self.loadMemories(c["workspace"].str) }
                         // The library moved on by itself (a skill an agent saved, a server prepared,

@@ -270,7 +270,7 @@ enum Snapshots {
                     }
                     let history: [JSON] = store.histories[id]?.runs ?? []
                     let records: [JSON] = history.filter { !hidden.contains($0["id"].str) }.map { $0["id"] }
-                    let loops: [JSON] = LoopText.byAttention(store.loops(of: id)).map { $0["id"] }
+                    let loops: [JSON] = store.loops(of: id).map { $0["id"] }
                     let focused = NSApp.windows.contains { $0.firstResponder is ComposerField.TextView && $0.isVisible && $0.canBecomeMain }
                     var home: [String: JSON] = ["waiting": JSON.array(rows), "records": JSON.array(records)]
                     // What the two tiles beside the name say, the Loops in the order of their

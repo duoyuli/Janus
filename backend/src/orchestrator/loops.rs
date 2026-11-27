@@ -163,6 +163,7 @@ impl App {
                 out.push(self.loop_view(&def)?);
             }
         }
+        by_attention(&mut out);
         Ok(out)
     }
 
@@ -1142,6 +1143,22 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     a == b || a.canonicalize().ok().is_some_and(|x| b.canonicalize().ok().is_some_and(|y| x == y))
 }
 
+/// Loops by what needs the person first: one that failed, then those at work, then the sleeping
+/// ones by when they wake next (those without a time after them), the paused last; otherwise in
+/// the order they were made.
+// @project-doc docs/interfaces/20261031-http_api.md#loops
+fn by_attention(loops: &mut [Value]) {
+    loops.sort_by_key(|l| {
+        let rank = match l["status"]["phase"].as_str() {
+            Some("failed") => 0,
+            Some("awake") => 1,
+            Some("paused") => 3,
+            _ => 2,
+        };
+        (rank, l["status"]["nextWakeAt"].as_i64().unwrap_or(i64::MAX))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1209,5 +1226,21 @@ mod tests {
             );
             assert_ne!(zh["description"], en["description"], "{tool:?}");
         }
+    }
+
+    #[test]
+    fn loops_are_listed_by_what_needs_the_person_first() {
+        let l = |id: &str, phase: &str, next: Option<i64>| json!({ "id": id, "status": { "phase": phase, "nextWakeAt": next } });
+        let mut loops = vec![
+            l("p", "paused", Some(1)),
+            l("late", "sleeping", Some(30)),
+            l("never", "sleeping", None),
+            l("soon", "sleeping", Some(10)),
+            l("awake", "awake", None),
+            l("failed", "failed", None),
+        ];
+        by_attention(&mut loops);
+        let ids: Vec<&str> = loops.iter().map(|l| l["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["failed", "awake", "soon", "late", "never", "p"]);
     }
 }

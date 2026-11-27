@@ -243,17 +243,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(!Backend.isStale(server: "0.1.0", app: "0"), "the app from source")
 }
 
-/// A workspace's Loops, the ones to look at first on top: failed, at work, sleeping by when they
-/// wake (one without a time after those with one), paused last; ties keep their order.
-@Test func loopsAreListedByWhatNeedsALook() {
-    func l(_ id: String, _ phase: String, wake: Double? = nil) -> JSON {
-        ["id": JSON(id), "status": ["phase": JSON(phase), "nextWakeAt": wake.map { JSON(floatLiteral: $0) } ?? .null]]
-    }
-    let loops = [l("paused", "paused"), l("late", "sleeping", wake: 2_000), l("never", "sleeping"), l("soon", "sleeping", wake: 1_000),
-                 l("working", "awake"), l("broken", "failed"), l("paused2", "paused")]
-    #expect(LoopText.byAttention(loops).map { $0["id"].str } == ["broken", "working", "soon", "late", "never", "paused", "paused2"])
-}
-
 /// The form's common schedules are cron expressions and read back as the same shape; anything else
 /// is an expression of its own.
 @Test func aLoopsScheduleReadsBackAsTheShapeTheFormMadeIt() {
