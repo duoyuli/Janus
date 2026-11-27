@@ -108,7 +108,12 @@ impl Layout {
 
     /// What Janus keeps for one agent: `config/` and `home/`.
     pub fn agent(&self, id: &str) -> PathBuf {
-        self.data().join("agents").join(id)
+        self.agents().join(id)
+    }
+
+    /// Where each agent's own folder (`agent`) is.
+    pub fn agents(&self) -> PathBuf {
+        self.data().join("agents")
     }
 
     /// The agent's own configuration directory (`CODEX_HOME`, `CLAUDE_CONFIG_DIR`): its sign-in,
@@ -191,7 +196,7 @@ impl Layout {
         let dirs = |dir: PathBuf| -> Vec<PathBuf> {
             std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()
         };
-        let agents = dirs(self.data().join("agents")).into_iter().map(|a| a.join("home")).filter(|h| h.is_dir());
+        let agents = dirs(self.agents()).into_iter().map(|a| a.join("home")).filter(|h| h.is_dir());
         agents.chain(dirs(self.data().join("library").join("servers"))).collect()
     }
 

@@ -34,6 +34,4 @@ struct JanusHome: Equatable, Sendable {
     var updates: URL { at("cache/updates") }
     /// The app's own record of the macOS permission guidance.
     var permissions: URL { at("data/app/permissions.json") }
-    /// What Janus keeps for one agent.
-    func agent(_ id: String) -> URL { at("data/agents/\(id)") }
 }

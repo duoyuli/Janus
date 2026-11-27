@@ -23,3 +23,6 @@ jiff = "0.2.38"
 # Signalling a process group through the system call (`acp::signal_group`); already in the tree.
 rustix = { version = "1.1", features = ["process"] }
 rquickjs = "0.14"
+# Decoding the picture a person chose for a digital employee, to crop it square on the server
+# (`agents::roles::square_png`); only the still-image formats a browser or the Mac offers.
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }

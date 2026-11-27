@@ -249,25 +249,25 @@ impl App {
         Ok(())
     }
 
-    /// Give a digital employee its own picture (`png`: a PNG, base64, the way the app sends it
-    /// after cropping it square), or take it back to its initials (`None`). The record keeps the
-    /// picture's hash, so the app knows there is one and when it changed.
+    /// Give a digital employee its own picture (`image`: the image file the person chose, base64,
+    /// in any still format a browser or the Mac offers), cropped to its largest centered square and
+    /// scaled down here, so every client sends the file as it is; or take it back to its initials
+    /// (`None`). The record keeps the picture's hash, so a client knows there is one and when it
+    /// changed.
     // @project-doc docs/domains/20261031-agents_and_roles.md#avatars
-    pub fn set_role_avatar(&self, id: &str, png: Option<&str>) -> Result<Role> {
+    pub fn set_role_avatar(&self, id: &str, image: Option<&str>) -> Result<Role> {
         use base64::Engine;
         check_id(id)?;
         let mut role = self.role(id)?;
         let file = self.cfg.layout.role_avatar(id);
-        match png {
+        match image {
             Some(data) => {
                 let data = data.split_once(";base64,").map_or(data, |(_, d)| d).trim();
                 let bytes = base64::engine::general_purpose::STANDARD.decode(data).context("头像不是有效的 base64")?;
-                if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-                    bail!("头像要是 PNG 图片");
+                if bytes.len() > MAX_AVATAR_SOURCE_BYTES {
+                    bail!("图片超过 {} MB", MAX_AVATAR_SOURCE_BYTES / 1024 / 1024);
                 }
-                if bytes.len() > MAX_AVATAR_BYTES {
-                    bail!("头像超过 {} KB", MAX_AVATAR_BYTES / 1024);
-                }
+                let bytes = square_png(&bytes)?;
                 crate::util::write_whole(&file, &bytes)?;
                 role.avatar = avatar_hash(&bytes);
                 self.db.put(&role, now_ms())?;
@@ -429,8 +429,25 @@ fn seed_updates(role: &Role) -> serde_json::Map<String, Value> {
     out
 }
 
-/// A picture is at most this large: the app sends 256×256 PNGs, far smaller.
-pub(super) const MAX_AVATAR_BYTES: usize = 1024 * 1024;
+/// The image file a picture is made from is at most this large.
+const MAX_AVATAR_SOURCE_BYTES: usize = 20 * 1024 * 1024;
+/// The side of a digital employee's picture, in pixels.
+const AVATAR_SIDE: u32 = 256;
+
+/// The picture a digital employee gets from an image file: its largest centered square, scaled to
+/// `AVATAR_SIDE` pixels, as PNG. A file that is not a still image this build reads is refused.
+pub(super) fn square_png(bytes: &[u8]) -> Result<Vec<u8>> {
+    let img = image::load_from_memory(bytes).map_err(|_| anyhow::anyhow!("这个文件不是图片"))?;
+    let edge = img.width().min(img.height());
+    if edge == 0 {
+        bail!("这个文件不是图片");
+    }
+    let square = img.crop_imm((img.width() - edge) / 2, (img.height() - edge) / 2, edge, edge);
+    let scaled = square.resize_exact(AVATAR_SIDE, AVATAR_SIDE, image::imageops::FilterType::Lanczos3);
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(scaled.to_rgba8()).write_to(&mut out, image::ImageFormat::Png)?;
+    Ok(out.into_inner())
+}
 
 fn avatar_hash(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -516,32 +533,61 @@ mod seed_tests {
         app.db.get_config(ConfigKind::Role, id).unwrap()
     }
 
-    /// A digital employee's picture: only a PNG of a sane size is taken; it survives editing the
-    /// role, goes back to the initials when removed, and goes with the role.
+    /// An image file of `w`×`h` pixels in `format`: the left half red, the rest blue.
+    fn picture(w: u32, h: u32, format: image::ImageFormat) -> Vec<u8> {
+        let img =
+            image::RgbImage::from_fn(
+                w,
+                h,
+                |x, _| if x < w / 2 { image::Rgb([255, 0, 0]) } else { image::Rgb([0, 0, 255]) },
+            );
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img).write_to(&mut out, format).unwrap();
+        out.into_inner()
+    }
+
+    /// A digital employee's picture: any still image file is taken and cropped to its centered
+    /// square on the server; it survives editing the role, goes back to the initials when removed,
+    /// and goes with the role.
     #[test]
     fn a_role_keeps_its_own_picture() {
         use base64::Engine;
         let (app, dir) = app("avatar");
-        let png = [b"\x89PNG\r\n\x1a\n".as_slice(), b"rest of the picture"].concat();
         let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
         app.save_role(&crate::agents::input(json!({ "id": "pic", "name": "画像" }))).unwrap();
         assert_eq!(role(&app, "pic").unwrap()["avatar"], "", "a new role shows its initials");
         assert!(app.role_avatar("pic").unwrap().is_none());
 
-        assert!(app.set_role_avatar("pic", Some(&b64(b"GIF89a not a png"))).is_err(), "only PNG");
-        assert!(app.set_role_avatar("pic", Some(&b64(&vec![0x89; MAX_AVATAR_BYTES + 1]))).is_err(), "not too large");
-        assert!(app.set_role_avatar("nobody", Some(&b64(&png))).is_err(), "only an existing role");
-        assert!(app.set_role_avatar("../x", Some(&b64(&png))).is_err(), "an id that leaves its folder");
+        let wide = picture(400, 100, image::ImageFormat::Jpeg);
+        assert!(app.set_role_avatar("pic", Some(&b64(b"GIF89a not a picture"))).is_err(), "only an image");
+        assert!(
+            app.set_role_avatar("pic", Some(&b64(&vec![0xff; MAX_AVATAR_SOURCE_BYTES + 1]))).is_err(),
+            "not too large"
+        );
+        assert!(app.set_role_avatar("nobody", Some(&b64(&wide))).is_err(), "only an existing role");
+        assert!(app.set_role_avatar("../x", Some(&b64(&wide))).is_err(), "an id that leaves its folder");
 
-        let saved = app.set_role_avatar("pic", Some(&format!("data:image/png;base64,{}", b64(&png)))).unwrap();
+        // A wide JPEG becomes a square PNG of its middle: both halves, red on the left.
+        let saved = app.set_role_avatar("pic", Some(&format!("data:image/jpeg;base64,{}", b64(&wide)))).unwrap();
+        let png = app.role_avatar("pic").unwrap().unwrap();
+        assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert_eq!(saved.avatar, avatar_hash(&png));
-        assert_eq!(app.role_avatar("pic").unwrap().as_deref(), Some(png.as_slice()));
+        let shown = image::load_from_memory(&png).unwrap().to_rgb8();
+        assert_eq!(shown.dimensions(), (AVATAR_SIDE, AVATAR_SIDE));
+        assert!(
+            shown.get_pixel(10, 128)[0] > 200 && shown.get_pixel(AVATAR_SIDE - 10, 128)[2] > 200,
+            "the centered square"
+        );
+        for format in [image::ImageFormat::Png, image::ImageFormat::Gif, image::ImageFormat::WebP] {
+            assert!(app.set_role_avatar("pic", Some(&b64(&picture(30, 60, format)))).is_ok(), "{format:?}");
+        }
+        app.set_role_avatar("pic", Some(&b64(&wide))).unwrap();
         app.save_role(&crate::agents::input(json!({ "id": "pic", "name": "改了名", "avatar": "" }))).unwrap();
-        assert_eq!(role(&app, "pic").unwrap()["avatar"], json!(avatar_hash(&png)), "editing keeps the picture");
+        assert_eq!(role(&app, "pic").unwrap()["avatar"], json!(saved.avatar), "editing keeps the picture");
 
         assert_eq!(app.set_role_avatar("pic", None).unwrap().avatar, "");
         assert!(app.role_avatar("pic").unwrap().is_none() && !app.cfg.layout.role_avatar("pic").exists());
-        app.set_role_avatar("pic", Some(&b64(&png))).unwrap();
+        app.set_role_avatar("pic", Some(&b64(&wide))).unwrap();
         app.delete_role("pic").unwrap();
         assert!(app.cfg.layout.role_paths("pic").iter().all(|p| !p.exists()), "the picture goes with the role");
         let _ = std::fs::remove_dir_all(&dir);
@@ -567,8 +613,9 @@ mod seed_tests {
         std::fs::remove_file(app.cfg.layout.role_avatar("developer")).unwrap();
         // One the person took back to initials, one they gave their own picture.
         app.set_role_avatar("qa", None).unwrap();
-        let mine = [b"\x89PNG\r\n\x1a\n".as_slice(), b"mine"].concat();
+        let mine = picture(64, 64, image::ImageFormat::Png);
         app.set_role_avatar("pmo", Some(&base64::engine::general_purpose::STANDARD.encode(&mine))).unwrap();
+        let mine = app.role_avatar("pmo").unwrap();
 
         app.sync_seeds().unwrap();
         let shipped = |id: &str| avatar_hash(SEEDS.iter().find(|r| r.file.id == id).unwrap().avatar);
@@ -578,7 +625,7 @@ mod seed_tests {
             "an older role gets its picture"
         );
         assert_eq!(role(&app, "qa").unwrap()["avatar"], "", "a removed picture stays removed");
-        assert_eq!(app.role_avatar("pmo").unwrap(), Some(mine), "the person's own picture stays");
+        assert_eq!(app.role_avatar("pmo").unwrap(), mine, "the person's own picture stays");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -609,11 +656,7 @@ mod seed_tests {
         );
         assert!(RoleSeed::parse("id: x", b"").is_err());
         for r in SEEDS.iter() {
-            assert!(
-                r.avatar.starts_with(b"\x89PNG\r\n\x1a\n") && r.avatar.len() <= MAX_AVATAR_BYTES,
-                "{}.png",
-                r.file.id
-            );
+            assert!(r.avatar.starts_with(b"\x89PNG\r\n\x1a\n") && r.avatar.len() <= 1024 * 1024, "{}.png", r.file.id);
         }
     }
 

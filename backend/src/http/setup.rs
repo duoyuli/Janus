@@ -51,6 +51,8 @@ pub(super) async fn meta(State(app): State<Arc<App>>) -> ApiResult {
         "version": crate::VERSION,
         "dataVersion": app.db.data_version().unwrap_or_default(),
         "home": app.cfg.layout.home(),
+        // Where an agent's own folder goes, home-relative: the agent editor names `<agentsDir>/<id>`.
+        "agentsDir": crate::run_view::docs::tilde(&app.cfg.layout.agents().to_string_lossy()),
         "db": app.cfg.layout.db(),
         // An app update waits until this is empty: restarting the server would cut these runs off.
         "atWork": app.at_work(),
@@ -194,7 +196,8 @@ pub(super) async fn role_avatar(State(app): State<Arc<App>>, UrlPath(id): UrlPat
     }
 }
 
-/// Set a digital employee's picture: `{"data": "<PNG, base64>"}`. Returns the role.
+/// Set a digital employee's picture: `{"data": "<the image file, base64>"}`, cropped square here.
+/// Returns the role.
 pub(super) async fn set_role_avatar(
     State(app): State<Arc<App>>,
     UrlPath(id): UrlPath<String>,

@@ -27,18 +27,4 @@ final class AvatarImages {
             images[id] = image
         }
     }
-
-    /// The picture a digital employee gets from an image file: the largest centered square,
-    /// scaled to `side` pixels, as PNG. Nil when the data is not an image.
-    nonisolated static func square(_ data: Data, side: Int = 256) -> Data? {
-        guard let image = NSImage(data: data), let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        let edge = min(cg.width, cg.height)
-        guard edge > 0, let crop = cg.cropping(to: CGRect(x: (cg.width - edge) / 2, y: (cg.height - edge) / 2, width: edge, height: edge)),
-              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8, samplesPerPixel: 4,
-                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let ctx = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
-        ctx.cgContext.interpolationQuality = .high
-        ctx.cgContext.draw(crop, in: CGRect(x: 0, y: 0, width: side, height: side))
-        return rep.representation(using: .png, properties: [:])
-    }
 }

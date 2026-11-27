@@ -466,14 +466,14 @@ struct RoleEditor: View {
         if panel.runModal() == .OK { _ = choose(panel.url) }
     }
 
-    /// Take an image file as the picture: cropped square and scaled down here, saved with the role.
+    /// Take an image file as the picture, saved with the role; the service crops it square.
     @discardableResult
     private func choose(_ url: URL?) -> Bool {
-        guard let url, let data = try? Data(contentsOf: url), let png = AvatarImages.square(data) else {
+        guard let url, let data = try? Data(contentsOf: url), NSImage(data: data) != nil else {
             if url != nil { store.show(L.text("这个文件不是图片")) }
             return false
         }
-        picture = .set(png)
+        picture = .set(data)
         return true
     }
 
@@ -483,8 +483,8 @@ struct RoleEditor: View {
             do {
                 let saved = try await store.save(.roles, r)
                 switch picture {
-                case .set(let png): try await store.setAvatar(saved["id"].str, png: png)
-                case .remove: try await store.setAvatar(saved["id"].str, png: nil)
+                case .set(let image): try await store.setAvatar(saved["id"].str, image: image)
+                case .remove: try await store.setAvatar(saved["id"].str, image: nil)
                 case .unchanged: break
                 }
                 store.show(L.text("已保存数字员工 \(saved["name"].str)"))

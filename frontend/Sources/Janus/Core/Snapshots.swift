@@ -151,8 +151,8 @@ enum Snapshots {
         case "avatar":
             let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
             if p.count == 2 {
-                let png = p[1] == "none" ? nil : (try? Data(contentsOf: URL(fileURLWithPath: p[1]))).flatMap { AvatarImages.square($0) }
-                if p[1] == "none" || png != nil { try? await store.setAvatar(p[0], png: png) }
+                let image = p[1] == "none" ? nil : try? Data(contentsOf: URL(fileURLWithPath: p[1]))
+                if p[1] == "none" || image != nil { try? await store.setAvatar(p[0], image: image) }
             }
         // The open chat's proposal of digital employees, driven as the person does:
         // `proposal-open` opens the sheet, `proposal-toggle <n>` ticks or unticks one,

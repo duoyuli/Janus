@@ -529,10 +529,11 @@ final class AppStore {
         return saved
     }
 
-    /// Give a digital employee its own picture (a square PNG), or take it back to its initials.
-    func setAvatar(_ role: String, png: Data?) async throws {
+    /// Give a digital employee its own picture (the image file as chosen; the service crops it
+    /// square), or take it back to its initials.
+    func setAvatar(_ role: String, image: Data?) async throws {
         let path = "/api/roles/\(API.q(role))/avatar"
-        if let png { _ = try await api.put(path, ["data": JSON(png.base64EncodedString())]) } else { try await api.delete(path) }
+        if let image { _ = try await api.put(path, ["data": JSON(image.base64EncodedString())]) } else { try await api.delete(path) }
         await loadSetup()
     }
 
