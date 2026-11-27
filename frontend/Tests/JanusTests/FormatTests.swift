@@ -30,16 +30,12 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(L.dateTime(ms(now.addingTimeInterval(-400 * 86400)), now: now).contains("2025"))
 }
 
-/// One problem per cause: an Agent that failed its test is named once with all its roles.
-@Test func workspaceProblemsAreGroupedByCause() {
-    let conns: [String: JSON] = ["c1": ["name": "脚本 Agent", "phase": "failed"], "c2": ["name": "Codex", "phase": "ok"]]
-    let roles: [Role?] = ([["name": "负责人", "connection": "c1"], ["name": "实现者", "connection": "c1"], ["name": "审查者", "connection": "c2"], ["name": "文档", "connection": ""]] as [JSON]).map(Role.init) + [nil]
-    let p = HomeView.problems(roles, connection: { conns[$0] })
-    #expect(p.count == 3, "\(p.map(\.text))")
-    #expect(p.contains { $0.text.contains("脚本 Agent") && $0.text.contains("负责人") && $0.text.contains("实现者") && $0.tab == .agents })
-    #expect(p.contains { $0.text.contains("文档") && $0.tab == .agents })
-    #expect(p.contains { $0.text.contains("1") && $0.tab == .agents })
-    #expect(HomeView.problems([Role(["name": "审查者", "connection": "c2"])], connection: { conns[$0] }).isEmpty)
+/// A workspace's problems and a role's reason it cannot run read as the server wrote them.
+@Test func workspaceProblemsAndRoleReasonsReadAsServed() {
+    let ws = Workspace(["id": "w", "problems": [["text": "还没绑 Agent：文档", "action": "打开数字员工设置", "tab": "agents"]]])
+    #expect(ws.problems.map(\.text) == ["还没绑 Agent：文档"] && ws.problems.first?.tab == .agents)
+    #expect(Role(["id": "r", "unavailable": "还没有绑定 Agent"]).unavailable == "还没有绑定 Agent")
+    #expect(Role(["id": "r", "unavailable": .null]).unavailable == nil)
 }
 
 @Test func appLanguageSwitchesResourcesAndPersistsTheChoice() throws {

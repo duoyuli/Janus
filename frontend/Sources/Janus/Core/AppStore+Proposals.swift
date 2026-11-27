@@ -53,7 +53,7 @@ extension AppStore {
     /// pick one.
     func chatWithRecruiter() async {
         guard let r = role(Self.recruiter) else { return }
-        if let why = ChatsView.unavailable(r, connection: connection) {
+        if let why = r.unavailable {
             show(why)
             editRole(r.json)
             return

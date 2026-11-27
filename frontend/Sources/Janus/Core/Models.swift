@@ -32,6 +32,8 @@ struct Role: Hashable, Identifiable {
     let seedUpdates: [String: String]
     /// The record as the server sent it, the editor's starting draft.
     let json: JSON
+    /// Why it cannot run now (no Agent, or its Agent not checked), as the server says; nil when it can.
+    var unavailable: String? { json["unavailable"].string }
 
     init(_ j: JSON) {
         json = j
@@ -85,6 +87,10 @@ struct Workspace: Hashable, Identifiable {
     let members: [Member]
     /// The shared material every session of it reads.
     let brief: String
+    /// What keeps its team from running, one per cause, as the server says.
+    var problems: [(text: String, action: String, tab: AppStore.SettingsTab)] {
+        json["problems"].array.map { ($0["text"].str, $0["action"].str, AppStore.SettingsTab(rawValue: $0["tab"].str) ?? .agents) }
+    }
     /// The record as the server sent it, the editor's starting draft.
     let json: JSON
 

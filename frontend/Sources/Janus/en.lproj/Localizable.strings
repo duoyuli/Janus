@@ -100,7 +100,6 @@
 "Agent 没有权限模式" = "The Agent has no permission mode";
 "Agent 在深度思考或写大段内容，暂时没有新输出" = "The Agent is thinking hard or writing at length; no new output yet";
 "设置（⌘,）" = "Settings (⌘,)";
-"Agent「%@」还没通过检查或没登录，这些数字员工跑不起来：%@" = "Agent “%@” hasn't passed its check or isn't signed in, so these digital employees can't run: %@";
 "Git 仓库，基线 %@" = "Git repository, baseline %@";
 "GitHub 返回 %lld" = "GitHub returned %lld";
 "Janus %@ 可以更新" = "Janus %@ Available";
@@ -277,7 +276,6 @@
 "协调中" = "Coordinating";
 "原因" = "Reason";
 "去处理" = "Open Request";
-"去检查" = "Check";
 "参与者" = "Participant";
 "参数：%@" = "Parameters: %@";
 "发布前检查" = "Release Readiness";
@@ -379,7 +377,6 @@
 "导入所选（%lld）" = "Import Selected (%lld)";
 "导出事件日志…" = "Export Event Log…";
 "小计" = "Subtotal";
-"还没绑 Agent：%@" = "No Agent yet: %@";
 "还没拿到屏幕录制权限。在系统弹窗里允许；没弹窗就去系统设置。" = "No Screen Recording access yet. Allow it in the system prompt, or open System Settings if none appears.";
 "尝试" = "Attempts";
 "尝试 %lld" = "Attempt %lld";
@@ -401,7 +398,6 @@
 "工作区操作" = "Workspace Actions";
 "工作区设置 · %@" = "Workspace Settings · %@";
 "工作区设置…" = "Workspace Settings…";
-"有 %lld 个数字员工已被删除，去工作区设置里移除或换人。" = "%lld digital employees were deleted. Remove or replace them in Workspace Settings.";
 "工作台" = "Workbench";
 "工作台 · %lld" = "Workbench · %lld";
 "工作台的状态都由这些事件推出。选中一条看原文，点「回放到这里」看当时的样子。" = "Everything on the workbench comes from these events. Select one to see the record, or Replay to Here to see that moment.";
@@ -1215,8 +1211,6 @@
 "新对话" = "New Chat";
 "删除对话…" = "Delete Chat…";
 "还没有数字员工。" = "There are no digital employees yet.";
-"还没有绑定 Agent" = "No Agent bound yet";
-"Agent「%@」还没通过检查" = "Agent “%@” hasn't passed its check";
 "没有写职责" = "No responsibilities written";
 "%@：去「设置 › 数字员工」处理" = "%@: fix it in Settings › Digital Employees";
 "会话中" = "In session";

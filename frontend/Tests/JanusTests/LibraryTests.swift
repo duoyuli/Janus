@@ -54,22 +54,6 @@ private let docs: JSON = [
     #expect(Library.sourceName(sources[1]) == "acme/more/skills @v2")
 }
 
-/// A new workspace starts with the lead's group: the lead and everyone in its group who has an
-/// Agent. A lead in no group takes every role that has one.
-@Test func newWorkspacesStartWithTheLeadsGroup() {
-    let roles: [JSON] = [
-        ["id": "pmo", "connection": "codex-1", "lead": true, "group": "产品研发"],
-        ["id": "developer", "connection": "claude-1", "group": "产品研发"],
-        ["id": "qa", "connection": "", "group": "产品研发"],
-        ["id": "friend", "connection": "claude-1", "group": "对话"],
-        ["id": "mine", "connection": "claude-1", "group": ""],
-    ]
-    #expect(WorkspaceEditor.preset(roles.map(Role.init), lead: "pmo") == ["pmo", "developer"])
-    var ungrouped = roles
-    ungrouped[0]["group"] = ""
-    #expect(WorkspaceEditor.preset(ungrouped.map(Role.init), lead: "pmo") == ["pmo", "developer", "friend", "mine"])
-}
-
 /// The MCP editor's form and JSON are one server, values included: written out as Claude Code's
 /// `.mcp.json` and read back the same.
 @Test func mcpServersReadTheSameAsFormOrJson() throws {

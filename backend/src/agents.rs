@@ -28,6 +28,7 @@ mod checks;
 mod connections;
 mod environment;
 mod local_config;
+pub mod readiness;
 mod role_files;
 mod roles;
 mod runtime;

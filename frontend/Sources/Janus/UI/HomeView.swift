@@ -20,7 +20,7 @@ struct HomeView: View {
 
     var body: some View {
         let members = ws.members.map { m in (m, store.role(m.role)) }
-        let problems = Self.problems(members.map(\.1), connection: store.connection)
+        let problems = ws.problems
         let runs = store.runs(of: ws)
         // What waits on the person, the same as the inbox and the count in the sidebar; those runs
         // are listed there only, not again in the task records.
@@ -89,7 +89,7 @@ struct HomeView: View {
 
     /// The goal to start: what the page is for, wide, with the keyboard in it as the page opens.
     /// The send button is in the box, at the end of its bar.
-    private func composer(_ problems: [Problem], runs: [JSON]) -> some View {
+    private func composer(_ problems: [(text: String, action: String, tab: AppStore.SettingsTab)], runs: [JSON]) -> some View {
         let empty = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.goalImages.isEmpty
         return VStack(alignment: .leading, spacing: 10) {
             Composer(text: Binding(get: { store.goalDraft }, set: { store.goalDraft = $0 }), images: Binding(get: { store.goalImages }, set: { store.goalImages = $0 }),
@@ -215,34 +215,7 @@ struct HomeView: View {
         }
     }
 
-
-    struct Problem { let text, action: String; let tab: AppStore.SettingsTab }
-
-    /// Why the workspace's roles cannot run, grouped by cause: an Agent that has not passed its
-    /// test is one problem however many roles use it.
-    static func problems(_ roles: [Role?], connection: (String) -> JSON?) -> [Problem] {
-        var out: [Problem] = []
-        let deleted = roles.filter { $0 == nil }.count
-        if deleted > 0 { out.append(Problem(text: L.text("有 \(deleted) 个数字员工已被删除，去工作区设置里移除或换人。"), action: L.text("打开数字员工设置"), tab: .agents)) }
-        let unbound = roles.compactMap { $0 }.filter { connection($0.connection) == nil }.map(\.name)
-        if !unbound.isEmpty {
-            let names = unbound.joined(separator: L.text("、"))
-            out.append(Problem(text: L.text("还没绑 Agent：\(names)"), action: L.text("打开数字员工设置"), tab: .agents))
-        }
-        var untested: [(String, [String])] = []
-        for r in roles.compactMap({ $0 }) {
-            guard let c = connection(r.connection), c["phase"].str != "ok" else { continue }
-            let name = c["name"].str
-            if let i = untested.firstIndex(where: { $0.0 == name }) { untested[i].1.append(r.name) } else { untested.append((name, [r.name])) }
-        }
-        for (agent, names) in untested {
-            let affected = names.joined(separator: L.text("、"))
-            out.append(Problem(text: L.text("Agent「\(agent)」还没通过检查或没登录，这些数字员工跑不起来：\(affected)"), action: L.text("去检查"), tab: .agents))
-        }
-        return out
-    }
-
-    private func start(_ problems: [Problem]) {
+    private func start(_ problems: [(text: String, action: String, tab: AppStore.SettingsTab)]) {
         let goal = store.goalDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let images = store.goalImages
         guard !goal.isEmpty || !images.isEmpty, problems.isEmpty else { return }
@@ -610,27 +583,18 @@ struct WorkspaceEditor: View {
             loadedSlots[m["role"].str] = min(Role.maxSlots, max(1, m["slots"].int ?? 1))
         }
         slots = loadedSlots
-        lead = original["lead"].truthy ? original["lead"].str : store.roles.first { $0.lead && Setup.leadCapable(store.connection($0.connection)) }?.id ?? ""
-        on = Set(isNew ? Self.preset(store.roles, lead: lead) : members)
-    }
-
-    /// What a new workspace starts with: the lead's group (the lead and everyone in its group who
-    /// has an Agent, 产品研发 by default); a lead in no group, or no lead, takes every role that has
-    /// an Agent.
-    // @project-doc docs/domains/20261031-agents_and_roles.md#product_launch_roles
-    static func preset(_ roles: [Role], lead: String) -> [String] {
-        let bound = roles.filter { !$0.connection.isEmpty }
-        guard let group = roles.first(where: { $0.id == lead })?.group, !group.isEmpty else { return bound.map(\.id) }
-        return bound.filter { $0.group == group || $0.id == lead }.map(\.id)
+        // A new workspace starts with the team the server proposes (the lead's group).
+        lead = original["lead"].truthy ? original["lead"].str : store.defaultTeam["lead"].str
+        on = Set(isNew ? store.defaultTeam["members"].strings : members)
     }
 
     /// Take group `g` as the team: its members bound to an Agent, one of them that can lead as
     /// the lead (the current lead when it is in the group).
     private func useGroup(_ g: String) {
-        let members = store.roles.filter { $0.group == g && store.connection($0.connection) != nil }
-        on = Set(members.map(\.id))
-        let leads = members.filter { $0.lead && Setup.leadCapable(store.connection($0.connection)) }
-        lead = leads.first { $0.id == lead }?.id ?? leads.first?.id ?? ""
+        let group = store.defaultTeam["groups"][g]
+        on = Set(group["members"].strings)
+        let leads = group["leads"].strings
+        lead = leads.contains(lead) ? lead : leads.first ?? ""
     }
 
     private func pickFolder() {

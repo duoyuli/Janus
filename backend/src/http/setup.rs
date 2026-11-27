@@ -67,13 +67,34 @@ pub(super) async fn seed_choice(
     reply(app.seed_choice(&id, field, body["adopt"].as_bool().unwrap_or(false))?)
 }
 
-/// Everything the setup screens need in one request.
-pub(super) async fn setup(State(app): State<Arc<App>>) -> ApiResult {
-    reply(json!({
-        "connections": app.connections()?,
-        "roles": app.roles()?,
-        "workspaces": app.workspaces()?,
-    }))
+#[derive(Deserialize)]
+pub(super) struct SetupQuery {
+    /// `zh` or `en`, for the reasons and problems written here; the app's language without.
+    lang: Option<String>,
+}
+
+/// Everything the setup screens need in one request: each role with why it cannot run, each
+/// workspace with what keeps its team from running, and the team a new workspace starts with.
+// @project-doc docs/interfaces/20261031-http_api.md#setup
+pub(super) async fn setup(State(app): State<Arc<App>>, Query(q): Query<SetupQuery>) -> ApiResult {
+    use crate::agents::readiness;
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let connections = app.connections()?;
+    let mut roles = app.roles()?;
+    for r in roles.iter_mut() {
+        r["unavailable"] = json!(readiness::unavailable(r, &connections, lang));
+    }
+    let workspaces: Vec<Value> = app
+        .workspaces()?
+        .into_iter()
+        .map(|w| {
+            let mut v = json!(w);
+            v["problems"] = json!(readiness::problems(&v, &roles, &connections, lang));
+            v
+        })
+        .collect();
+    let team = readiness::default_team(&roles, &connections);
+    reply(json!({ "connections": connections, "roles": roles, "workspaces": workspaces, "team": team }))
 }
 
 /// What of the person's home agents do not see. It names what is in the home folder and decides

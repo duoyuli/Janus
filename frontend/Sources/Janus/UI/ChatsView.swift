@@ -14,7 +14,7 @@ struct ChatsView: View {
 
     var body: some View {
         let roles = store.roles
-        let chosen = Self.chosen(store.chatRole, in: roles, connection: store.connection)
+        let chosen = Self.chosen(store.chatRole, in: roles)
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -71,8 +71,8 @@ struct ChatsView: View {
 
     /// The employee a new chat is with: the one picked last if it can still run, otherwise the
     /// first that can.
-    static func chosen(_ id: String, in roles: [Role], connection: (String) -> JSON?) -> Role? {
-        let ready = roles.filter { unavailable($0, connection: connection) == nil }
+    static func chosen(_ id: String, in roles: [Role]) -> Role? {
+        let ready = roles.filter { $0.unavailable == nil }
         return ready.first { $0.id == id } ?? ready.first
     }
 
@@ -83,12 +83,6 @@ struct ChatsView: View {
             await store.createChat(role: role.id)
             starting = nil
         }
-    }
-
-    /// Why a digital employee cannot chat now: no agent bound, or its agent not checked yet.
-    static func unavailable(_ role: Role, connection: (String) -> JSON?) -> String? {
-        guard let c = connection(role.connection) else { return L.text("还没有绑定 Agent") }
-        return c["phase"].str == "ok" ? nil : L.text("Agent「\(c["name"].str)」还没通过检查")
     }
 
     /// "Claude Code · claude-sonnet · Bypass permissions": who does the work, in one line.
@@ -110,7 +104,7 @@ private struct RoleChoice: View {
     let start: () -> Void
 
     var body: some View {
-        let why = ChatsView.unavailable(role, connection: store.connection)
+        let why = role.unavailable
         let shape = RoundedRectangle(cornerRadius: 12)
         Button(action: pick) {
             HStack(alignment: .top, spacing: 12) {

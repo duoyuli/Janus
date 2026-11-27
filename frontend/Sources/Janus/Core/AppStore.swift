@@ -174,12 +174,16 @@ final class AppStore {
     /// Goals and chats still at work: quitting the server Janus started would interrupt them.
     var working: [JSON] { (attention + chatAttention + loopAttention).filter { RunStatus($0["status"].str).isActive } }
 
+    /// The team a new workspace starts with, and each group's (`team` of `GET /api/setup`).
+    var defaultTeam: JSON = .null
+
     func loadSetup() async {
         do {
-            let s = try await api.get("/api/setup")
+            let s = try await api.get("/api/setup?lang=\(L.serverLanguage)")
             connections = s["connections"].array
             roles = s["roles"].array.map(Role.init)
             workspaces = s["workspaces"].array.map(Workspace.init)
+            defaultTeam = s["team"]
         } catch { show(L.text("读取设置失败：\(error.localizedDescription)")) }
         await AvatarImages.shared.sync(roles, api: api)
         // How each role's tasks went in recent runs; the list works without it.
