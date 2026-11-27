@@ -12,6 +12,7 @@ import { Icon } from "../ui/Icon.tsx";
 import { Inline, Markdown } from "../session/Markdown.tsx";
 import type { RunModel } from "../session/model.ts";
 import { CheckLines } from "../session/Items.tsx";
+import { briefDraft } from "../pages/workspace-edit.tsx";
 import { diffLink, docLink, runLink, taskLink } from "./nav.ts";
 import { EvidenceReminders, ListNote, RiskList, SeqButton, StrengthBar, TaskTag, VerificationList } from "./parts.tsx";
 import { leadFocus } from "./board.tsx";
@@ -272,7 +273,8 @@ function DeliveryTaskRow({ run, row }: { run: RunModel; row: Json }) {
 }
 
 /** What the lead suggests keeping in the workspace's shared material; written only when the
- * person adds it there (Mac: `BriefSuggestions`). */
+ * person saves it on the shared material's page, which opens with the lines added (Mac:
+ * `BriefSuggestions`). */
 function BriefSuggestions({ run, lines }: { run: RunModel; lines: string[] }) {
   const ws = run.run.value?.config?.workspace?.id;
   return (
@@ -282,7 +284,7 @@ function BriefSuggestions({ run, lines }: { run: RunModel; lines: string[] }) {
       <div class="row-inline">
         <span class="caption secondary grow">{t`采纳后，这个工作区之后的任务都能看到。`}</span>
         {ws ? (
-          <Button small disabled={run.replaying.value} title={t`打开共享资料，把这些内容加到末尾，确认后保存`} onClick={() => go(`/workspaces/${encodeURIComponent(ws)}?brief=${encodeURIComponent(lines.join("\n"))}`)}>
+          <Button small disabled={run.replaying.value} title={t`打开共享资料，把这些内容加到末尾，确认后保存`} onClick={() => { briefDraft.value = { workspace: ws, lines }; go(`/workspaces/${encodeURIComponent(ws)}/brief`); }}>
             {t`加入共享资料…`}
           </Button>
         ) : (
