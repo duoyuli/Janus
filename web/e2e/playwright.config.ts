@@ -32,11 +32,11 @@ export default defineConfig({
     { name: "pair", testMatch: /\/pair\.spec\.ts$/, use: { viewport: { width: 1280, height: 820 } } },
     {
       name: "phone",
-      testMatch: /web\.spec\.ts/,
+      testMatch: /(web|home)\.spec\.ts/,
       dependencies: ["pair"],
       use: { ...devices["iPhone 13"], channel: "chrome", defaultBrowserType: "chromium", viewport: { width: 390, height: 844 }, storageState: PAIRED },
     },
-    { name: "desktop", testMatch: /web\.spec\.ts/, dependencies: ["phone"], use: { viewport: { width: 1280, height: 820 }, storageState: PAIRED } },
+    { name: "desktop", testMatch: /(web|home)\.spec\.ts/, dependencies: ["phone"], use: { viewport: { width: 1280, height: 820 }, storageState: PAIRED } },
     { name: "unpair", testMatch: /unpair\.spec\.ts/, dependencies: ["desktop"], use: { viewport: { width: 1280, height: 820 }, storageState: PAIRED } },
   ],
 });

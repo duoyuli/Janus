@@ -63,7 +63,29 @@ def prepare(ctx):
     # Each one is in the inbox before the browser opens it.
     wait(lambda: {asked.id, later.id, delivered.id} <= {e["run"] for e in ctx.api("GET", "/api/inbox?lang=zh")["open"]},
          "三个 Run 都进了收件箱", timeout=60)
-    return {"workspace": "web", "asked": asked.id, "later": later.id, "delivered": delivered.id}
+    # Team memory the agents kept in `web`: one note each project edits or deletes.
+    for note in ({"kind": "pitfall", "title": "端口被占用", "hook": "别用 7878", "body": "测试一律用空闲端口。"},
+                 {"kind": "howto", "title": "怎么跑测试", "hook": "先装依赖再跑测试", "body": "运行 just setup，\n再运行 just test。"},
+                 {"kind": "fact", "title": "要删的笔记", "hook": "删掉也无妨", "body": "网页上删掉它。"}):
+        text, err = lead.call("remember", note)
+        if err:
+            raise Failure(f"remember 被拒绝：{text}")
+    # A Loop on a schedule, asleep until it is called.
+    loop = ctx.api("POST", "/api/workspaces/web/loops", {"name": "看 issue", "prompt": "看看有什么新 issue", "schedule": {"cron": "0 9 * * 1-5"}, "wakeNow": False})
+    # A workspace whose lead finishes every goal: the goals the browser starts there run to
+    # delivery. Its Agents pass their check, as a person's would, so its team can run and its
+    # digital employees can be picked for a chat.
+    fresh = ctx.team("web-new", members=("m1",))
+    fresh.fake.touch("lead-go", "目标已完成：网页上提的目标")
+    checked = (fresh.lead_conn["id"], fresh.member_conn["id"])
+    for c in checked:
+        ctx.api("POST", f"/api/connections/{c}/test")
+    wait(lambda: all(x.get("phase") == "ok" for x in ctx.api("GET", "/api/setup")["connections"] if x["id"] in checked),
+         "web-new 的 Agent 通过配置检查", timeout=90)
+    # A folder to make a workspace of from the browser.
+    folder = ctx.path("web-folder")
+    return {"workspace": "web", "asked": asked.id, "later": later.id, "delivered": delivered.id,
+            "newWorkspace": "web-new", "loop": loop["id"], "loopRun": loop["run"], "folder": folder}
 
 
 def main():
