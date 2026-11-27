@@ -70,11 +70,6 @@
 .wrap-row.nowrap {
   flex-wrap: nowrap;
 }
-.section-row .grow,
-.wrap-row .grow,
-.grow {
-  flex: 1;
-}
 .min0 {
   min-width: 0;
 }

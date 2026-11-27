@@ -1,6 +1,11 @@
 // The web client's entry: the frame, the page the path names, and the service's state read once
 // and then followed on the global stream (docs/architecture/20261126-web.md).
 
+// The shared styles come first, so a page's or a component's own rules win over the utilities
+// (`.grow`, `.row` …) at the same specificity.
+import "./styles/tokens.css";
+import "./styles/base.css";
+import "./styles/pages.css";
 import { render } from "preact";
 import { unpaired } from "./lib/api.ts";
 import "./lib/appearance.ts";
@@ -20,9 +25,6 @@ import { SettingsPage } from "./pages/settings/index.tsx";
 import { PairPage, UnpairedPage } from "./pages/pair.tsx";
 import { BriefEditor, WorkspaceEditor } from "./pages/workspace-edit.tsx";
 import { WorkspacePage, WorkspacesPage } from "./pages/workspace.tsx";
-import "./styles/tokens.css";
-import "./styles/base.css";
-import "./styles/pages.css";
 import { effect } from "@preact/signals";
 import icon from "../../docs/assets/icon.png";
 

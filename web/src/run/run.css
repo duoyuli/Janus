@@ -12,7 +12,6 @@
 .strong { font-weight: 600; }
 .block { display: block; }
 .min0 { min-width: 0; }
-.grow { flex: 1; min-width: 0; }
 .nowrap { white-space: nowrap; }
 .pre-line { white-space: pre-line; }
 .end-text { text-align: right; }
