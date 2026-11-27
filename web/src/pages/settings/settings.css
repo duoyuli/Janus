@@ -1,7 +1,9 @@
 /* Settings: the list of panes beside the pane shown on a desktop; on a phone the list is a page and
    each pane or editor fills the screen. */
 
-.settings {
+/* `.page.settings`: more specific than the shell's `.page`, whichever stylesheet loads last. */
+.page.settings {
+  max-width: 1080px;
   display: grid;
   grid-template-columns: 200px minmax(0, 1fr);
   gap: 24px;
@@ -486,18 +488,18 @@
   gap: 2px;
 }
 
-.phone-only {
+.settings-nav .phone-only {
   display: none;
 }
 
 @media (max-width: 640px) {
-  .settings {
+  .page.settings {
     display: block;
   }
-  .settings.has-pane .settings-nav {
+  .page.settings.has-pane .settings-nav {
     display: none;
   }
-  .settings:not(.has-pane) .settings-main {
+  .page.settings:not(.has-pane) .settings-main {
     display: none;
   }
   .settings-nav {
@@ -515,7 +517,7 @@
   .settings-nav-item.selected {
     background: var(--card);
   }
-  .phone-only {
+  .settings-nav .phone-only {
     display: inline-block;
   }
   .search {
@@ -548,4 +550,19 @@
 .settings-editor .form-page {
   padding: 0;
   max-width: none;
+}
+
+.settings-main > .page {
+  padding: 0;
+  max-width: none;
+}
+
+.wrap-row > .input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+@media (max-width: 640px) {
+  .wrap-row.nowrap {
+    flex-wrap: wrap;
+  }
 }

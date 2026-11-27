@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 import { drawn, fromPage, service, shot } from "./helpers.ts";
 
 test("this browser unpairs itself and is sent back to pairing", async ({ page, request }, info) => {
-  await page.goto("/settings");
+  await page.goto("/settings/devices");
   await expect.poll(async () => (await drawn(page)).pages.phoneAccess?.me).toBeTruthy();
   const st = (await drawn(page)).pages.phoneAccess;
   const listed = (await service(request, "/api/devices")).map((d: any) => d.id);

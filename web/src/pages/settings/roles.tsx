@@ -7,7 +7,7 @@ import { api, type Json } from "../../lib/api.ts";
 import { t } from "../../lib/i18n.ts";
 import { go, link } from "../../lib/router.ts";
 import { connections, loadSetup, roleGroups, roles, show } from "../../lib/store.ts";
-import { Avatar, Button, Card, initials, Menu, Note, Pill } from "../../ui/kit.tsx";
+import { Avatar, Button, Card, initials, Menu, Note, Pill, Spinner } from "../../ui/kit.tsx";
 import { Icon } from "../../ui/Icon.tsx";
 import { confirmed, Field, TextInput, Select, FormPage, SwitchRow, TextArea } from "../../ui/form.tsx";
 import { roleStats, testConnection } from "./data.ts";
@@ -150,8 +150,14 @@ function RoleRow({ r }: { r: Json }) {
 
 type Picture = { kind: "unchanged" } | { kind: "set"; data: string; url: string } | { kind: "remove" };
 
-/** Create or change a digital employee, top to bottom the way it is read (Mac: `RoleEditor`). */
+/** Create or change a digital employee, top to bottom the way it is read (Mac: `RoleEditor`).
+ * One being changed opens once it is read. */
 export function RoleEditor({ id }: { id: string }) {
+  if (id !== "new" && !roles.value.some((r) => r.id === id)) return <Spinner />;
+  return <RoleForm id={id} />;
+}
+
+function RoleForm({ id }: { id: string }) {
   const editing = id !== "new";
   const original: Json | undefined = editing ? roles.value.find((r) => r.id === id) : undefined;
   const start = (): Json => {

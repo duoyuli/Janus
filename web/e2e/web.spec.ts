@@ -70,7 +70,7 @@ test("the workspace page lists what waits on the person and its task records", a
 });
 
 test("the interface and what the service words follow the language", async ({ page, request }, info) => {
-  await page.goto("/settings");
+  await page.goto("/settings/general");
   await page.getByRole("radio", { name: "English" }).click();
   await expect.poll(async () => (await drawn(page)).lang).toBe("en");
   await shot(page, info, "settings-en");

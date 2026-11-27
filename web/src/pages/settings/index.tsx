@@ -10,7 +10,7 @@ import { appearance, chooseAppearance, type Appearance } from "../../lib/appeara
 import { choice, choose, t, type Choice } from "../../lib/i18n.ts";
 import { load, save } from "../../lib/prefs.ts";
 import { link } from "../../lib/router.ts";
-import { meta } from "../../lib/store.ts";
+import { connections, meta, roleGroups, roles } from "../../lib/store.ts";
 import { useDrawn } from "../../lib/testing.ts";
 import { usePageTitle } from "../../lib/title.ts";
 import { Card, Note, Pill } from "../../ui/kit.tsx";
@@ -87,12 +87,7 @@ function editorOf(tab: Tab | null, sub?: string, id?: string): ComponentChildren
 function Pane({ tab, sub }: { tab: Tab; sub?: string }) {
   switch (tab) {
     case "agents":
-      return (
-        <div class="settings-pane">
-          <AgentsSection />
-          <RolesSection />
-        </div>
-      );
+      return <AgentsPane />;
     case "library":
       return <LibraryPane kind={(sub === "servers" ? "servers" : "skills") as LibraryKind} />;
     case "usage":
@@ -107,6 +102,21 @@ function Pane({ tab, sub }: { tab: Tab; sub?: string }) {
     default:
       return <General />;
   }
+}
+
+/** 数字员工: the Agents, then the digital employees. */
+function AgentsPane() {
+  useDrawn("agents", () => ({
+    connections: connections.value.map((c) => ({ id: c.id, summary: c.summary, checks: (c.checks ?? []).map((s: { state: string }) => s.state) })),
+    roles: roles.value.map((r) => ({ id: r.id, line: r.line, modelLine: r.modelLine, avatar: r.avatar })),
+    groups: roleGroups.value.map((g) => ({ title: g.title, roles: g.roles })),
+  }));
+  return (
+    <div class="settings-pane">
+      <AgentsSection />
+      <RolesSection />
+    </div>
+  );
 }
 
 function Setting({ title, detail, children }: { title: string; detail: string; children: ComponentChildren }) {

@@ -291,8 +291,13 @@ function newDraft(kind: string, auth?: string | null): Json {
 }
 
 /** Add an Agent or change one: its kind, how it signs in, its credentials and environment, its
- * runtime and its own prompt (Mac: `ConnectionEditor`). */
+ * runtime and its own prompt (Mac: `ConnectionEditor`). One being changed opens once it is read. */
 export function ConnectionEditor({ id }: { id: string }) {
+  if (id !== "new" && !connections.value.some((c) => c.id === id)) return <Spinner />;
+  return <ConnectionForm id={id} />;
+}
+
+function ConnectionForm({ id }: { id: string }) {
   const editing = id !== "new";
   const params = new URLSearchParams(location.search);
   const prev: Json | undefined = editing ? connections.value.find((c) => c.id === id) : undefined;
