@@ -37,7 +37,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
 pub use board::BoardFacts;
-pub use card::{Pill, row_label, row_title};
+pub use card::{Pill, Tone, row_label, row_title};
 pub use inbox::{Candidate, InboxEntry, inbox_entries};
 pub use review::Review;
 pub use words::Words;

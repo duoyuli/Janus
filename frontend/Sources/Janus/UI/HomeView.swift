@@ -135,10 +135,9 @@ struct HomeView: View {
     /// What the two tiles say there is: how long the shared material is, how many notes the team
     /// memory holds (or that it is being consolidated).
     static func knowledge(_ ws: Workspace, store: AppStore) -> (brief: String, memory: String) {
-        let brief = ws.brief.trimmingCharacters(in: .whitespacesAndNewlines)
         let notes = store.notes(of: ws.id).count
         let consolidating = store.memories[ws.id]?["consolidation"]["running"].string != nil
-        return (brief.isEmpty ? L.text("还没写") : L.text("\(brief.count) 字"),
+        return (ws.json["briefStatus"].str,
                 consolidating ? L.text("整理中") : notes == 0 ? L.text("还没有笔记") : L.text("\(notes) 条笔记"))
     }
 
@@ -192,14 +191,7 @@ struct HomeView: View {
     }
 
     private func team(_ members: [(Workspace.Member, Role?)]) -> some View {
-        let lead = store.role(ws.lead)
-        let totalSlots = members.reduce(0) { acc, pair in
-            acc + (pair.0.role == ws.lead ? 1 : max(1, pair.0.slots))
-        }
-        let countLabel = totalSlots > members.count
-            ? L.text("\(members.count) 个数字员工（共 \(totalSlots) 个分身）")
-            : L.text("\(members.count) 个数字员工")
-        return HStack(spacing: 10) {
+        HStack(spacing: 10) {
             HStack(spacing: -4) {
                 ForEach(members.indices, id: \.self) { i in
                     let r = members[i].1
@@ -210,7 +202,7 @@ struct HomeView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(members.compactMap { $0.1?.name }.joined(separator: L.text("、")))
-            Text(verbatim: "\(countLabel)\(lead.map { $0.name == L.text("负责人") ? L.text(" · 有负责人") : L.text(" · 负责人：\($0.name)") } ?? "")")
+            Text(verbatim: ws.json["teamLine"].str)
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }

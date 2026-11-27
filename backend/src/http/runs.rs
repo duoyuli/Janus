@@ -62,10 +62,16 @@ pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>
     reply(json!({ "runs": app.listed(runs, lang), "next": next }))
 }
 
-/// Every workspace that goal runs were made in, as their snapshots name it, deleted ones included.
+/// Every workspace that goal runs were made in, as their snapshots name it, deleted ones included
+/// and marked (`deleted`), and the workspaces with something at work now (`working`).
 // @project-doc docs/interfaces/20261031-http_api.md#run_list
 pub(super) async fn workspaces(State(app): State<Arc<App>>) -> ApiResult {
-    reply(json!({ "workspaces": app.db.run_workspaces()? }))
+    let current = app.workspaces()?;
+    let mut listed = app.db.run_workspaces()?;
+    for w in listed.iter_mut() {
+        w["deleted"] = json!(!current.iter().any(|c| w["id"] == c.id.as_str()));
+    }
+    reply(json!({ "workspaces": listed, "working": app.working_workspaces()? }))
 }
 
 /// Start a conversation with one digital employee; it opens with the first message.

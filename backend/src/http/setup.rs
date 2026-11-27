@@ -90,11 +90,18 @@ pub(super) async fn setup(State(app): State<Arc<App>>, Query(q): Query<SetupQuer
         .map(|w| {
             let mut v = json!(w);
             v["problems"] = json!(readiness::problems(&v, &roles, &connections, lang));
+            v["teamLine"] = json!(readiness::team_line(&v, &roles, lang));
+            v["briefStatus"] = json!(readiness::brief_status(&v, lang));
             v
         })
         .collect();
     let team = readiness::default_team(&roles, &connections);
-    reply(json!({ "connections": connections, "roles": roles, "workspaces": workspaces, "team": team }))
+    let onboarding = readiness::onboarding(&connections, &roles, workspaces.len(), lang);
+    let role_groups = readiness::role_groups(&roles, lang);
+    reply(json!({
+        "connections": connections, "roles": roles, "workspaces": workspaces, "team": team,
+        "onboarding": onboarding, "roleGroups": role_groups,
+    }))
 }
 
 /// What of the person's home agents do not see. It names what is in the home folder and decides

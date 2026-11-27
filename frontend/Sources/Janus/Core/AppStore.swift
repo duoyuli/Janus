@@ -56,8 +56,11 @@ final class AppStore {
     var memories: [String: JSON] = [:]
     /// Every workspace goal runs were made in, as their snapshots name it (`GET /api/runs/workspaces`).
     var runWorkspaces: [JSON] = []
-    /// Workspaces deleted since, whose runs stay: listed after the others, so their runs are found.
-    var pastWorkspaces: [JSON] { runWorkspaces.filter { workspace($0["id"].str) == nil } }
+    /// Workspaces deleted since, whose runs stay (`deleted` as the server marks them): listed after
+    /// the others, so their runs are found.
+    var pastWorkspaces: [JSON] { runWorkspaces.filter { $0["deleted"].bool == true } }
+    /// The workspaces with something at work now (`working` of `GET /api/runs/workspaces`).
+    var workingWorkspaces: Set<String> = []
     var roleStats: JSON = .null
     var adapters: JSON = .null
     /// The resource library (Settings › 资源库): `items` (skills and MCP servers) and `sources`.
@@ -155,7 +158,11 @@ final class AppStore {
         if let r = try? await api.get("/api/runs?kind=\(RunKind.chat.rawValue)&attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=\(RunKind.loop.rawValue)&attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs?kind=\(RunKind.dream.rawValue)&attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != dreamAttention { dreamAttention = r["runs"].array }
-        if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
+        if let r = try? await api.get("/api/runs/workspaces") {
+            if r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
+            let working = Set(r["working"].strings)
+            if working != workingWorkspaces { workingWorkspaces = working }
+        }
         // An open run waiting in the queue moves up when a run ahead of it starts or goes, which
         // writes nothing to its own log: read its place again.
         if let r = run, r.state.run.status == .queued { await r.read() }
@@ -176,6 +183,10 @@ final class AppStore {
 
     /// The team a new workspace starts with, and each group's (`team` of `GET /api/setup`).
     var defaultTeam: JSON = .null
+    /// The steps a first goal still needs (`onboarding`) and the digital employees by group
+    /// (`roleGroups`), as `GET /api/setup` says.
+    var setupSteps: [JSON] = []
+    var servedRoleGroups: [JSON] = []
 
     func loadSetup() async {
         do {
@@ -184,6 +195,8 @@ final class AppStore {
             roles = s["roles"].array.map(Role.init)
             workspaces = s["workspaces"].array.map(Workspace.init)
             defaultTeam = s["team"]
+            setupSteps = s["onboarding"].array
+            servedRoleGroups = s["roleGroups"].array
         } catch { show(L.text("读取设置失败：\(error.localizedDescription)")) }
         await AvatarImages.shared.sync(roles, api: api)
         // How each role's tasks went in recent runs; the list works without it.
@@ -474,14 +487,8 @@ final class AppStore {
     func role(_ id: String) -> Role? { roles.first { $0.id == id } }
     func workspace(_ id: String) -> Workspace? { workspaces.first { $0.id == id } }
     var okConnections: [JSON] { connections.filter { $0["phase"].str == "ok" } }
-    var boundRoles: [Role] { roles.filter { $0.bound(in: self) } }
-    func runs(of ws: Workspace) -> [JSON] { runs.filter { Self.belongs($0, id: ws.id, path: ws.path) } }
-
-    /// Whether a run row is one of workspace `id`'s: by the workspace it recorded, or by its folder.
-    static func belongs(_ r: JSON, id: String, path: String) -> Bool {
-        let wid = r["config"]["workspace"]["id"]
-        return wid.truthy ? wid.str == id : r["cwd"].str == path
-    }
+    /// The newest goals of workspace `ws`, by the workspace the server says each is one of.
+    func runs(of ws: Workspace) -> [JSON] { runs.filter { $0["workspace"].str == ws.id } }
 
     /// What is still missing before a first task can run, in order.
     /// Each step names where it is done: a settings pane, or "workspace" for the new-workspace sheet.
@@ -492,9 +499,7 @@ final class AppStore {
     }
 
     var onboarding: [(String, Bool, Destination)] {
-        [(L.text("接入一个 Agent"), !okConnections.isEmpty, .settings(.agents)),
-         (L.text("定义数字员工（含一个负责人）"), boundRoles.contains { $0.lead } && boundRoles.count >= 2, .settings(.agents)),
-         (L.text("新建工作区"), !workspaces.isEmpty, .newWorkspace)]
+        setupSteps.map { ($0["text"].str, $0["done"].bool == true, $0["go"].str == "workspace" ? .newWorkspace : .settings(.agents)) }
     }
 
     // MARK: Setup objects

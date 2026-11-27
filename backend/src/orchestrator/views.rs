@@ -40,6 +40,8 @@ pub struct Waiting {
     pub title: String,
     /// What it waits on at a glance: the one thing by name, or how many.
     pub label: String,
+    /// Red when an agent is held up until the person answers, amber when every entry can wait.
+    pub tone: crate::run_view::Tone,
     /// Its entries in `open`, by key.
     pub entries: Vec<String>,
 }
@@ -55,12 +57,27 @@ pub struct ListedRun {
     /// Its state in a word or two.
     pub label: Pill,
     pub delete: run_ops::OpAnswer,
+    /// The workspace it is one of (`workspace_of`), by id; `None` for a chat, a deleted
+    /// workspace's run, or one whose folder no workspace has.
+    pub workspace: Option<String>,
+}
+
+/// The workspace run `row` is one of: the one its record names, or (an older record that names
+/// none) the one working in its folder. Every client groups runs by it.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+pub fn workspace_of(row: &RunRow, workspaces: &[crate::agents::Workspace]) -> Option<String> {
+    if row.kind == RunKind::Chat {
+        return None;
+    }
+    let id = crate::run_view::text(&row.config["workspace"]["id"]);
+    if id.is_empty() { workspaces.iter().find(|w| w.path == row.cwd).map(|w| w.id.clone()) } else { Some(id) }
 }
 
 impl App {
     /// `rows` as the run lists show them, written in `lang`.
     // @project-doc docs/interfaces/20261031-http_api.md#run_list
     pub fn listed(&self, rows: Vec<RunRow>, lang: Lang) -> Vec<ListedRun> {
+        let workspaces = self.workspaces().unwrap_or_default();
         rows.into_iter()
             .map(|row| {
                 let facts = match self.run(&row.id) {
@@ -68,9 +85,36 @@ impl App {
                     None => self.stored_facts(&row),
                 };
                 let delete = run_ops::answer(&facts, RunOp::Delete, lang);
-                ListedRun { title: row_title(&row, lang), label: row_label(&row, lang), row, delete }
+                let workspace = workspace_of(&row, &workspaces);
+                ListedRun { title: row_title(&row, lang), label: row_label(&row, lang), row, delete, workspace }
             })
             .collect()
+    }
+
+    /// The workspaces with something at work now: a goal of theirs (`workspace_of`) that is queued,
+    /// planning or running, or one of their Loops awake. The sidebar marks them.
+    // @project-doc docs/architecture/20261031-frontend.md#screens
+    pub fn working_workspaces(&self) -> Result<Vec<String>> {
+        use RunStatus::*;
+        let page = RunsPage {
+            kind: RunKind::Goal,
+            workspace: None,
+            statuses: Some(vec![Queued, Planning, Running]),
+            loop_id: None,
+            before: None,
+            limit: 500,
+        };
+        let workspaces = self.workspaces()?;
+        let mut out: Vec<String> =
+            self.db.runs_page(&page)?.0.iter().filter_map(|r| workspace_of(r, &workspaces)).collect();
+        for l in self.loops(None)? {
+            if l["status"]["phase"] == "awake" {
+                out.push(crate::run_view::text(&l["workspace"]));
+            }
+        }
+        out.sort();
+        out.dedup();
+        Ok(out)
     }
 
     /// Run `id`'s view written in `lang`, up to and including seq `until` (all of it without);
@@ -203,15 +247,11 @@ impl App {
         let mut out: BTreeMap<String, Vec<Waiting>> = BTreeMap::new();
         for e in open {
             let place = match e.run_kind {
-                RunKind::Goal => rows.iter().find(|r| r.id == e.run).and_then(|r| {
-                    let id = crate::run_view::text(&r.config["workspace"]["id"]);
-                    let ws = if id.is_empty() {
-                        workspaces.iter().find(|w| w.path == r.cwd).map(|w| w.id.clone())
-                    } else {
-                        Some(id)
-                    };
-                    ws.map(|ws| (ws, None, e.run_title.clone()))
-                }),
+                RunKind::Goal => rows
+                    .iter()
+                    .find(|r| r.id == e.run)
+                    .and_then(|r| workspace_of(r, workspaces))
+                    .map(|ws| (ws, None, e.run_title.clone())),
                 RunKind::Loop => loops.iter().find(|l| l["run"] == e.run.as_str()).map(|l| {
                     let text = |k: &str| crate::run_view::text(&l[k]);
                     (text("workspace"), Some(text("id")), text("title"))
@@ -227,11 +267,15 @@ impl App {
                     r#loop,
                     title,
                     label: String::new(),
+                    tone: crate::run_view::Tone::Amber,
                     entries: vec![e.key.clone()],
                 }),
             }
         }
         for w in out.values_mut().flatten() {
+            let can_wait = |k: &String| open.iter().find(|e| &e.key == k).is_some_and(|e| e.can_wait);
+            w.tone =
+                if w.entries.iter().all(can_wait) { crate::run_view::Tone::Amber } else { crate::run_view::Tone::Red };
             w.label = match w.entries.as_slice() {
                 [one] => open.iter().find(|e| &e.key == one).map(|e| e.label.clone()).unwrap_or_default(),
                 many => {

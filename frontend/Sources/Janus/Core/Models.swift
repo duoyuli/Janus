@@ -66,9 +66,6 @@ struct Role: Hashable, Identifiable {
     /// How many of one digital employee a workspace's team may run at once
     /// (`backend/src/agents/workspaces.rs`, `MAX_SLOTS`).
     static let maxSlots = 8
-
-    /// Bound to an agent connection Janus knows.
-    @MainActor func bound(in store: AppStore) -> Bool { !connection.isEmpty && store.connection(connection) != nil }
 }
 
 /// A workspace: a folder, its shared material and its team (`backend/src/agents/workspaces.rs`).

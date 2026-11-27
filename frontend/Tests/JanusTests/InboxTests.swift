@@ -21,17 +21,19 @@ import Testing
 
 
 /// A workspace's 「待处理」 row draws what it waits on: a glyph for the one thing's kind or a stack
-/// for several, red when an agent is held up until the person answers.
+/// for several, in the colour the server gives the row.
 @Test func aWaitingRowShowsWhatItWaitsOn() {
     func e(_ key: String, _ kind: String, wait: Bool = true) -> InboxEntry {
         InboxEntry(["key": JSON(key), "run": "g", "title": JSON(key), "ts": 0, "canWait": JSON(wait), "kind": JSON(kind)])
     }
-    func row(_ entries: [InboxEntry]) -> WaitingRow { WaitingRow(id: "g", run: .null, loop: nil, title: "上线", label: "", entries: entries) }
-    #expect(row([e("q", "question")]).symbol == "questionmark.bubble.fill" && row([e("q", "question")]).tone == .amber)
+    func row(_ entries: [InboxEntry], tone: Tone = .amber) -> WaitingRow {
+        WaitingRow(id: "g", run: .null, loop: nil, title: "上线", label: "", tone: tone, entries: entries)
+    }
+    #expect(row([e("q", "question")]).symbol == "questionmark.bubble.fill")
     #expect(row([e("d", "delivered")]).symbol == "checkmark.seal.fill")
     #expect(row([e("i", "interrupted")]).symbol == "pause.circle.fill")
-    let two = row([e("a", "approval", wait: false), e("q", "question")])
-    #expect(two.symbol == "tray.full.fill" && two.tone == .red, "an approval holds an agent up")
+    let two = row([e("a", "approval", wait: false), e("q", "question")], tone: .red)
+    #expect(two.symbol == "tray.full.fill" && two.tone == .red)
 }
 
 /// Where a note came from, as the workspace page and its sheet say it.

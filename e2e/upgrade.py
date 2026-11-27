@@ -321,8 +321,8 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             w["lead"] = RENAMED.get(w["lead"], w["lead"])
             for m in w["members"]:
                 m["role"] = RENAMED.get(m["role"], m["role"])
-        # `problems` is not stored: the service says what keeps the team from running now.
-        stored = [{k: v for k, v in w.items() if k != "problems"} for w in setup["workspaces"]]
+        # `problems`, `teamLine` and `briefStatus` are not stored: the service works them out now.
+        stored = [{k: v for k, v in w.items() if k not in ("problems", "teamLine", "briefStatus")} for w in setup["workspaces"]]
         check(stored == renamed, "工作区除了默认数字员工的新 id 外不变")
         db = sqlite3.connect(home_db(home))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]

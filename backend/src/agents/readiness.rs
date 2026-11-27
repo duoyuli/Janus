@@ -148,10 +148,153 @@ pub fn default_team(roles: &[Value], connections: &[Value]) -> DefaultTeam {
     DefaultTeam { lead, members, groups }
 }
 
+/// One step still to take before a first goal can run, and whether it is done.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Step {
+    pub text: String,
+    pub done: bool,
+    /// Where it is done: the settings page of the Agents (`agents`), or a new workspace (`workspace`).
+    pub go: &'static str,
+}
+
+/// What a first goal needs, in order: an Agent that passed its check, digital employees bound to
+/// an Agent (at least two, one of them able to lead), a workspace.
+// @project-doc docs/architecture/20261031-frontend.md#screens
+pub fn onboarding(connections: &[Value], roles: &[Value], workspaces: usize, lang: Lang) -> Vec<Step> {
+    let bound: Vec<&Value> = roles.iter().filter(|r| connection(connections, s(&r["connection"])).is_some()).collect();
+    let l = lang;
+    vec![
+        Step {
+            text: l.pick("接入一个 Agent", "Connect an Agent").into(),
+            done: connections.iter().any(|c| s(&c["phase"]) == "ok"),
+            go: "agents",
+        },
+        Step {
+            text: l.pick("定义数字员工（含一个负责人）", "Create Digital Employees, Including a Lead").into(),
+            done: bound.iter().any(|r| r["lead"].as_bool().unwrap_or(false)) && bound.len() >= 2,
+            go: "agents",
+        },
+        Step { text: l.pick("新建工作区", "New Workspace").into(), done: workspaces > 0, go: "workspace" },
+    ]
+}
+
+/// The digital employees of one group, as the lists show them.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct RoleGroup {
+    /// The group's name; empty for the roles in no group.
+    pub group: String,
+    /// Its name as the lists show it.
+    pub title: String,
+    /// Its roles by id, in the order they are listed.
+    pub roles: Vec<String>,
+}
+
+/// The groups digital employees are listed under: named ones by name (numbers by value, case
+/// ignored), then the roles in no group. Settings, the new-chat page and the workspace editor
+/// list them this way.
+// @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
+pub fn role_groups(roles: &[Value], lang: Lang) -> Vec<RoleGroup> {
+    let mut named: Vec<&str> = roles.iter().map(|r| s(&r["group"])).filter(|g| !g.is_empty()).collect();
+    named.sort_by(|a, b| natural(a, b));
+    named.dedup();
+    if roles.iter().any(|r| s(&r["group"]).is_empty()) {
+        named.push("");
+    }
+    named
+        .into_iter()
+        .map(|g| RoleGroup {
+            group: g.into(),
+            title: if g.is_empty() { lang.pick("未分组", "No Group").into() } else { g.into() },
+            roles: roles.iter().filter(|r| s(&r["group"]) == g).map(|r| s(&r["id"]).to_string()).collect(),
+        })
+        .collect()
+}
+
+/// `a` before `b` as names read: case ignored, runs of digits by their value.
+fn natural(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(s: &str) -> Vec<(bool, String)> {
+        let mut out: Vec<(bool, String)> = vec![];
+        for c in s.to_lowercase().chars() {
+            let digit = c.is_ascii_digit();
+            match out.last_mut() {
+                Some((d, part)) if *d == digit => part.push(c),
+                _ => out.push((digit, c.to_string())),
+            }
+        }
+        out
+    }
+    let (x, y) = (parts(a), parts(b));
+    for ((dx, px), (dy, py)) in x.iter().zip(y.iter()) {
+        let o = match (dx, dy) {
+            (true, true) => {
+                let (nx, ny) = (px.trim_start_matches('0'), py.trim_start_matches('0'));
+                nx.len().cmp(&ny.len()).then_with(|| nx.cmp(ny))
+            }
+            _ => px.cmp(py),
+        };
+        if o != std::cmp::Ordering::Equal {
+            return o;
+        }
+    }
+    x.len().cmp(&y.len()).then_with(|| a.cmp(b))
+}
+
+/// A workspace's team in a line: how many digital employees (and clones, when some have more
+/// than one), and who leads.
+pub fn team_line(workspace: &Value, roles: &[Value], lang: Lang) -> String {
+    let l = lang;
+    let lead = s(&workspace["lead"]);
+    let members = workspace["members"].as_array().cloned().unwrap_or_default();
+    let n = members.len();
+    let slots: i64 =
+        members.iter().map(|m| if s(&m["role"]) == lead { 1 } else { m["slots"].as_i64().unwrap_or(1).max(1) }).sum();
+    let count = if slots > n as i64 {
+        tr!(l, "{n} 个数字员工（共 {slots} 个分身）", "Digital employees: {n} · Clones: {slots}")
+    } else {
+        tr!(l, "{n} 个数字员工", "Digital employees: {n}")
+    };
+    let lead = match roles.iter().find(|r| !lead.is_empty() && s(&r["id"]) == lead).map(|r| s(&r["name"])) {
+        None => String::new(),
+        Some(name) if name == l.pick("负责人", "Lead") => l.pick(" · 有负责人", " · Lead assigned").into(),
+        Some(name) => tr!(l, " · 负责人：{name}", " · Lead: {name}"),
+    };
+    format!("{count}{lead}")
+}
+
+/// How much shared material a workspace has: none yet, or how many characters.
+pub fn brief_status(workspace: &Value, lang: Lang) -> String {
+    let n = s(&workspace["brief"]).trim().chars().count();
+    if n == 0 { lang.pick("还没写", "Empty").into() } else { tr!(lang, "{n} 字", "{n} characters") }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_first_steps_groups_and_team_lines_read_as_the_lists_show_them() {
+        let roles = vec![
+            json!({ "id": "pm", "name": "负责人", "connection": "c1", "lead": true, "group": "组10" }),
+            json!({ "id": "dev", "name": "开发", "connection": "c1", "group": "组9" }),
+            json!({ "id": "x", "name": "X", "connection": "", "group": "" }),
+        ];
+        let steps = onboarding(&conns(), &roles, 0, Lang::Zh);
+        assert_eq!(steps.iter().map(|s| s.done).collect::<Vec<_>>(), [true, true, false]);
+        assert_eq!(steps[2].go, "workspace");
+        assert!(!onboarding(&conns(), &roles[1..], 1, Lang::En)[1].done);
+        let groups = role_groups(&roles, Lang::En);
+        let names: Vec<(&str, &str)> = groups.iter().map(|g| (g.group.as_str(), g.title.as_str())).collect();
+        assert_eq!(names, [("组9", "组9"), ("组10", "组10"), ("", "No Group")]);
+        assert_eq!(groups[2].roles, ["x"]);
+        let ws =
+            json!({ "lead": "pm", "members": [{ "role": "pm" }, { "role": "dev", "slots": 3 }], "brief": " 两个字 " });
+        assert_eq!(team_line(&ws, &roles, Lang::Zh), "2 个数字员工（共 4 个分身） · 有负责人");
+        let ws1 = json!({ "lead": "dev", "members": [{ "role": "dev" }] });
+        assert_eq!(team_line(&ws1, &roles, Lang::En), "Digital employees: 1 · Lead: 开发");
+        assert_eq!(brief_status(&ws, Lang::Zh), "3 字");
+        assert_eq!(brief_status(&ws1, Lang::En), "Empty");
+    }
 
     fn conns() -> Vec<Value> {
         vec![

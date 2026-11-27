@@ -398,8 +398,7 @@ struct WorkspaceRow: View {
     // The sidebar lists workspaces only: a workspace's Loops are on its page, and count here.
     var body: some View {
         let waiting = store.waiting(in: ws).reduce(0) { $0 + $1.entries.count }
-        let working = store.runs(of: ws).contains { RunStatus($0["status"].str).isActive }
-            || store.loops(of: ws.id).contains { $0["status"]["phase"].str == "awake" }
+        let working = store.workingWorkspaces.contains(ws.id)
         SidebarItem(title: ws.name, selected: shown, waiting: waiting, live: working, help: L.tilde(ws.path),
                     accessibility: waiting == 0 ? "" : L.text("\(waiting) 件待处理"),
                     action: { store.open(.home(ws.id)) }) {

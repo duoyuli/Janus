@@ -135,6 +135,8 @@ struct WaitingRow: Identifiable, Equatable {
     let title: String
     /// What it waits on, at a glance: the one thing by name, or how many, as the server words it.
     let label: String
+    /// Red when an agent is held up until the person answers; amber when it can wait.
+    let tone: Tone
     var entries: [InboxEntry]
 
     /// What it waits on, as a glyph: the one thing's kind, or a stack for several. It leads the
@@ -152,9 +154,6 @@ struct WaitingRow: Identifiable, Equatable {
         default: return TimelineMark.openSymbols[e.kind] ?? "exclamationmark.circle.fill"
         }
     }
-
-    /// Red when an agent is held up until the person answers; amber when it can wait.
-    var tone: Tone { entries.allSatisfy(\.canWait) ? .amber : .red }
 }
 
 extension AppStore {
@@ -167,7 +166,7 @@ extension AppStore {
             let run = w["run"].str
             return WaitingRow(id: run, run: attention.first { $0["id"].str == run } ?? .null,
                               loop: w["loop"].string.flatMap { id in loops.first { $0["id"].str == id } },
-                              title: w["title"].str, label: w["label"].str,
+                              title: w["title"].str, label: w["label"].str, tone: Tone(rawValue: w["tone"].str) ?? .amber,
                               entries: w["entries"].strings.compactMap { k in inbox.open.first { $0.key == k } })
         }
     }

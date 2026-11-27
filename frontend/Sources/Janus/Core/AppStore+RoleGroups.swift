@@ -5,16 +5,14 @@ import Foundation
 /// whole group at once.
 // @project-doc docs/domains/20261031-agents_and_roles.md#role_groups
 extension AppStore {
-    /// The groups digital employees are listed under: named ones in order, then "" (no group).
-    var roleGroups: [String] {
-        let named = Set(roles.map(\.group)).subtracting([""]).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        return roles.contains { $0.group.isEmpty } ? named + [""] : named
-    }
+    /// The groups digital employees are listed under, in the server's order (`roleGroups` of
+    /// `GET /api/setup`): named ones, then "" (no group).
+    var roleGroups: [String] { servedRoleGroups.map { $0["group"].str } }
 
     /// The digital employees group by group, in `roleGroups` order: how Settings › 数字员工, the
     /// new-chat page and the workspace editor list them.
     var roleSections: [(group: String, roles: [Role])] {
-        roleGroups.map { g in (g, roles.filter { $0.group == g }) }
+        servedRoleGroups.map { g in (g["group"].str, g["roles"].strings.compactMap { role($0) }) }
     }
 
     /// A group's name as the lists show it.
