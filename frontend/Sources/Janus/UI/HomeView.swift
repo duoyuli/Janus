@@ -539,17 +539,14 @@ struct WorkspaceEditor: View {
         .task(id: path) {
             try? await Task.sleep(nanoseconds: 250_000_000)
             // Not `empty ? nil : …`: JSON takes nil literals, so that `nil` would be `JSON.null`.
-            if path.trimmingCharacters(in: .whitespaces).isEmpty { inspect = nil } else { inspect = try? await store.api.get("/api/inspect?path=\(API.q(path))") }
+            if path.trimmingCharacters(in: .whitespaces).isEmpty { inspect = nil } else { inspect = try? await store.api.get("/api/inspect?path=\(API.q(path))&lang=\(L.serverLanguage)") }
         }
     }
 
+    /// What the folder is, as the server says it (`text` of `GET /api/inspect`).
     private var inspectLine: String {
         if path.trimmingCharacters(in: .whitespaces).isEmpty { return L.text("先选一个目录") }
-        guard let i = inspect else { return L.text("检查中…") }
-        if i["exists"].bool == false { return L.text("目录不存在") }
-        if !i["git"].truthy { return L.text("不是 Git 仓库：直接改这个目录，没有 diff") }
-        let dirty = i["dirty"].int ?? 0
-        return L.text("✓ Git 仓库 · 当前分支 \(i["branch"].str) · \(dirty > 0 ? L.text("⚠ 有 \(dirty) 个未提交改动（不会带进任务）") : L.text("工作区干净"))")
+        return inspect?["text"].string ?? L.text("检查中…")
     }
 
     /// Edits not saved yet, so Cancel and Esc ask before throwing them away.

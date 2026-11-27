@@ -274,12 +274,23 @@ pub(super) struct PathQuery {
     pub(super) path: String,
 }
 
-/// What the workspace editor shows about a folder: whether it exists, and its Git branch and
-/// uncommitted changes.
-pub(super) async fn inspect(Query(q): Query<PathQuery>) -> ApiResult {
+#[derive(Deserialize)]
+pub(super) struct InspectQuery {
+    path: String,
+    /// `zh` or `en`, for the line written here; the app's language without.
+    lang: Option<String>,
+}
+
+/// What the workspace editor shows about a folder: whether it exists, its Git branch and
+/// uncommitted changes, and that in a line (`text`) written in `?lang=`.
+pub(super) async fn inspect(State(app): State<Arc<App>>, Query(q): Query<InspectQuery>) -> ApiResult {
+    use crate::lang::tr;
+    let l = super::views::lang_of(&app, q.lang.as_deref())?;
     let path = PathBuf::from(expand_home(q.path.trim()));
     if !path.is_dir() {
-        return reply(json!({ "exists": false, "path": path }));
+        return reply(
+            json!({ "exists": false, "path": path, "text": l.pick("目录不存在", "Directory does not exist") }),
+        );
     }
     let branch =
         crate::git::query(&path, &["rev-parse", "--abbrev-ref", "HEAD"]).await.ok().map(|s| s.trim().to_string());
@@ -287,7 +298,29 @@ pub(super) async fn inspect(Query(q): Query<PathQuery>) -> ApiResult {
         Some(_) => crate::git::query(&path, &["status", "--porcelain"]).await.map(|s| s.lines().count()).unwrap_or(0),
         None => 0,
     };
-    reply(json!({ "exists": true, "path": path, "git": branch.is_some(), "branch": branch, "dirty": dirty }))
+    let text = match &branch {
+        None => l
+            .pick(
+                "不是 Git 仓库：直接改这个目录，没有 diff",
+                "Not a Git repository: work happens right in this folder, with no diff",
+            )
+            .to_string(),
+        Some(b) => {
+            let tree = if dirty > 0 {
+                tr!(
+                    l,
+                    "⚠ 有 {dirty} 个未提交改动（不会带进任务）",
+                    "⚠ Uncommitted changes: {dirty}. Tasks start without them."
+                )
+            } else {
+                l.pick("工作区干净", "Clean working tree").to_string()
+            };
+            tr!(l, "✓ Git 仓库 · 当前分支 {b} · {tree}", "✓ Git repository · Branch: {b} · {tree}")
+        }
+    };
+    reply(
+        json!({ "exists": true, "path": path, "git": branch.is_some(), "branch": branch, "dirty": dirty, "text": text }),
+    )
 }
 
 pub(super) async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {

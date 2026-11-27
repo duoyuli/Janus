@@ -127,8 +127,10 @@ def setup(ctx, c):
     ws = ctx.api("POST", "/api/setup/workspaces", {"id": "setup", "name": "默认团队", "path": repo, "lead": "pmo", "brief": "共享资料：用 Python 3。",
                                                    "members": [{"role": "pmo"}, {"role": "developer"}, {"role": "qa"}]})
     c(ws["path"] == repo, "工作区保存规范化的绝对路径")
-    insp = ctx.api("GET", f"/api/inspect?path={repo}")
-    c(insp.get("git") is True, f"检查目录识别出 Git 仓库：{insp}")
+    insp = ctx.api("GET", f"/api/inspect?path={repo}&lang=zh")
+    c(insp.get("git") is True and insp.get("text", "").startswith("✓ Git 仓库 · 当前分支 "), f"检查目录识别出 Git 仓库，并写好一行说明：{insp}")
+    gone = ctx.api("GET", "/api/inspect?path=/no/such/dir&lang=en")
+    c(gone.get("exists") is False and gone.get("text") == "Directory does not exist", f"不存在的目录按语言说明：{gone}")
     code, _ = ctx.api_error("DELETE", "/api/setup/roles/developer")
     c(code == 400, "被工作区使用的数字员工不能删除")
 
