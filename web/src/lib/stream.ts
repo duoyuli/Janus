@@ -5,7 +5,7 @@
 // Pages that need more (a run's own page, a Loop) add their own handlers with `onNotice`.
 
 import { signal } from "@preact/signals";
-import type { Json } from "./api.ts";
+import { api, type ApiError, type Json, unpaired } from "./api.ts";
 import { attention, chats, loadInbox, loadRuns, loadSetup, readAll, runs } from "./store.ts";
 
 /** The stream is open now. */
@@ -69,11 +69,26 @@ export function follow() {
   on("connection", () => void loadSetup());
   on("inbox", () => void loadInbox());
   on("event", (n) => note(listChanges(String(n.type ?? ""), String(n.run ?? ""))));
-  for (const name of ["loop", "memory", "library", "adapters"]) on(name, () => {});
+  for (const name of ["loop", "memory", "library", "adapters", "devices"]) on(name, () => {});
   s.onerror = () => {
-    // The service restarted or is gone for a moment: read once, then open the stream again.
+    // The service restarted or is gone for a moment, or this device was unpaired (the service
+    // ends its streams then): after a moment, ask who this device is. Unpaired, the window shows
+    // how to pair and the stream stays closed; otherwise it opens again and `ready` reads all.
     connected.value = false;
     s.close();
-    if (source === s) setTimeout(follow, 2000);
+    if (source !== s) return;
+    setTimeout(() => {
+      api.get("/api/devices/me").then(follow, (e: ApiError) => {
+        if (!unpaired.value && source === s) follow();
+        return e;
+      });
+    }, 2000);
   };
+}
+
+/** Stop following: this device is no longer paired. */
+export function stop() {
+  source?.close();
+  source = null;
+  connected.value = false;
 }

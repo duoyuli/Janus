@@ -7,7 +7,7 @@ import "./lib/appearance.ts";
 import { lang } from "./lib/i18n.ts";
 import { route } from "./lib/router.ts";
 import { boot, loadInbox } from "./lib/store.ts";
-import { follow } from "./lib/stream.ts";
+import { follow, stop } from "./lib/stream.ts";
 import "./lib/testing.ts";
 import { Shell } from "./app/Shell.tsx";
 import { InboxPage } from "./pages/inbox.tsx";
@@ -50,6 +50,11 @@ function App() {
     </Shell>
   );
 }
+
+// Not paired (any request came back 401): stop following until the pairing page pairs it again.
+effect(() => {
+  if (unpaired.value) stop();
+});
 
 // What the service words follows the interface language: the inbox is read again in the new one.
 let first = true;

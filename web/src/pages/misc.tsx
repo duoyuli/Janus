@@ -14,6 +14,7 @@ import { usePageTitle } from "../lib/title.ts";
 import { chatTitle, InitialMark } from "../app/Shell.tsx";
 import { Card, Note, Pill, SectionHeader } from "../ui/kit.tsx";
 import { More } from "./workspace.tsx";
+import { PhoneAccess } from "./pair.tsx";
 import { goalTitle } from "../lib/format.ts";
 
 export function ChatsPage() {
@@ -104,6 +105,7 @@ export function SettingsPage() {
           <Choices name={t`外观`} value={appearance.value} options={appearances} onChange={chooseAppearance} />
         </div>
       </Card>
+      <PhoneAccess />
       {meta.value?.version && <div class="caption">{t`Janus 服务 ${meta.value.version}`}</div>}
     </div>
   );

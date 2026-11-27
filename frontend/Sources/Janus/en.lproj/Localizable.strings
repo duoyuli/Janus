@@ -1711,6 +1711,7 @@
 "配对" = "Pairing";
 "配对没有成功" = "Pairing failed";
 "正在和 Janus 配对…" = "Pairing with Janus…";
-"在 Mac 上的 Janus 设置 › 手机访问 重新扫码。" = "Scan the code again in Janus on the Mac under Settings › Phone Access.";
 "这个浏览器还没有和 Janus 配对" = "This browser is not paired with Janus yet";
 "请在 Mac 上的 Janus 设置 › 手机访问 扫码配对" = "To pair it, scan the code in Janus on the Mac under Settings › Phone Access";
+"打开或关闭手机访问、配对新的设备，在 Mac 上的 Janus 里。" = "Turn phone access on or off and pair new devices in Janus on the Mac.";
+"（这台设备）" = " (this device)";

@@ -1,6 +1,6 @@
 # ADR：Web 客户端用 TypeScript、Vite 和 Preact，由 Janus 服务提供
 
-- 状态：已采纳（accepted），记录于 2026-11-26。用户在同一天定下方向（做一个和 macOS 客户端功能对齐、支持手机的 Web 版本）和技术栈（TypeScript + Vite + Preact）。部分取代 [ADR：用原生 macOS 应用做展示层](20261101-native_macos_app.md) 的第 2 条（macOS 应用是唯一的界面，编排器不提供 `/` 页面）。手机怎样连到服务、怎样配对另见 C 路的 ADR（局域网监听和设备令牌）。
+- 状态：已采纳（accepted），记录于 2026-11-26。用户在同一天定下方向（做一个和 macOS 客户端功能对齐、支持手机的 Web 版本）和技术栈（TypeScript + Vite + Preact）。部分取代 [ADR：用原生 macOS 应用做展示层](20261101-native_macos_app.md) 的第 2 条（macOS 应用是唯一的界面，编排器不提供 `/` 页面）。手机怎样连到服务、怎样配对见 [ADR：手机在局域网里扫码配对后访问 Janus](20261126-lan_access_pairing.md)：除了本机的 Mac 应用，每个接口都要配对得到的设备 cookie，Web 客户端的文件不要。
 - 相关文档：[Web 客户端](../architecture/20261126-web.md)、[ADR：由事件推导的状态只在服务端算](20261126-backend_owns_derived_state.md)、[安全边界](../operations/20261031-security.md#web_build)、[部署方案](../operations/20261031-deployment.md#install)、[CI 与发布](../operations/20261101-ci_release.md)、[端到端验证](../operations/20261031-testing.md#web_e2e)。
 
 ## 背景
@@ -28,4 +28,4 @@ Janus 只有 macOS 应用一个界面：Intel Mac、其他系统和手机都用�
 - 新的构建依赖：开发、CI 的 Web 任务和发布的打包都需要 Node.js 22.18 以上和 npm；CI 的 `CI result` 也等 Web 任务。`just e2e` 多一步「Web 端到端测试」。
 - 新增或改动需要在界面显示的状态时，两个客户端都要画，但只有一份计算（服务端）和一份翻译（`Localizable.strings`）。
 - Web 版的页面按 [Web 客户端](../architecture/20261126-web.md#add_page) 的约定逐页对齐 Mac 应用；只有 Mac 能做的（启动服务、应用更新、macOS 权限、系统通知、系统的文件夹选择框）不在 Web 版里。
-- 服务多了一类响应：非 API 路径返回 Web 客户端。页面本身不含数据，数据仍只经 `/api/`。
+- 服务多了一类响应：非 API 路径返回 Web 客户端，不要设备 cookie。页面本身不含数据，数据仍只经 `/api/`，要先配对。
