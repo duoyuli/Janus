@@ -1,17 +1,14 @@
 // The smaller pages of the first web version: a run's page while it is being built (a Loop's and
-// a consolidation's have their own), this browser's settings, and a path that names nothing.
+// a consolidation's have their own), and a path that names nothing.
 
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { api, type Json } from "../lib/api.ts";
-import { chooseAppearance, appearance, type Appearance } from "../lib/appearance.ts";
-import { choice, choose, serverLang, t, type Choice } from "../lib/i18n.ts";
-import { meta } from "../lib/store.ts";
+import { serverLang, t } from "../lib/i18n.ts";
 import { onNotice } from "../lib/stream.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
-import { Card, Note, Pill, SectionHeader } from "../ui/kit.tsx";
-import { PhoneAccess } from "./pair.tsx";
+import { Note, Pill } from "../ui/kit.tsx";
 import { LoopPage } from "./loops.tsx";
 import { DreamPage } from "./memory.tsx";
 
@@ -52,50 +49,6 @@ function PlainRun({ v }: { v: Json }) {
         {v.capsule && <Pill text={v.capsule.text} tone={v.capsule.tone} />}
       </div>
       <Note text={t`这个页面在网页上还没有做完：先在 Mac 上的 Janus 打开它。`} />
-    </div>
-  );
-}
-
-function Choices<T extends string>({ name, value, options, onChange }: { name: string; value: T; options: [T, string][]; onChange: (v: T) => void }) {
-  return (
-    <div class="choices" role="radiogroup" aria-label={name}>
-      {options.map(([v, label]) => (
-        <button type="button" role="radio" aria-checked={v === value} class={"choice" + (v === value ? " on" : "")} onClick={() => onChange(v)}>
-          {label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-export function SettingsPage() {
-  usePageTitle(t`设置`);
-  useDrawn("settings", () => ({ language: choice.value, appearance: appearance.value }));
-  const languages: [Choice, string][] = [
-    ["system", t`跟随系统`],
-    ["zh-Hans", "简体中文"],
-    ["en", "English"],
-  ];
-  const appearances: [Appearance, string][] = [
-    ["system", t`跟随系统`],
-    ["light", t`浅色`],
-    ["dark", t`深色`],
-  ];
-  return (
-    <div class="page">
-      <SectionHeader title={t`设置`} />
-      <Card>
-        <div class="setting">
-          <span class="h2">{t`语言`}</span>
-          <Choices name={t`语言`} value={choice.value} options={languages} onChange={choose} />
-        </div>
-        <div class="setting">
-          <span class="h2">{t`外观`}</span>
-          <Choices name={t`外观`} value={appearance.value} options={appearances} onChange={chooseAppearance} />
-        </div>
-      </Card>
-      <PhoneAccess />
-      {meta.value?.version && <div class="caption">{t`Janus 服务 ${meta.value.version}`}</div>}
     </div>
   );
 }

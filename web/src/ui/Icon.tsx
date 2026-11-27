@@ -51,6 +51,20 @@ const P: Record<string, string> = {
   "largecircle.fill.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M12 8a4 4 0 1 1 0 8a4 4 0 0 1 0-8z",
   minus: "M5 12h14",
   trash: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6",
+  "books.vertical": "M4 4h4v16H4z M10 4h4v16h-4z M16 5l3.5-1 2.5 15.5-3.5 1z",
+  "list.bullet.rectangle": "M3 4h18v16H3z M7 9h.01 M7 12h.01 M7 15h.01 M10 9h7 M10 12h7 M10 15h7",
+  shippingbox: "M12 3l8 4v10l-8 4-8-4V7z M4 7l8 4 8-4 M12 11v10",
+  terminal: "M3 4h18v16H3z M7 9l3 3-3 3 M12 15h5",
+  globe: "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M3 12h18 M12 3c2.5 2.5 3.5 6 3.5 9s-1 6.5-3.5 9 M12 3c-2.5 2.5-3.5 6-3.5 9s1 6.5 3.5 9",
+  sparkles: "M10 3l1.6 4.4L16 9l-4.4 1.6L10 15l-1.6-4.4L4 9l4.4-1.6z M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z",
+  link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
+  eye: "M2.5 12S6.5 5.5 12 5.5 21.5 12 21.5 12 17.5 18.5 12 18.5 2.5 12 2.5 12z M12 9a3 3 0 1 1 0 6a3 3 0 0 1 0-6z",
+  "exclamationmark.shield": "M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6z M12 8v5 M12 16.5v.01",
+  "checkmark.shield": "M12 3l8 3v6c0 4.5-3.5 8-8 9-4.5-1-8-4.5-8-9V6z M8.5 12l2.5 2.5 4.5-5",
+  pencil: "M16.5 3.5l4 4L8 20H4v-4z M14 6l4 4",
+  "xmark.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M9 9l6 6 M15 9l-6 6",
+  "plus.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M12 8v8 M8 12h8",
+  "minus.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M8 12h8",
 };
 
 /** Names drawn filled: the shape of the plain name, filled with the current color. */

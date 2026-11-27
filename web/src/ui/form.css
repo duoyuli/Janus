@@ -231,3 +231,49 @@
     left: 22px;
   }
 }
+
+.form-head.with-icon {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.input.mono,
+.textarea.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.switch-row,
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+}
+
+.check-row {
+  cursor: pointer;
+}
+
+.switch-row.disabled {
+  opacity: 0.55;
+}
+
+.caption.block {
+  display: block;
+}
+
+@media (max-width: 640px) {
+  .switch-row,
+  .check-row {
+    min-height: var(--tap);
+  }
+}

@@ -1,6 +1,7 @@
 // Form parts, the counterparts of the Mac app's sheets and their controls: a form page (a sheet on
 // a wide screen, the whole screen on a phone, with its buttons in a bar at the bottom), labeled
-// fields, text inputs, a switch, a stepper, radio rows and a picker of images.
+// fields, text inputs, a switch, a stepper, radio rows, segmented choices, checkboxes and a picker
+// of images.
 
 import type { ComponentChildren } from "preact";
 import { useRef } from "preact/hooks";
@@ -9,13 +10,16 @@ import { Icon } from "./Icon.tsx";
 import "./form.css";
 
 /** A form on a page of its own: its title and what it is about, its fields, and its buttons kept in sight at the bottom. */
-export function FormPage({ title, sub, children, footer }: { title: string; sub?: ComponentChildren; children: ComponentChildren; footer: ComponentChildren }) {
+export function FormPage({ title, sub, icon, children, footer }: { title: string; sub?: ComponentChildren; icon?: ComponentChildren; children: ComponentChildren; footer: ComponentChildren }) {
   return (
     <div class="page form-page">
       <div class="form-sheet card">
-        <div class="form-head">
-          <h1 class="display form-title">{title}</h1>
-          {sub && <div class="secondary form-sub">{sub}</div>}
+        <div class={"form-head" + (icon ? " with-icon" : "")}>
+          {icon}
+          <div class="grow">
+            <h1 class="display form-title">{title}</h1>
+            {sub && <div class="secondary form-sub">{sub}</div>}
+          </div>
         </div>
         <div class="form-body">{children}</div>
         <div class="form-foot">{footer}</div>
@@ -24,35 +28,61 @@ export function FormPage({ title, sub, children, footer }: { title: string; sub?
   );
 }
 
-/** A field: its name over its control, with a line under it when there is something to say. */
-export function Field({ label, note, tone, children }: { label?: string; note?: ComponentChildren; tone?: "red" | "amber"; children: ComponentChildren }) {
-  return (
-    <label class="field">
-      {label && <span class="field-label">{label}</span>}
+/** A field: its name over its control, with a line under it when there is something to say. One
+ * holding several controls (`group`), or with something beside its name (`accessory`), is not a
+ * label, so a click on its name does not reach the first of them. */
+export function Field({ label, note, tone, accessory, group, children }: { label?: string; note?: ComponentChildren; tone?: "red" | "amber"; accessory?: ComponentChildren; group?: boolean; children: ComponentChildren }) {
+  const head = accessory ? (
+    <span class="field-label field-head">
+      <span>{label}</span>
+      {accessory}
+    </span>
+  ) : (
+    label && <span class="field-label">{label}</span>
+  );
+  const body = (
+    <>
+      {head}
       {children}
       {note && <span class={"caption" + (tone ? ` fg-${tone}` : "")}>{note}</span>}
-    </label>
+    </>
   );
+  return group || accessory ? <div class="field">{body}</div> : <label class="field">{body}</label>;
 }
 
-/** A line of text. `mono` is for paths and expressions: monospaced, and not corrected or capitalized as typed. */
-export function TextInput({ value, onInput, placeholder, mono, label }: { value: string; onInput: (v: string) => void; placeholder?: string; mono?: boolean; label?: string }) {
+/** A line of text. `mono` is for paths and expressions: monospaced, and not corrected or capitalized
+ * as typed. `secret` hides what is typed; `onEnter` runs on Return. */
+export function TextInput({ value, onInput, placeholder, mono, label, secret, disabled, onEnter }: { value: string; onInput: (v: string) => void; placeholder?: string; mono?: boolean; label?: string; secret?: boolean; disabled?: boolean; onEnter?: () => void }) {
+  const attrs = {
+    class: "input" + (mono ? " mono" : ""),
+    value,
+    placeholder,
+    disabled,
+    "aria-label": label ?? placeholder,
+    autocapitalize: mono ? ("off" as const) : undefined,
+    autocorrect: mono ? "off" : undefined,
+    spellcheck: mono || secret ? false : undefined,
+    autocomplete: secret ? "off" : undefined,
+    onInput: (e: Event) => onInput((e.target as HTMLInputElement).value),
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === "Enter" && onEnter) onEnter();
+    },
+  };
+  return secret ? <input type="password" {...attrs} /> : <input type="text" {...attrs} />;
+}
+
+export function TextArea({ value, onInput, placeholder, rows = 6, invalid, label, mono }: { value: string; onInput: (v: string) => void; placeholder?: string; rows?: number; invalid?: boolean; label?: string; mono?: boolean }) {
   return (
-    <input
-      class={"input" + (mono ? " mono" : "")}
+    <textarea
+      class={"input textarea" + (invalid ? " invalid" : "") + (mono ? " mono" : "")}
+      rows={rows}
       value={value}
       placeholder={placeholder}
-      aria-label={label}
-      autocapitalize={mono ? "off" : undefined}
-      autocorrect={mono ? "off" : undefined}
+      aria-label={label ?? placeholder}
       spellcheck={mono ? false : undefined}
-      onInput={(e) => onInput((e.target as HTMLInputElement).value)}
+      onInput={(e) => onInput((e.target as HTMLTextAreaElement).value)}
     />
   );
-}
-
-export function TextArea({ value, onInput, placeholder, rows = 6, invalid, label }: { value: string; onInput: (v: string) => void; placeholder?: string; rows?: number; invalid?: boolean; label?: string }) {
-  return <textarea class={"input textarea" + (invalid ? " invalid" : "")} rows={rows} value={value} placeholder={placeholder} aria-label={label} onInput={(e) => onInput((e.target as HTMLTextAreaElement).value)} />;
 }
 
 /** A switch (Mac: `Toggle`), labeled for whoever reads it out. */
@@ -62,6 +92,47 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
       <span class="knob" />
     </button>
   );
+}
+
+/** A switch with its title and a line under it (Mac: a `Toggle` with a two-line label). */
+export function SwitchRow({ on, onChange, title, sub, disabled }: { on: boolean; onChange: (on: boolean) => void; title: string; sub?: string; disabled?: boolean }) {
+  return (
+    <div class={"switch-row" + (disabled ? " disabled" : "")}>
+      <span class="grow">
+        <span>{title}</span>
+        {sub && <span class="caption block">{sub}</span>}
+      </span>
+      <Switch on={on} onChange={onChange} label={title} disabled={disabled} />
+    </div>
+  );
+}
+
+/** A row of choices, one selected (the Mac's segmented control). */
+export function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div class="choices" role="radiogroup" aria-label={label}>
+      {options.map(([v, l]) => (
+        <button type="button" role="radio" aria-checked={v === value} class={"choice" + (v === value ? " on" : "")} onClick={() => onChange(v)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A checkbox with its text, for picking several. */
+export function Check({ on, onChange, children }: { on: boolean; onChange: (on: boolean) => void; children: ComponentChildren }) {
+  return (
+    <label class="check-row">
+      <input type="checkbox" checked={on} onChange={(e) => onChange((e.target as HTMLInputElement).checked)} />
+      <span class="grow">{children}</span>
+    </label>
+  );
+}
+
+/** Ask before something that can't be taken back: the browser's own dialog. */
+export function confirmed(question: string, detail = ""): boolean {
+  return window.confirm(detail ? `${question}\n\n${detail}` : question);
 }
 
 /** A number in a range, with − and + beside it (Mac: `Stepper`). */
@@ -90,11 +161,12 @@ export function Radio({ on, onSelect, children, disabled, label }: { on: boolean
 }
 
 /** A menu of values (Mac: `Picker`). */
-export function Select<T extends string | number>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+export function Select<T extends string | number>({ value, options, onChange, label, disabled }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string; disabled?: boolean }) {
   return (
     <select
       class="input select"
       aria-label={label}
+      disabled={disabled}
       value={String(value)}
       onChange={(e) => {
         const raw = (e.target as HTMLSelectElement).value;

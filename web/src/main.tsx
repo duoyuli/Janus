@@ -14,7 +14,8 @@ import { ChatsPage, NewChatPage } from "./pages/chats.tsx";
 import { InboxPage } from "./pages/inbox.tsx";
 import { LoopEditor } from "./pages/loops.tsx";
 import { MemoryPage, NotePage } from "./pages/memory.tsx";
-import { MissingPage, RunPage, SettingsPage } from "./pages/misc.tsx";
+import { MissingPage, RunPage } from "./pages/misc.tsx";
+import { SettingsPage } from "./pages/settings/index.tsx";
 import { PairPage, UnpairedPage } from "./pages/pair.tsx";
 import { BriefEditor, WorkspaceEditor } from "./pages/workspace-edit.tsx";
 import { WorkspacePage, WorkspacesPage } from "./pages/workspace.tsx";
@@ -54,7 +55,7 @@ function Page() {
     case "newChat":
       return <NewChatPage />;
     case "settings":
-      return <SettingsPage />;
+      return <SettingsPage tab={r.tab} sub={r.sub} id={r.id} key={`${r.tab}/${r.sub ?? ""}/${r.id ?? ""}`} />;
     default:
       return <MissingPage />;
   }

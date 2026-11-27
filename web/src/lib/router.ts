@@ -32,7 +32,7 @@ export type Route =
   | { page: "run"; id: string }
   | { page: "chats" }
   | { page: "newChat" }
-  | { page: "settings" }
+  | { page: "settings"; tab: string; sub?: string; id?: string }
   | { page: "pair"; code: string }
   | { page: "missing" };
 
@@ -53,7 +53,7 @@ export function match(p: string): Route {
   if (a === "runs" && b) return { page: "run", id: b };
   if (a === "chats" && !b) return { page: "chats" };
   if (a === "chats" && b === "new" && !c) return { page: "newChat" };
-  if (a === "settings") return { page: "settings" };
+  if (a === "settings") return { page: "settings", tab: b ?? "", sub: parts[2], id: parts[3] };
   if (a === "pair" && b) return { page: "pair", code: b };
   return { page: "missing" };
 }

@@ -1668,3 +1668,5 @@
 "可以粘贴截图" = "You can paste screenshots";
 "减少" = "Decrease";
 "增加" = "Increase";
+"Web 版随 Mac 上的 Janus 一起更新：在 Mac 上的 Janus 设置 › 通用 › 更新。" = "The web version updates with Janus on the Mac: Settings › General › Updates in Janus on the Mac.";
+"macOS 权限和本机环境只能在 Mac 上的 Janus 设置：它们决定 Agent 能用到这台 Mac 的哪些东西。" = "macOS permissions and the local environment are set only in Janus on the Mac: they decide what of this Mac agents can use.";
