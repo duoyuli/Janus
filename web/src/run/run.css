@@ -7,7 +7,7 @@
 
 .callout { font-size: 13px; }
 .footnote { font-size: 12px; }
-.headline { font-size: 14px; font-weight: 600; margin: 0; }
+.card-title { font-size: 14px; font-weight: 600; margin: 0; }
 .title3 { font-family: var(--font-display); font-size: 17px; font-weight: 600; margin: 0; }
 .strong { font-weight: 600; }
 .block { display: block; }

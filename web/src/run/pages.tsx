@@ -81,7 +81,7 @@ export function TaskPage({ run, id }: { run: RunModel; id: string }) {
           {((x.accept ?? []).length > 0 || (x.checks ?? []).length > 0 || x.summary) && (
             <Card>
               <div class="row-inline">
-                <span class="headline grow">{t`验收标准`}</span>
+                <span class="card-title grow">{t`验收标准`}</span>
                 {summary.criteria > 0 && <span class="caption secondary">{t`${summary.criteria} 条 · 通过 ${summary.passed} 条`}</span>}
               </div>
               <ListNote items={x.traceGaps ?? []} tone="amber" format={(l) => t`和工作目录对不上：\n${l}`} />
@@ -149,7 +149,7 @@ export function TaskPage({ run, id }: { run: RunModel; id: string }) {
           {(x.artifacts ?? []).length > 0 && (
             <Card>
               <div class="row-inline">
-                <span class="headline">{t`产物`}</span>
+                <span class="card-title">{t`产物`}</span>
                 <span class="caption secondary">{x.artifacts.length}</span>
               </div>
               {x.artifacts.map((a: Json) => {
@@ -230,7 +230,7 @@ export function AgentPage({ run, id }: { run: RunModel; id: string }) {
         </div>
         <Card pad={12} class="split-side">
           <div class="row-inline">
-            <span class="headline grow">{t`负责的子任务`}</span>
+            <span class="card-title grow">{t`负责的子任务`}</span>
             <span class="caption secondary">{t`${tasks.length} 个`}</span>
           </div>
           {!tasks.length && <div class="callout secondary">{id === "lead" ? t`负责人管规划和协调。` : t`还没有分配子任务。`}</div>}
@@ -382,7 +382,7 @@ export function TeamPage({ run }: { run: RunModel }) {
               <div class="row-inline">
                 <Avatar role={w.role} size={34} />
                 <div class="grow min0">
-                  <div class="headline">{w.name + (w.lead ? t` · 负责人` : "")}</div>
+                  <div class="card-title">{w.name + (w.lead ? t` · 负责人` : "")}</div>
                   <div class="caption secondary">{`${w.runtime} · ACP`}</div>
                 </div>
                 <Pill text={pl} tone={pt} />

@@ -192,7 +192,7 @@ function ReplayBar({ run }: { run: RunModel }) {
   const e = pos >= 1 && pos <= n ? run.events.value[pos - 1] : null;
   return (
     <div class="replay-bar">
-      <span class="headline">{t`回放模式`}</span>
+      <span class="card-title">{t`回放模式`}</span>
       <span class="caption secondary">{t`只读 · 当时的状态`}</span>
       <button type="button" class="icon-btn" aria-label={t`上一条事件`} title={t`上一条事件（←）`} onClick={() => run.setReplay(Math.max(1, pos - 1))}><Icon name="chevron.left" /></button>
       <input type="range" class="grow" min={1} max={Math.max(n, 2)} value={pos} aria-label={t`回放位置`} aria-valuetext={t`第 ${pos} 条，共 ${n} 条`} onInput={(ev) => run.setReplay(Number(ev.currentTarget.value))} />
