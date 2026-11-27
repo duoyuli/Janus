@@ -447,28 +447,8 @@ struct RunCard: View {
         .accessibilityLabel(run.usageOpen ? L.text("收起用量明细") : L.text("展开用量明细"))
     }
 
-    private var status: (String, Tone) {
-        let r = st.run
-        switch r.status {
-        case .cancelled: return (L.text("已停止"), .gray)
-        case .failed: return (L.text("任务失败"), .red)
-        case .interrupted: return (L.text("已中断"), .gray)
-        default: break
-        }
-        if r.paused { return (L.text("已暂停"), .gray) }
-        switch st.review?.stage {
-        case .awaiting?: return (L.text("已交付 · 等你验收"), .green)
-        case .blocked?: return (L.text("结果没进你的分支"), .amber)
-        case .resolving?: return (L.text("负责人在解决合并冲突"), .blue)
-        case .leadWorking?: return (L.text("负责人在处理你的消息"), .blue)
-        case .held?: return (L.text("你打断了负责人"), .amber)
-        case .accepted?: return (L.text("已验收"), .green)
-        default: break
-        }
-        if r.status == .planning { return (L.text("负责人正在上岗"), .blue) }
-        if !st.inbox.isEmpty { return (L.text("\(st.inbox.count) 件待处理"), .amber) }
-        return (L.text("团队干活中"), .blue)
-    }
+    /// The status capsule, as the server words it.
+    private var status: (String, Tone) { (st.capsule.text, st.capsule.tone) }
 }
 
 struct InboxSection: View {
@@ -502,45 +482,28 @@ struct AgentsPanel: View {
     let st: RunState
 
     var body: some View {
-        let members = run.team
-        let active = members.filter { phase($0["id"].str, lead: $0["lead"].truthy) != .idle }.count
+        // Each member's row as the server works it out: what it does, what it is on, how it went.
+        let members = st.members
+        let active = members.filter { $0.phase != .idle }.count
         VStack(alignment: .leading, spacing: 8) {
             if active > 0 { Text(verbatim: L.text("\(active) 个在干活")).font(.caption).foregroundStyle(.secondary) }
             // Rows divided by hairlines: no boxes inside the box.
             VStack(spacing: 0) {
                 ForEach(Array(members.enumerated()), id: \.offset) { i, m in
                     if i > 0 { Divider().padding(.leading, 42) }
-                    row(m["id"].str, lead: m["lead"].truthy)
+                    row(m)
                 }
             }
         }
     }
 
-    private func row(_ id: String, lead: Bool) -> some View {
-        let w = run.who(id)
-        let a = st.agents[id]
-        let mine = st.orderedTasks.filter { $0.agent == id }
-        let cur = mine.first { $0.status.isBusy }
-        let next = mine.first { $0.status.isWaitingToStart }
-        let phase = self.phase(id, lead: lead)
-        let (pl, pt) = phase.label
-        var line: String
-        if lead {
-            line = !st.inbox.isEmpty ? L.text("\(st.inbox.count) 件待处理，其他子任务照常推进") : cur.map { "\($0.id) \($0.title)" } ?? (!(a?.note ?? "").isEmpty ? a!.note : st.run.status == .delivered ? L.text("已完成最终验收") : L.text("按依赖调度子任务"))
-        } else if let cur {
-            line = "\(cur.id) \(cur.title)"
-            if cur.status == .waitingInput { line += L.text(" · 等你回答") } else if cur.status == .waitingApproval { line += L.text(" · 等你审批") } else if let n = a?.note, !n.isEmpty { line += " · \(n)" }
-            if cur.human { line += L.text(" · 人工接管中") }
-        } else if let next {
-            let waiting = next.deps.filter { st.tasks[$0]?.status != .succeeded }.joined(separator: L.text("、"))
-            line = next.status == .blocked ? L.text("\(next.id) 等待 \(next.blockedBy) 修复") : L.text("下一步 \(next.id) · 等待 \(waiting.isEmpty ? L.text("调度") : waiting)")
-        } else {
-            line = !mine.isEmpty ? L.text("派给它的子任务都做完了") : !st.order.isEmpty ? L.text("负责人没有给它派子任务") : L.text("待命")
-        }
+    private func row(_ m: MemberLine) -> some View {
+        let w = run.who(m.id)
+        let (pl, pt) = m.phase.label
         var meta: [String] = []
-        if phase != .idle, let beat = a?.beat, beat > 0 { meta.append(L.text("最近活动 \(L.ago(beat, st.run.now))")) }
-        if !lead, let rs = runStats(id, mine) { meta.append(rs) }
-        return Button { run.page = .agent(id) } label: {
+        if let beat = m.beat { meta.append(L.text("最近活动 \(L.ago(beat, st.run.now))")) }
+        if let stats = m.stats { meta.append(stats) }
+        return Button { run.page = .agent(m.id) } label: {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 10) {
                     Avatar(initials: w.initials, color: w.color, size: 30, role: w.role)
@@ -550,10 +513,10 @@ struct AgentsPanel: View {
                             Spacer()
                             Pill(pl, pt)
                         }
-                        Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Text(m.line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                     }
                 }
-                if let cur, cur.status == .running, let p = a?.progress, p > 0 { Bar(value: p).padding(.leading, 40) }
+                if let p = m.progress { Bar(value: p).padding(.leading, 40) }
             }
             .padding(.vertical, 9).padding(.horizontal, 4)
             .contentShape(Rectangle())
@@ -562,25 +525,7 @@ struct AgentsPanel: View {
         .buttonStyle(.plain)
         .help(([w.runtime, w.model].filter { !$0.isEmpty } + meta).joined(separator: " · ") + L.text("\n点按查看 \(w.name) 的对话"))
     }
-
-    /// A collaborator without a task in progress is idle, whatever its last status said.
-    private func phase(_ id: String, lead: Bool) -> AgentPhase {
-        let p = st.run.status.isFinished ? .idle : st.agents[id]?.phase ?? .idle
-        let busy = st.orderedTasks.contains { $0.agent == id && $0.status.isBusy }
-        return !lead && !busy && p != .error ? .idle : p
-    }
-
-    /// "本次 2/3 首次通过 · 验证没通过 1"
-    private func runStats(_ id: String, _ mine: [TaskState]) -> String? {
-        let ended = mine.filter { $0.status == .succeeded || $0.status == .failed }
-        guard !ended.isEmpty else { return nil }
-        func vf(_ t: String) -> Int { st.events.filter { $0.type == .verificationFailed && $0.task == t }.count }
-        let first = ended.filter { $0.status == .succeeded && $0.attempts.count == 1 && vf($0.id) == 0 }.count
-        let vfail = ended.filter { vf($0.id) > 0 }.count
-        return L.text("本次 \(first)/\(ended.count) 首次通过\(vfail > 0 ? L.text(" · 验证没通过 \(vfail)") : "")")
-    }
 }
-
 /// What the lead suggests keeping in the workspace's shared material. Nothing is written until the
 /// person opens the shared material with the lines added and saves there.
 // @project-doc docs/domains/20261031-agents_and_roles.md#workspace_brief

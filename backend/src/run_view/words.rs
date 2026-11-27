@@ -15,13 +15,17 @@ use std::collections::HashMap;
 pub struct Words {
     pub lang: Lang,
     names: HashMap<String, String>,
+    /// The run's members in the snapshot's order, each with whether it leads.
+    pub team: Vec<(String, bool)>,
 }
 
 impl Words {
     /// For a run whose snapshot is `config` (its `team`).
     pub fn of(lang: Lang, config: &Value) -> Words {
-        let names = super::list(&config["team"]).iter().map(|m| (text(&m["id"]), text(&m["name"]))).collect();
-        Words { lang, names }
+        let members = super::list(&config["team"]);
+        let names = members.iter().map(|m| (text(&m["id"]), text(&m["name"]))).collect();
+        let team = members.iter().map(|m| (text(&m["id"]), super::truthy(&m["lead"]))).collect();
+        Words { lang, names, team }
     }
 
     /// Who an id is: the person, Janus, or a member by its name.

@@ -3,12 +3,9 @@
 "\n点按查看 %@ 的对话" = "\nClick to open the conversation with %@";
 " · %@ 检查" = " · Checked %@";
 " · 上下文 %@" = " · Context: %@";
-" · 人工接管中" = " · Under manual control";
 " · 峰值 %@" = " · Peak: %@";
 " · 有负责人" = " · Lead assigned";
 " · 独立验证：" = " · Independent verification: ";
-" · 等你回答" = " · Waiting for your answer";
-" · 等你审批" = " · Waiting for approval";
 " · 负责人" = " · Lead";
 " · 负责人：%@" = " · Lead: %@";
 " · 阻塞中" = " · Blocking";
@@ -43,7 +40,6 @@
 "%@ 的权限模式" = "Permission modes for %@";
 "%@ 的校验和不符，可能下载不完整" = "The checksum for %@ does not match. The download may be incomplete.";
 "%@ 等待 %@" = "%@ is waiting for %@";
-"%@ 等待 %@ 修复" = "%@ is waiting for %@ to be fixed";
 "%@ 轮" = "%@";
 "%@ 通过" = "%@ passed";
 "%@ 问负责人" = "%@ asked the lead";
@@ -164,7 +160,6 @@
 "上游交接：%@" = "Upstream handoff: %@";
 "下一条事件" = "Next Event";
 "下一条事件（→）" = "Next Event (→)";
-"下一步 %@ · 等待 %@" = "Next: %@ · Waiting for %@";
 "留言 · 下次会话带给它" = "Note · Delivered at its next session";
 "下游" = "Downstream";
 "下载 %@ 失败" = "Could not download %@";
@@ -202,7 +197,6 @@
 "以当前结果完成" = "Finish with Current Result";
 "价格更新于 %@。" = " Prices updated %@.";
 "任务" = "Runs";
-"任务失败" = "Run Failed";
 "Token 用量参考值：%@" = "Token usage reference: %@";
 "总计含负责人；负责人和协作者分开列" = "Totals include the lead; lead and collaborators are listed separately";
 "任务被取消" = "Run cancelled";
@@ -258,7 +252,6 @@
 "决策" = "Decisions";
 "凭据" = "Credentials";
 "分享" = "Share";
-"派给它的子任务都做完了" = "All its subtasks are done";
 "切换视图（⌘1 / ⌘2 / ⌘3）" = "Switch view (⌘1 / ⌘2 / ⌘3)";
 "切换这个会话的%@，立即生效" = "Change %@ for this session. Takes effect immediately.";
 "刚刚" = "Just now";
@@ -336,7 +329,6 @@
 "回答会记入日志，并发回给 Agent。%@" = "Your answer is logged and sent back to the Agent.%@";
 "团队" = "Team";
 "团队与权限" = "Team & Permissions";
-"团队干活中" = "Team working";
 "图片 %@" = "Image %@";
 "在 %@ 没有找到 %@ 的配置。" = "Could not find settings for %2$@ at %1$@.";
 "在用户目录里选要挡住的文件夹或文件，可以一次选多个；隐藏的文件和文件夹也显示" = "Pick folders or files in your home folder to hide; select several at once. Hidden items are shown.";
@@ -422,7 +414,6 @@
 "已中断" = "Interrupted";
 "已中断，可以从中断处继续" = "Interrupted and ready to resume";
 "已交付" = "Delivered";
-"已交付 · 等你验收" = "Delivered · Awaiting acceptance";
 "已从中断处继续" = "Resumed the interrupted run";
 "已刷新 %@，下个任务起生效" = "Refreshed %@ · applies from the next run";
 "已保存 %@" = "Saved %@";
@@ -442,7 +433,6 @@
 "已复制交付摘要" = "Delivery summary copied";
 "已复制用量账单" = "Usage statement copied";
 "已完成" = "Completed";
-"已完成最终验收" = "Final acceptance complete";
 "已完成：%@" = "Completed: %@";
 "已导入" = "Imported";
 "已导入 %@" = "Imported %@";
@@ -475,7 +465,6 @@
 "出错了" = "Error";
 "当前没有会话" = "No Active Session";
 "待发送 %lld" = "Pending Messages: %lld";
-"待命" = "Standing by";
 "待处理" = "Pending";
 "最近活动 %@" = "Last active %@";
 "总体意见（可选）" = "Overall Feedback (optional)";
@@ -518,7 +507,6 @@
 "指令" = "Instructions";
 "按任务需要开，用不到的可以先跳过。Janus 会自动检测。" = "Turn on what your runs need and skip the rest for now. Janus checks each one.";
 "按 models.dev API 价格折算 · 非账单" = "Estimated at models.dev API rates · Not an invoice";
-"按依赖调度子任务" = "Scheduling subtasks by dependency";
 "按子任务和成员拆开看用量" = "Usage by subtask and member";
 "按提示完成 %@ 登录，完成后自动检查。" = "Follow the steps to sign in to %@; it checks itself when you're done.";
 "按时间段汇总各 Agent 上报的 Token。金额按 models.dev API 价估算（不是账单），价格每天同步。" = "Tokens reported by each Agent over a period. Amounts are estimates at models.dev API prices (not a bill), synced daily.";
@@ -757,12 +745,9 @@
 "等你拍板" = "Your Call";
 "等你回答" = "Waiting for your answer";
 "等你填写" = "Form Required";
-"%lld 件待处理，其他子任务照常推进" = "%lld pending · other subtasks keep going";
 "等你审批" = "Waiting for approval";
 "等你回话" = "Waiting for You";
 "等上游" = "Waiting on upstream";
-"等待 %@" = "Waiting for %@";
-"等待 %@ 修复" = "Waiting for a fix to %@";
 "等队友" = "Waiting on a teammate";
 "等待登录" = "Waiting for sign-in";
 "等待看板上的进展" = "Wait for board activity";
@@ -864,8 +849,6 @@
 "负责人接受 %@ 的结果" = "Lead accepted the result for %@";
 "负责人派出子任务" = "The lead dispatched subtasks";
 "负责人插话" = "Lead Steering";
-"负责人正在上岗" = "Lead getting started";
-"负责人没有给它派子任务" = "The lead has assigned no subtasks";
 "要不要先问你，由 Agent 自己判断；它发来的审批、表单和链接都进「待处理」。" = "The Agent decides what to ask you first; its approvals, forms, and links land in Pending.";
 "负责人等你拍板：%@" = "The lead needs your call: %@";
 "负责人读完决定：让协作者修改、重做，或者自己处理" = "The lead reads it and decides: have the collaborator revise, redo it, or handle it directly";
@@ -1522,7 +1505,6 @@
 "你已于 %@ 验收了这次交付。" = "You accepted this delivery at %@.";
 "交付之后任务停下了，见上面的运行卡片。" = "The run stopped after this delivery; see the run card above.";
 "第 %lld 次交付" = "Delivery %lld";
-"结果没进你的分支" = "The result is not on your branch";
 "你在交付后的要求" = "What you asked after the delivery";
 "需要你看的" = "To Look At";
 "没有。负责人没留下要你决定的事，Janus 也没查出问题。" = "Nothing. The lead left nothing for you to decide, and Janus found no problems.";
@@ -1552,7 +1534,6 @@
 "展开证据全文" = "Show the whole evidence";
 "执行者自述的风险" = "Risks the assignee reported";
 "需要你看的：" = "To look at:";
-"负责人在解决合并冲突" = "Lead resolving a merge conflict";
 "负责人在处理你的消息" = "Lead working on your message";
 "恢复会话 · 从中断处接着推进目标" = "Session Restored · Continuing the Goal Where It Stopped";
 "现在更新 Janus？" = "Update Janus now?";

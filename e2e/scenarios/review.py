@@ -34,6 +34,9 @@ def review(ctx, c):
         marks = [f"{m['kind']}:{m['title']}" for m in view["timeline"]["milestones"]]
         c(st["run"]["timeline"] == {"tasks": served, "milestones": marks} and served[0]["result"],
           f"应用：进展时间线的子任务、尝试、结论和上面一栏的决定与服务端一致（{st['run']['timeline']}）")
+        members = [{"id": m["id"], "phase": m["phase"], "line": m["line"], "stats": m.get("stats")} for m in view["members"]]
+        c(st["run"]["capsule"] == view["capsule"]["text"] and st["run"]["members"] == members and len(members) == 2,
+          f"应用：运行卡片的状态和团队面板每个成员的一行与服务端一致（{st['run']['capsule']}，{st['run']['members']}）")
         rows = [{"task": t["task"], "metrics": t["metrics"], "markers": t["markers"], "open": t["needsAttention"],
                  "strength": t["strength"]["text"]} for t in view["delivery"]["tasks"]]
         rv = st["run"]["review"]

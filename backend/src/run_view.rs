@@ -13,6 +13,7 @@
 mod aside;
 mod board;
 pub mod docs;
+mod card;
 mod evidence;
 mod inbox;
 pub mod preview;
@@ -75,6 +76,11 @@ impl TaskShown {
     /// Not started yet: waiting for its dependencies or the scheduler.
     fn is_waiting_to_start(self) -> bool {
         matches!(self, TaskShown::Pending | TaskShown::Ready | TaskShown::Assigned | TaskShown::Blocked)
+    }
+
+    /// Its agent is on it: assigned, working, or waiting on the person in its session.
+    fn is_busy(self) -> bool {
+        matches!(self, TaskShown::Assigned | TaskShown::Running | TaskShown::WaitingInput | TaskShown::WaitingApproval)
     }
 
     /// Its attempt waits for the person to answer or approve.
@@ -1067,6 +1073,8 @@ pub struct Fold {
     pub state: RunState,
     board: board::BoardFold,
     stamps: BTreeMap<i64, (i64, String)>,
+    /// How many of each task's verifications failed (`verification.failed`).
+    failed_checks: BTreeMap<String, usize>,
     shown: HashMap<i64, Event>,
     diffs: BTreeMap<i64, Vec<DiffView>>,
     docs: docs::DocsFold,
@@ -1089,6 +1097,9 @@ impl Fold {
         self.state.apply(e);
         self.board.apply(&self.state, e);
         self.stamps.insert(e.seq, (e.ts, e.actor.clone()));
+        if let (EventKind::VerificationFailed, Some(t)) = (e.kind(), &e.task) {
+            *self.failed_checks.entry(t.clone()).or_default() += 1;
+        }
         let null = Value::Null;
         let d = e.data.as_ref().unwrap_or(&null);
         self.docs.apply(e, d);
@@ -1159,6 +1170,7 @@ impl Fold {
         let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail };
         let sessions = sessions::sessions(&self.state, live, replaying, &drawn);
         let timeline = timeline::timeline(&self.state, &board, &self.stamps, replaying, words);
+        let capsule = card::capsule(&self.state, review.as_ref(), words);
         let status = self.state.run.status;
         let read_only = !live && status == Some(RunStatus::Cancelled);
         let resume_note = match status {
@@ -1175,6 +1187,8 @@ impl Fold {
             diffs: self.diffs.clone(),
             docs: vec![],
             timeline,
+            capsule,
+            members: card::members(&self.state, &self.failed_checks, words),
             evidence: evidence::tasks(&self.state, words),
             delivery: evidence::delivery(&self.state, words),
             live,
@@ -1233,6 +1247,10 @@ pub struct RunView {
     pub docs: Vec<docs::Doc>,
     /// The progress timeline's rows and marks.
     pub timeline: timeline::Timeline,
+    /// The run card's status.
+    pub capsule: card::Pill,
+    /// The team panel: each member's row.
+    pub members: Vec<card::MemberLine>,
     /// Each task's acceptance evidence, by its id.
     pub evidence: BTreeMap<String, evidence::TaskEvidence>,
     /// The latest delivery's evidence: the round's numbers and each task's row.

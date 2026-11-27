@@ -354,6 +354,10 @@ struct RunState {
     var docs: [RunDoc] = []
     /// The progress timeline's rows and marks, as the server lays out what is on it.
     var timeline: JSON = .null
+    /// The run card's status, as the server words it.
+    var capsule = (text: "", tone: Tone.gray)
+    /// The team panel's rows, in the team's order.
+    var members: [MemberLine] = []
     /// Each task's acceptance evidence, by its id, as the server groups it.
     var evidence: [String: TaskEvidence] = [:]
     /// The latest delivery's evidence: the round's numbers and each task's row.
@@ -389,6 +393,8 @@ struct RunState {
         diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
         docs = j["docs"].array.map(RunDoc.init)
         timeline = j["timeline"]
+        capsule = (j["capsule"]["text"].str, Tone(rawValue: j["capsule"]["tone"].str) ?? .gray)
+        members = j["members"].array.map(MemberLine.init)
         evidence = j["evidence"].object.mapValues(TaskEvidence.init)
         delivery = j["delivery"].isNull ? nil : DeliveryEvidence(j["delivery"])
         allowed = RunActions(answers: j["actions"].object)
@@ -406,6 +412,30 @@ struct RunState {
     func event(_ seq: Int) -> Event? { seq >= 1 && seq <= events.count && events[seq - 1].seq == seq ? events[seq - 1] : events.first { $0.seq == seq } }
 
     var active: Bool { !run.goal.isEmpty && !run.status.isFinished }
+}
+
+/// One member's row in the team panel, as the server works it out (`backend/src/run_view/card.rs`):
+/// what it is doing, what it is on, and how its work in this run went.
+struct MemberLine {
+    let id: String
+    let lead: Bool
+    let phase: AgentPhase
+    let line: String
+    /// Its newest event while it works.
+    let beat: Double?
+    /// 「本次 2/3 首次通过 · 验证没通过 1」, for a collaborator whose tasks ended.
+    let stats: String?
+    let progress: Double?
+
+    init(_ j: JSON) {
+        id = j["id"].str
+        lead = j["lead"].bool ?? false
+        phase = AgentPhase(j["phase"].str)
+        line = j["line"].str
+        beat = j["beat"].double
+        stats = j["stats"].string
+        progress = j["progress"].double
+    }
 }
 
 /// What can be done to the whole run now, as the server answers it (`backend/src/run_ops.rs`):

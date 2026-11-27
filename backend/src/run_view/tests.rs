@@ -3,6 +3,7 @@
 
 mod aside;
 mod board;
+mod card;
 mod evidence;
 mod inbox;
 mod review;
