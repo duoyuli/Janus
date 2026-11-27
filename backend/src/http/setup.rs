@@ -238,6 +238,18 @@ pub(super) async fn rename_role_group(State(app): State<Arc<App>>, Json(body): J
     reply(json!({ "moved": app.rename_role_group(&text("from"), &text("to"))? }))
 }
 
+/// What workspace `id`'s shared material editor opens with when the person takes up `{lines}`
+/// (a lead's suggestions, a note): the saved text with them added, unsaved. `{text, limit}`.
+pub(super) async fn brief_draft(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    let lines: Vec<String> =
+        body["lines"].as_array().into_iter().flatten().filter_map(|l| l.as_str()).map(str::to_string).collect();
+    reply(json!({ "text": app.brief_draft(&id, &lines)?, "limit": crate::agents::BRIEF_LIMIT }))
+}
+
 /// Put a whole group on one agent: `{group, connection}` (`group` empty: those in no group).
 pub(super) async fn bind_role_group(State(app): State<Arc<App>>, Json(body): Json<Value>) -> ApiResult {
     let text = |k: &str| body[k].as_str().unwrap_or("").to_string();

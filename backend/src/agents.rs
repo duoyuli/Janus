@@ -48,7 +48,7 @@ pub(crate) use roles::{RoleSeed, SEEDS, text_hash};
 pub use runtime::{InstructionChannel, Runtime};
 use session_options::*;
 pub use session_options::{is_plan_value, plan_off_value, session_label, session_options};
-pub use workspaces::Workspace;
+pub use workspaces::{BRIEF_LIMIT, Workspace};
 
 /// Split a launch command like a shell would for the simple cases: whitespace, single and double quotes.
 pub(crate) fn split_command(cmd: &str) -> Result<Vec<String>> {

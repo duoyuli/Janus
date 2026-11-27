@@ -24,13 +24,6 @@ const BRIEF_LIMIT = 8000;
 /** Lines to add to a workspace's shared material when its page opens next (a note, or a lead's suggestions), as unsaved. */
 export const briefDraft = signal<{ workspace: string; lines: string[] } | null>(null);
 
-/** The shared material with `lines` added at the end, one bullet each (Mac: `BriefSuggestions.adding`). */
-export function adding(brief: string, lines: string[]): string {
-  const current = brief.trim();
-  const added = lines.map((l) => `- ${l}`).join("\n");
-  return current ? `${current}\n${added}` : added;
-}
-
 /** A workspace is saved whole: everything as it is saved now, with the parts changed here. */
 function whole(ws: Json, changes: Json): Json {
   return { id: ws.id, name: ws.name, path: ws.path, lead: ws.lead, members: ws.members, brief: ws.brief, ...changes };
@@ -207,8 +200,14 @@ export function BriefEditor({ id }: { id: string }) {
   useEffect(() => {
     const add = briefDraft.value;
     if (ws && add && add.workspace === id) {
-      draft.value = adding(ws.brief ?? "", add.lines);
       briefDraft.value = null;
+      // The service writes the draft: the saved text with the lines added (as the Mac app opens it).
+      void api
+        .post(`/api/workspaces/${encodeURIComponent(id)}/brief/draft`, { lines: add.lines })
+        .then((r: Json) => {
+          draft.value = r.text;
+        })
+        .catch((e) => show(t`打开共享资料失败：${e instanceof Error ? e.message : String(e)}`));
     }
   }, [id, !!ws]);
   const saving = useSignal(false);

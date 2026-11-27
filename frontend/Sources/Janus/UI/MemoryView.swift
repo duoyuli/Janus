@@ -170,7 +170,7 @@ struct MemoryEditor: View {
             let line = store.notes(of: workspace).first { $0["id"] == original["id"] }?["briefLine"].str ?? original["briefLine"].str
             dismiss()
             try? await Task.sleep(nanoseconds: 400_000_000)
-            store.editingBrief = BriefSuggestions.adding([line], to: ws.json)
+            await store.editBrief(ws.json, adding: [line])
         }
     }
 }

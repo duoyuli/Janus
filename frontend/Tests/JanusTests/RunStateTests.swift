@@ -163,12 +163,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(RunStatus("idle") == .unknown)
 }
 
-@Test func suggestedLinesAreAppendedToTheSharedMaterial() {
-    let ws: JSON = ["id": "w", "brief": "目标用户是独立开发者\n"]
-    #expect(BriefSuggestions.adding(["定价页在 docs/pricing.md"], to: ws)["brief"].str == "目标用户是独立开发者\n- 定价页在 docs/pricing.md")
-    #expect(BriefSuggestions.adding(["A", "B"], to: ["id": "w"])["brief"].str == "- A\n- B")
-}
-
 /// Saving the shared material on its own keeps the workspace's team, lead, name and folder.
 @MainActor @Test func savingTheSharedMaterialKeepsTheTeam() {
     let ws: JSON = ["id": "w", "name": "商城", "path": "/tmp/shop", "lead": "pmo", "brief": "旧的",

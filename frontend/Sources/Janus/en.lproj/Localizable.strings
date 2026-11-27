@@ -1315,6 +1315,7 @@
 
 /* Team memory */
 "保存笔记失败：%@" = "Could not save the note: %@";
+"打开共享资料失败：%@" = "Could not open the shared material: %@";
 "删除笔记「%@」？" = "Delete the note “%@”?";
 "之后的任务不会再读到它。" = "Later runs will no longer read it.";
 "坑" = "Pitfall";

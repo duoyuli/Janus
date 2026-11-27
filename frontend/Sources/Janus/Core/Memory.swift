@@ -13,6 +13,19 @@ extension AppStore {
     func notes(of workspace: String) -> [JSON] { memories[workspace]?["memories"].array ?? [] }
 
     /// The person rewrites a note; `false` when the server refused.
+    /// Open workspace `ws`'s shared material with `lines` (a note, a lead's suggestions) added at
+    /// the end, unsaved: the service writes the draft (`POST /api/workspaces/{id}/brief/draft`).
+    func editBrief(_ ws: JSON, adding lines: [String]) async {
+        do {
+            let draft = try await api.post("/api/workspaces/\(API.q(ws["id"].str))/brief/draft", ["lines": .array(lines.map { JSON($0) })])
+            var opened = ws
+            opened["brief"] = draft["text"]
+            editingBrief = opened
+        } catch {
+            show(L.text("打开共享资料失败：\(error.localizedDescription)"))
+        }
+    }
+
     func saveMemory(_ note: JSON, _ body: JSON) async -> Bool {
         do {
             _ = try await api.put("/api/memories/\(API.q(note["id"].str))", body)

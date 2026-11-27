@@ -196,6 +196,7 @@ pub fn router(app: Arc<App>, via: Via) -> Router {
         .route("/api/chats", post(runs::create_chat))
         .route("/api/loops", get(loops::list))
         .route("/api/loops/schedule", get(loops::schedule))
+        .route("/api/workspaces/{id}/brief/draft", post(setup::brief_draft))
         .route("/api/workspaces/{id}/loops", post(loops::create))
         .route("/api/loops/{id}", get(loops::get).put(loops::update).delete(loops::remove))
         .route("/api/loops/{id}/{action}", post(loops::act))

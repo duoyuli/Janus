@@ -514,7 +514,7 @@ struct BriefSuggestions: View {
                 Text(L.text("采纳后，这个工作区之后的任务都能看到。")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 if let ws = run.store.workspace(run.workspaceId) {
-                    Button(L.text("加入共享资料…")) { run.store.editingBrief = Self.adding(lines, to: ws.json) }
+                    Button(L.text("加入共享资料…")) { Task { await run.store.editBrief(ws.json, adding: lines) } }
                         .disabled(run.isReplaying)
                         .help(L.text("打开共享资料，把这些内容加到末尾，确认后保存"))
                 } else {
@@ -524,15 +524,6 @@ struct BriefSuggestions: View {
         }
         .padding(12)
         .background(Color.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
-    }
-
-    /// The workspace as the shared material sheet opens it: its shared material with the lines appended.
-    static func adding(_ lines: [String], to ws: JSON) -> JSON {
-        var ws = ws
-        let current = ws["brief"].str.trimmingCharacters(in: .whitespacesAndNewlines)
-        let added = lines.map { "- " + $0 }.joined(separator: "\n")
-        ws["brief"] = JSON(current.isEmpty ? added : current + "\n" + added)
-        return ws
     }
 }
 

@@ -61,6 +61,13 @@ impl App {
         self.db.get::<Workspace>(id)?.ok_or_else(|| anyhow!("工作区 {id} 不存在"))
     }
 
+    /// Workspace `id`'s shared material with `lines` added at the end, one bullet each: what the
+    /// editor opens with, unsaved, when the person takes up a lead's suggestions or a note.
+    // @project-doc docs/interfaces/20261031-http_api.md#setup
+    pub fn brief_draft(&self, id: &str, lines: &[String]) -> Result<String> {
+        Ok(brief_with(&self.workspace(id)?.brief, lines))
+    }
+
     // @project-doc docs/domains/20261031-agents_and_roles.md#workspaces
     pub fn save_workspace(&self, input: &WorkspaceInput) -> Result<Workspace> {
         let path = PathBuf::from(expand_home(&input.path));
@@ -215,12 +222,29 @@ impl App {
 pub(super) const MAX_SLOTS: i64 = 8;
 
 /// The most a workspace's shared material may hold: it goes into every session's prompt.
-pub(super) const BRIEF_LIMIT: usize = 8000;
+pub const BRIEF_LIMIT: usize = 8000;
+
+/// `brief` with `lines` added at the end, one `- ` bullet each.
+fn brief_with(brief: &str, lines: &[String]) -> String {
+    let added = lines.iter().map(|l| format!("- {}", l.trim())).collect::<Vec<_>>().join("\n");
+    match brief.trim() {
+        "" => added,
+        current => format!("{current}\n{added}"),
+    }
+}
 
 #[cfg(test)]
 mod workspace_tests {
     use super::*;
     use crate::orchestrator::test_app;
+
+    /// Suggested lines go at the end of what is there, one bullet each; with nothing there they are all of it.
+    #[test]
+    fn suggested_lines_are_added_at_the_end_as_bullets() {
+        let lines = vec!["用 pnpm".to_string(), " 测试先跑 lint ".to_string()];
+        assert_eq!(brief_with("  规则一\n", &lines), "规则一\n- 用 pnpm\n- 测试先跑 lint");
+        assert_eq!(brief_with("", &lines), "- 用 pnpm\n- 测试先跑 lint");
+    }
 
     /// The runtime alone is not enough: the role must also allow being the lead.
     #[test]
