@@ -8,8 +8,10 @@ struct AuditView: View {
     var body: some View {
         let full = run.state
         let events = full.events
+        // Which filter each kind shows under is the server's (`auditCategories` of `GET /api/meta`).
+        let categories = run.store.meta["auditCategories"]
         let rows = events.filter { e in
-            (run.auditCat == "all" || L.category(e.type) == run.auditCat)
+            (run.auditCat == "all" || (categories[e.type.rawValue].string ?? "tasks") == run.auditCat)
                 && (run.auditTask.isEmpty || e.task == run.auditTask || e.data["target"].str == run.auditTask)
                 && (run.auditActor.isEmpty || e.actor == run.auditActor || e.to == run.auditActor)
         }

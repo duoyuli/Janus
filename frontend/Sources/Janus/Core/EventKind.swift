@@ -106,7 +106,4 @@ enum EventKind: String {
     case unknown
 
     init(wire: String) { self = EventKind(rawValue: wire) ?? .unknown }
-
-    /// What the event is about, the part of its name before the dot (`question` of `question.asked`).
-    var family: Substring { rawValue.prefix { $0 != "." } }
 }

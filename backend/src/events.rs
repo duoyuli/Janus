@@ -114,6 +114,17 @@ wire_enum! {
     }
 }
 
+wire_enum! {
+    /// The audit log's filters (besides 「全部」): which one an event shows under.
+    pub enum AuditCategory {
+        Tasks = "tasks",
+        Messages = "messages",
+        Artifacts = "artifacts",
+        Decisions = "decisions",
+        Progress = "progress",
+    }
+}
+
 impl EventKind {
     /// What answers or withdraws a request (`data.key`): a question, an approval or a form.
     pub const SETTLES_REQUEST: [EventKind; 5] = [
@@ -123,6 +134,40 @@ impl EventKind {
         EventKind::InputAnswered,
         EventKind::DecisionWithdrawn,
     ];
+
+    /// The audit log's filter that shows this kind (`GET /api/meta` gives every kind's, so the
+    /// clients filter the log the same way).
+    // @project-doc docs/architecture/20261031-frontend.md#run_page
+    pub fn audit_category(self) -> AuditCategory {
+        use EventKind::*;
+        let family = self.as_str().split('.').next().unwrap_or("");
+        if matches!(
+            self,
+            QuestionAnswered
+                | InputAnswered
+                | ApprovalGranted
+                | ApprovalDenied
+                | RiskAccepted
+                | RunMerged
+                | RunPaused
+                | RunResumed
+                | RunCancelled
+        ) {
+            AuditCategory::Decisions
+        } else if matches!(family, "question" | "answer" | "control" | "session")
+            || matches!(self, ApprovalRequested | InputRequested | UserMessage | MessageDelivered)
+        {
+            AuditCategory::Messages
+        } else if self == AgentMessage {
+            AuditCategory::Progress
+        } else if family == "artifact" || self == ContextHandoff {
+            AuditCategory::Artifacts
+        } else if family == "tool" || self == AgentStatus {
+            AuditCategory::Progress
+        } else {
+            AuditCategory::Tasks
+        }
+    }
 
     /// An agent did something in the run: spoke, called a tool, handed in a result or put
     /// tasks on the board. Opening a session, Janus's own notes and usage readings are not work.
@@ -135,5 +180,51 @@ impl EventKind {
                 | EventKind::OrchestrationAccepted
                 | EventKind::TaskSucceeded
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each kind shows under the filter the audit log has always put it under.
+    #[test]
+    fn audit_categories() {
+        let cases = [
+            ("question.answered", "decisions"),
+            ("input.answered", "decisions"),
+            ("approval.granted", "decisions"),
+            ("approval.denied", "decisions"),
+            ("risk.accepted", "decisions"),
+            ("run.merged", "decisions"),
+            ("run.paused", "decisions"),
+            ("run.resumed", "decisions"),
+            ("run.cancelled", "decisions"),
+            ("question.asked", "messages"),
+            ("question.escalated", "messages"),
+            ("approval.requested", "messages"),
+            ("input.requested", "messages"),
+            ("answer.delivered", "messages"),
+            ("user.message", "messages"),
+            ("message.delivered", "messages"),
+            ("control.taken", "messages"),
+            ("session.prompt", "messages"),
+            ("session.usage", "messages"),
+            ("agent.message", "progress"),
+            ("agent.status", "progress"),
+            ("tool.call", "progress"),
+            ("tool.completed", "progress"),
+            ("artifact.created", "artifacts"),
+            ("context.handoff", "artifacts"),
+            ("task.succeeded", "tasks"),
+            ("attempt.started", "tasks"),
+            ("run.created", "tasks"),
+            ("message.routed", "tasks"),
+            ("run.delivered", "tasks"),
+        ];
+        for (kind, category) in cases {
+            let k = EventKind::parse(kind).unwrap_or_else(|| panic!("{kind} is a kind"));
+            assert_eq!(k.audit_category().as_str(), category, "{kind}");
+        }
     }
 }

@@ -14,6 +14,7 @@ import type { RunModel } from "../session/model.ts";
 import { CheckLines } from "../session/Items.tsx";
 import { runLink } from "./nav.ts";
 import { link } from "../lib/router.ts";
+import { meta } from "../lib/store.ts";
 import { pattern } from "../lib/format.ts";
 
 /** A subtask's id as a small tag (Mac: `TaskTag`). */
@@ -149,17 +150,13 @@ export function EventIcon({ mark }: { mark: { icon: string; tone: Tone | null } 
   return <span class={`event-icon${mark.tone ? ` tone-bg-${mark.tone}` : ""}`} aria-hidden="true">{GLYPH[mark.icon] ?? "·"}</span>;
 }
 
-/** The audit filter's category of an event kind. */
+/** The audit filter an event kind shows under, as the service says (`auditCategories` of
+ * `GET /api/meta`); a kind it does not know shows under 「子任务」. */
 export function category(type: string): string {
-  const family = type.split(".")[0] ?? "";
-  if (["question.answered", "input.answered", "approval.granted", "approval.denied", "risk.accepted", "run.merged", "run.paused", "run.resumed", "run.cancelled"].includes(type)) return "decisions";
-  if (["question", "answer", "control", "session"].includes(family) || ["approval.requested", "input.requested", "user.message", "message.delivered"].includes(type)) return "messages";
-  if (type === "agent.message") return "progress";
-  if (family === "artifact" || type === "context.handoff") return "artifacts";
-  if (family === "tool" || type === "agent.status") return "progress";
-  return "tasks";
+  return meta.value?.auditCategories?.[type] ?? "tasks";
 }
 
+/** The audit filter's choices. */
 export function categories(): [string, string][] {
   return [["all", t`全部`], ["tasks", t`子任务`], ["messages", t`消息`], ["artifacts", t`产物`], ["decisions", t`决策`], ["progress", t`进度与工具`]];
 }

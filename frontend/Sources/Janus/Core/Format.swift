@@ -26,16 +26,8 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 
 /// Labels and small formatting helpers.
 enum L {
-    /// Event categories for the feed and the audit filter.
-    static func category(_ type: EventKind) -> String {
-        let family = type.family
-        if [.questionAnswered, .inputAnswered, .approvalGranted, .approvalDenied, .riskAccepted, .runMerged, .runPaused, .runResumed, .runCancelled].contains(type) { return "decisions" }
-        if ["question", "answer", "control", "session"].contains(family) || [.approvalRequested, .inputRequested, .userMessage, .messageDelivered].contains(type) { return "messages" }
-        if type == .agentMessage { return "progress" }
-        if family == "artifact" || type == .contextHandoff { return "artifacts" }
-        if family == "tool" || type == .agentStatus { return "progress" }
-        return "tasks"
-    }
+    /// The audit filter's choices; which one each event kind shows under is the server's
+    /// (`auditCategories` of `GET /api/meta`).
     static var categoryLabel: [(String, String)] { [("all", L.text("全部")), ("tasks", L.text("子任务")), ("messages", L.text("消息")), ("artifacts", L.text("产物")), ("decisions", L.text("决策")), ("progress", L.text("进度与工具"))] }
 
     // MARK: Time

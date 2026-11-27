@@ -98,21 +98,6 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(missing.costDetail == expectedCopy("未上报", "Not reported"))
 }
 
-/// The audit filter's categories, compared by prefix (each event is asked on every draw).
-@Test func eventCategoriesFollowTheirPrefixes() {
-    let cases: [(String, String)] = [
-        ("question.answered", "decisions"), ("input.answered", "decisions"), ("approval.granted", "decisions"), ("approval.denied", "decisions"),
-        ("risk.accepted", "decisions"), ("run.merged", "decisions"), ("run.paused", "decisions"), ("run.resumed", "decisions"), ("run.cancelled", "decisions"),
-        ("question.asked", "messages"), ("question.escalated", "messages"), ("approval.requested", "messages"), ("input.requested", "messages"),
-        ("answer.delivered", "messages"), ("user.message", "messages"), ("message.delivered", "messages"), ("control.taken", "messages"),
-        ("session.prompt", "messages"), ("session.usage", "messages"),
-        ("agent.message", "progress"), ("agent.status", "progress"), ("tool.call", "progress"), ("tool.completed", "progress"),
-        ("artifact.created", "artifacts"), ("context.handoff", "artifacts"),
-        ("task.succeeded", "tasks"), ("attempt.started", "tasks"), ("run.created", "tasks"), ("message.routed", "tasks"), ("run.delivered", "tasks"),
-    ]
-    for (type, category) in cases { #expect(L.category(EventKind(wire: type)) == category, "\(type)") }
-}
-
 /// Patterns compiled once behave like the string methods they replace.
 @Test func compiledPatternsMatchTheStringMethods() {
     #expect(L.tilde("/Users/someone/work/a.md") == "~/work/a.md" && L.tilde("/opt/a.md") == "/opt/a.md")

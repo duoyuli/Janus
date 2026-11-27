@@ -56,6 +56,11 @@ pub(super) async fn meta(State(app): State<Arc<App>>) -> ApiResult {
         "db": app.cfg.layout.db(),
         // An app update waits until this is empty: restarting the server would cut these runs off.
         "atWork": app.at_work(),
+        // The audit log's filter each event kind shows under (`EventKind::audit_category`).
+        "auditCategories": crate::events::EventKind::ALL
+            .iter()
+            .map(|k| (k.as_str(), k.audit_category()))
+            .collect::<std::collections::BTreeMap<_, _>>(),
     }))
 }
 
