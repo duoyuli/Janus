@@ -733,6 +733,11 @@
   gap: 5px;
 }
 
+.markdown .md-image {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
 .markdown > :first-child {
   margin-top: 0;
 }

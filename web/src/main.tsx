@@ -50,7 +50,7 @@ function Page() {
     case "editLoop":
       return <LoopEditor loopId={r.loop} key={r.loop} />;
     case "run":
-      return <RunPage id={r.id} key={r.id} />;
+      return <RunPage id={r.id} sub={r.sub} key={r.id} />;
     case "chats":
       return <ChatsPage />;
     case "newChat":

@@ -1,9 +1,17 @@
 // An agent's Markdown, drawn the way the Mac app's `MarkdownText` (UI/Markdown.swift) draws it:
 // headings, paragraphs, lists, quotes, fenced code, tables and rules, with inline code, bold,
-// italics, strikethrough and links. Only how text is shown; nothing is read out of it. No HTML
-// in the text is ever rendered: everything is a text node.
+// italics, strikethrough, links and images. Only how text is shown; nothing is read out of it. No
+// HTML in the text is ever rendered: everything is a text node. A run's document passes `links` to
+// say where its relative images come from and to open a linked Markdown file in the app.
 
 import type { ComponentChildren, VNode } from "preact";
+
+export type Links = {
+  /** Where an image the text names is fetched from; `null` leaves it as its text. */
+  image?: (src: string) => string | null;
+  /** A link that is not a web address: opened in the app when it returns true. */
+  open?: (href: string) => boolean;
+};
 
 type Block =
   | { kind: "heading"; level: number; text: string }
@@ -90,10 +98,10 @@ export function blocks(text: string): Block[] {
   return out;
 }
 
-const INLINE = /(`+)([\s\S]*?)\1|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|~~([\s\S]+?)~~|\*([^*\n]+)\*|(?<![\w])_([^_\n]+)_(?![\w])|\[([^\]\n]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/;
+const INLINE = /!\[([^\]\n]*)\]\(([^)\s]+)\)|(`+)([\s\S]*?)\3|\*\*([\s\S]+?)\*\*|__([\s\S]+?)__|~~([\s\S]+?)~~|\*([^*\n]+)\*|(?<![\w])_([^_\n]+)_(?![\w])|\[([^\]\n]+)\]\(([^)\s]+)\)|(https?:\/\/[^\s<>()]+[^\s<>().,;:!?'"])/;
 
 /** Inline Markdown as text, code, emphasis and links. */
-export function inline(text: string): ComponentChildren[] {
+export function inline(text: string, links?: Links): ComponentChildren[] {
   const out: ComponentChildren[] = [];
   let rest = text;
   while (rest) {
@@ -103,20 +111,30 @@ export function inline(text: string): ComponentChildren[] {
       break;
     }
     if (m.index > 0) out.push(rest.slice(0, m.index));
-    const [whole, , code, bold1, bold2, strike, em1, em2, label, href, url] = m;
-    if (code !== undefined) out.push(<code>{code.trim()}</code>);
-    else if (bold1 !== undefined || bold2 !== undefined) out.push(<strong>{inline(bold1 ?? bold2!)}</strong>);
-    else if (strike !== undefined) out.push(<s>{inline(strike)}</s>);
-    else if (em1 !== undefined || em2 !== undefined) out.push(<em>{inline(em1 ?? em2!)}</em>);
-    else if (label !== undefined) out.push(link(href!, inline(label)));
+    const [whole, alt, src, , code, bold1, bold2, strike, em1, em2, label, href, url] = m;
+    if (src !== undefined) {
+      const at = /^https?:/i.test(src) ? src : (links?.image?.(src) ?? null);
+      out.push(at ? <img class="md-image" src={at} alt={alt ?? ""} loading="lazy" /> : whole);
+    } else if (code !== undefined) out.push(<code>{code.trim()}</code>);
+    else if (bold1 !== undefined || bold2 !== undefined) out.push(<strong>{inline(bold1 ?? bold2!, links)}</strong>);
+    else if (strike !== undefined) out.push(<s>{inline(strike, links)}</s>);
+    else if (em1 !== undefined || em2 !== undefined) out.push(<em>{inline(em1 ?? em2!, links)}</em>);
+    else if (label !== undefined) out.push(link(href!, inline(label, links), links));
     else if (url !== undefined) out.push(link(url, url));
     rest = rest.slice(m.index + whole.length);
   }
   return out;
 }
 
-function link(href: string, children: ComponentChildren): VNode {
+function link(href: string, children: ComponentChildren, links?: Links): VNode {
   const safe = /^(https?:|mailto:)/i.test(href);
+  if (!safe && links?.open) {
+    return (
+      <a href="#" onClick={(e) => { if (links.open?.(href)) e.preventDefault(); }}>
+        {children}
+      </a>
+    );
+  }
   return safe ? (
     <a href={href} target="_blank" rel="noreferrer noopener">
       {children}
@@ -127,21 +145,26 @@ function link(href: string, children: ComponentChildren): VNode {
 }
 
 /** Lines of a paragraph keep their breaks, as the agent wrote them. */
-function lines(text: string): ComponentChildren[] {
-  return text.split("\n").flatMap((l, i) => (i ? [<br />, ...inline(l)] : inline(l)));
+function lines(text: string, links?: Links): ComponentChildren[] {
+  return text.split("\n").flatMap((l, i) => (i ? [<br />, ...inline(l, links)] : inline(l, links)));
 }
 
-export function Markdown({ text, class: cls }: { text: string; class?: string }) {
+/** One line of inline Markdown. */
+export function Inline({ text }: { text: string }) {
+  return <>{inline(text)}</>;
+}
+
+export function Markdown({ text, class: cls, links }: { text: string; class?: string; links?: Links }) {
   return (
     <div class={"markdown" + (cls ? ` ${cls}` : "")}>
       {blocks(text).map((b) => {
         switch (b.kind) {
           case "heading": {
             const H = `h${Math.min(6, b.level + 2)}` as "h3";
-            return <H>{inline(b.text)}</H>;
+            return <H>{inline(b.text, links)}</H>;
           }
           case "para":
-            return <p>{lines(b.text)}</p>;
+            return <p>{lines(b.text, links)}</p>;
           case "code":
             return (
               <pre class="code-block">
@@ -149,9 +172,9 @@ export function Markdown({ text, class: cls }: { text: string; class?: string })
               </pre>
             );
           case "quote":
-            return <blockquote>{lines(b.text)}</blockquote>;
+            return <blockquote>{lines(b.text, links)}</blockquote>;
           case "list": {
-            const items = b.items.map((it) => <li>{lines(it)}</li>);
+            const items = b.items.map((it) => <li>{lines(it, links)}</li>);
             return b.ordered ? <ol start={b.start}>{items}</ol> : <ul>{items}</ul>;
           }
           case "table":
@@ -159,11 +182,11 @@ export function Markdown({ text, class: cls }: { text: string; class?: string })
               <div class="table-wrap">
                 <table>
                   <thead>
-                    <tr>{b.head.map((c) => <th>{inline(c)}</th>)}</tr>
+                    <tr>{b.head.map((c) => <th>{inline(c, links)}</th>)}</tr>
                   </thead>
                   <tbody>
                     {b.rows.map((r) => (
-                      <tr>{r.map((c) => <td>{inline(c)}</td>)}</tr>
+                      <tr>{r.map((c) => <td>{inline(c, links)}</td>)}</tr>
                     ))}
                   </tbody>
                 </table>

@@ -17,9 +17,12 @@ import { RequestCard } from "./Requests.tsx";
 
 /** A run's member as the conversation shows it: its name and model, and the role for its tile. */
 export function who(run: RunModel, id: string) {
+  if (id === "user") return { name: t`你`, model: "", runtime: "", lead: false, role: { name: t`你`, color: "#0f766e" } };
+  if (id === "janus") return { name: "Janus", model: "", runtime: "", lead: false, role: { name: "Janus", init: "JN", color: "#8a94a6" } };
   const m = (run.run.value?.config?.team ?? []).find((x: Json) => x.id === id);
-  const role = roles.value.find((r) => r.id === m?.role_id) ?? { name: m?.name ?? id, init: m?.init, color: m?.color };
-  return { name: m?.name ?? (id === "lead" ? t`负责人` : id), model: m?.model ?? "", role };
+  const lead = !!m?.lead && run.run.value?.kind !== "chat";
+  const role = roles.value.find((r) => r.id === m?.role_id) ?? { name: m?.name ?? id, init: m?.init, color: m?.color || (lead ? "#0b6bcb" : "") };
+  return { name: m?.name ?? (id === "lead" ? t`负责人` : id), model: m?.model ?? "", runtime: m?.connection_name ?? "", lead, role };
 }
 
 /** Paths inside the run's directory written relative to it, as the agent's own interface shows them. */

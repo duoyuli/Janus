@@ -60,9 +60,15 @@ def prepare(ctx):
     delivered = ctx.team("web-notes", members=("m1",)).run("写一份笔记")
     delivered.lead()
     delivered.finish("目标已完成：笔记写好了")
+    # A goal delivered with a subtask's evidence, a diff, a document and a timeline: the run page.
+    rt = ctx.team("web-review", members=("m1",), script={"T1": ["write:notes.md"]})
+    reviewed = rt.run("写一份笔记并交付审阅")
+    reviewed.orchestrate(scenarios.task("T1", rt.member("m1")))
+    reviewed.read_board(lambda b: "[完成] T1" in b)
+    reviewed.finish("## 结论\n笔记写好了。\n\n## 需要你决定\n- 要不要发布？\n\n## 改了什么\nnotes.md 写了一份笔记")
     # Each one is in the inbox before the browser opens it.
-    wait(lambda: {asked.id, later.id, delivered.id} <= {e["run"] for e in ctx.api("GET", "/api/inbox?lang=zh")["open"]},
-         "三个 Run 都进了收件箱", timeout=60)
+    wait(lambda: {asked.id, later.id, delivered.id, reviewed.id} <= {e["run"] for e in ctx.api("GET", "/api/inbox?lang=zh")["open"]},
+         "四个 Run 都进了收件箱", timeout=60)
     # Team memory the agents kept in `web`: one note each project edits or deletes.
     for note in ({"kind": "pitfall", "title": "端口被占用", "hook": "别用 7878", "body": "测试一律用空闲端口。"},
                  {"kind": "howto", "title": "怎么跑测试", "hook": "先装依赖再跑测试", "body": "运行 just setup，\n再运行 just test。"},
@@ -102,7 +108,7 @@ def prepare(ctx):
     goal.wait_event("input.requested", task="T3")
     # A folder to make a workspace of from the browser.
     folder = ctx.path("web-folder")
-    return {"workspace": "web", "asked": asked.id, "later": later.id, "delivered": delivered.id,
+    return {"workspace": "web", "asked": asked.id, "later": later.id, "delivered": delivered.id, "reviewed": reviewed.id,
             "newWorkspace": "web-new", "loop": loop["id"], "loopRun": loop["run"], "folder": folder,
             "chat": chat, "goal": goal.id}
 

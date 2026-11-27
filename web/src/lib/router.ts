@@ -33,7 +33,7 @@ export type Route =
   | { page: "note"; id: string; note: string }
   | { page: "newLoop"; id: string }
   | { page: "editLoop"; loop: string }
-  | { page: "run"; id: string }
+  | { page: "run"; id: string; sub: string[] }
   | { page: "chats" }
   | { page: "newChat" }
   | { page: "settings"; tab: string; sub?: string; id?: string }
@@ -54,7 +54,7 @@ export function match(p: string): Route {
   if (a === "workspaces" && b && c === "memory" && d) return { page: "note", id: b, note: d };
   if (a === "workspaces" && b && c === "loops" && d === "new") return { page: "newLoop", id: b };
   if (a === "loops" && b && c === "edit" && !d) return { page: "editLoop", loop: b };
-  if (a === "runs" && b) return { page: "run", id: b };
+  if (a === "runs" && b) return { page: "run", id: b, sub: parts.slice(2) };
   if (a === "chats" && !b) return { page: "chats" };
   if (a === "chats" && b === "new" && !c) return { page: "newChat" };
   if (a === "settings") return { page: "settings", tab: b ?? "", sub: parts[2], id: parts[3] };

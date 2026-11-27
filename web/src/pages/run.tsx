@@ -8,7 +8,6 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api, type Json } from "../lib/api.ts";
 import { joinList, tilde } from "../lib/format.ts";
 import { t } from "../lib/i18n.ts";
-import { go, search } from "../lib/router.ts";
 import { connections, loadSetup, show } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
@@ -19,10 +18,11 @@ import { SessionPanel } from "../session/SessionPanel.tsx";
 import { RequestList } from "../session/Requests.tsx";
 import { LoopPage } from "./loops.tsx";
 import { DreamPage } from "./memory.tsx";
-import { PlainRun } from "./misc.tsx";
+import { GoalPage } from "../run/RunPage.tsx";
+import { runSub } from "../run/nav.ts";
 import "./run.css";
 
-export function RunPage({ id }: { id: string }) {
+export function RunPage({ id, sub }: { id: string; sub: readonly string[] }) {
   const run = useMemo(() => new RunModel(id), [id]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -34,12 +34,10 @@ export function RunPage({ id }: { id: string }) {
   useDrawn("run", () => ({ id, kind: row?.kind ?? null, title: v?.title ?? "", status: v?.run?.status ?? null }));
   if (error) return <div class="page"><Note text={error} tone="red" /></div>;
   if (!row || !v) return <div class="page" />;
-  // A goal's conversation by its key (`?session=task:T1`): the one the inbox or a session's card opens.
-  const session = new URLSearchParams(search.value).get("session");
   const page = { ...v.run, id, title: v.title };
   switch (row.kind) {
     case "goal":
-      return session ? <GoalConversation run={run} sessionKey={session} /> : <PlainRun v={v} />;
+      return <GoalPage run={run} sub={runSub(sub)} />;
     case "loop":
       return <LoopPage run={page} session={<SessionPanel run={run} sessionKey="agent:lead" title={v.title} />} asks={<RequestList run={run} />} />;
     case "dream":
@@ -47,18 +45,6 @@ export function RunPage({ id }: { id: string }) {
     default:
       return <ConversationPage run={run} />;
   }
-}
-
-/** One conversation of a goal: a task's attempts, or everything one agent did in the run. */
-function GoalConversation({ run, sessionKey }: { run: RunModel; sessionKey: string }) {
-  const v = run.view.value;
-  usePageTitle(v?.title ?? "", `/runs/${encodeURIComponent(run.id)}`);
-  run.openSession = (key) => go(`/runs/${encodeURIComponent(run.id)}?session=${encodeURIComponent(key)}`);
-  return (
-    <div class="page conversation-page">
-      <div class="conversation-body">{v && <SessionPanel run={run} sessionKey={sessionKey} title={v.title} key={sessionKey} />}</div>
-    </div>
-  );
 }
 
 /** A chat: who it is with and where it works, a proposal of digital employees, then the conversation. */
