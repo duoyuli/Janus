@@ -103,7 +103,7 @@ export function OnboardingBar() {
       ))}
       <span class="grow" />
       {next && (
-        <a class="btn btn-primary btn-small" {...link(next.go === "workspace" ? "/workspaces/new" : "/settings")}>
+        <a class="btn btn-primary btn-small" {...link(next.go === "workspace" ? "/workspaces/new" : `/settings/${next.go}`)}>
           {next.text}
         </a>
       )}
@@ -198,7 +198,7 @@ export function WorkspacePage({ id }: { id: string }) {
       {problems.map((p) => (
         <div class="ws-problem">
           <Note text={p.text} tone="amber" />
-          <a class="btn btn-bordered btn-small" {...link("/settings")}>
+          <a class="btn btn-bordered btn-small" {...link(`/settings/${p.tab || "agents"}`)}>
             {p.action}
           </a>
         </div>

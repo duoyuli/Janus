@@ -89,7 +89,7 @@ export function NewChatPage() {
       {roles.value.length === 0 ? (
         <div class="ws-problem">
           <Note text={t`还没有数字员工。`} tone="amber" />
-          <a class="btn btn-bordered btn-small" {...link("/settings")}>
+          <a class="btn btn-bordered btn-small" {...link("/settings/agents")}>
             {t`打开数字员工设置`}
           </a>
         </div>
