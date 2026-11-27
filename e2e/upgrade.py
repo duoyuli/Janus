@@ -318,13 +318,15 @@ def upgrade_from(tag, tmp, new_bin, latest, current_seeds, dump):
             check(conns[conn["id"]]["name"] == "Claude" and custom["id"] not in conns, "Claude Code 连接不变，「自定义命令」的 Agent 已删除")
         else:
             check(t["connection"] == conn["id"] and conns[conn["id"]]["name"] == "Claude", "数字员工和绑定的 Claude Code 连接不变")
-        renamed = json.loads(json.dumps(before["workspaces"]))
+        # `problems`, `teamLine` and `briefStatus` are not stored: the service works them out when
+        # asked, so they are left out on both sides (a version from 2026.11.27 on serves them too).
+        served = ("problems", "teamLine", "briefStatus")
+        renamed = [{k: v for k, v in w.items() if k not in served} for w in json.loads(json.dumps(before["workspaces"]))]
         for w in renamed:
             w["lead"] = RENAMED.get(w["lead"], w["lead"])
             for m in w["members"]:
                 m["role"] = RENAMED.get(m["role"], m["role"])
-        # `problems`, `teamLine` and `briefStatus` are not stored: the service works them out now.
-        stored = [{k: v for k, v in w.items() if k not in ("problems", "teamLine", "briefStatus")} for w in setup["workspaces"]]
+        stored = [{k: v for k, v in w.items() if k not in served} for w in setup["workspaces"]]
         check(stored == renamed, "工作区除了默认数字员工的新 id 外不变")
         db = sqlite3.connect(home_db(home))
         team = json.loads(db.execute("SELECT config FROM runs WHERE id = 'run-old'").fetchone()[0])["team"]
