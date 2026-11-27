@@ -61,7 +61,7 @@ test("the audit log, the team, a subtask, a diff and a document follow the servi
 
   const task = view.tasks[0].id;
   await page.goto(`/runs/${id}/tasks/${task}`);
-  await expect.poll(async () => (await drawn(page)).pages.task?.trace).toEqual(view.page.tasks[task].trace);
+  await expect.poll(async () => (await drawn(page)).pages.task?.trace).toEqual(view.page.tasks[task].trace.map((r: any) => r.seq));
   const tp = (await drawn(page)).pages.task;
   expect({ criteria: tp.criteria, passed: tp.passed }).toEqual({ criteria: view.evidence[task].criteria, passed: view.evidence[task].passed });
   expect(tp.downstream).toEqual(view.page.tasks[task].downstream);

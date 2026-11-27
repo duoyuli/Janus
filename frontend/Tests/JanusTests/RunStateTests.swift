@@ -62,17 +62,24 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
 @Test func aTasksEvidenceAndItsVerifierReadAsServed() throws {
     let st = RunState(["tasks": [servedTask("T2", status: "succeeded", ["checks": [["criterion": "测试通过", "passed": true, "method": "test", "evidence": "ok"]], "risks": ["没有覆盖负数"]])],
                        "evidence": ["T2": ["criteria": 2, "passed": 1, "counts": "测试 1 条", "reminders": [],
-                                           "rows": [["n": 1, "criterion": "测试通过", "check": ["criterion": "测试通过", "passed": true, "method": "test"]],
-                                                    ["n": 2, "criterion": "有保护", "check": .null]],
+                                           "rows": [["n": 1, "criterion": "测试通过", "check": ["criterion": "测试通过", "passed": true, "method": "test"],
+                                                     "line": ["mark": "passed", "method": ["text": "测试", "tone": "green", "icon": "checkmark.seal", "help": "h"],
+                                                              "criterion": "测试通过", "evidence": "", "noEvidence": "没有给出证据", "folds": false, "voice": "v"]],
+                                                    ["n": 2, "criterion": "有保护", "check": .null,
+                                                     "line": ["mark": "unchecked", "method": ["text": "未核对", "tone": "gray", "icon": "minus.circle", "help": "h"],
+                                                              "criterion": "有保护", "evidence": "", "folds": false, "voice": "v"]]],
                                            "verifications": [["task": "V1", "status": "succeeded", "verdict": "rejected", "passed": false,
-                                                              "checks": [["criterion": "边界通过", "passed": false, "method": "command", "evidence": "panic"]]]]]]],
+                                                              "checks": [["criterion": "边界通过", "passed": false, "method": "command", "evidence": "panic"]],
+                                                              "lines": [["mark": "failed", "method": ["text": "命令", "tone": "blue", "icon": "terminal", "help": "h"],
+                                                                         "criterion": "边界通过", "evidence": "panic", "folds": false, "voice": "v"]]]]]]],
                       events: [])
-    #expect(st.tasks["T2"]?.checks.first?.method == .test && st.tasks["T2"]?.risks == ["没有覆盖负数"])
+    #expect(st.tasks["T2"]?.checks.first?["method"].str == "test" && st.tasks["T2"]?.risks == ["没有覆盖负数"])
     let e = try #require(st.evidence["T2"])
-    #expect(e.rows.map(\.n) == [1, 2] && e.rows[1].check == nil, "a criterion nothing answered keeps its row")
+    #expect(e.rows.map(\.n) == [1, 2] && e.rows[1].line.mark == .unchecked, "a criterion nothing answered keeps its row")
+    #expect(e.rows[0].line.method == CheckView.Method(text: "测试", tone: .green, icon: "checkmark.seal", help: "h") && e.rows[0].line.noEvidence == "没有给出证据")
     let v = try #require(e.verifications.first)
     #expect(v.task == "V1" && v.verdict == .rejected && !v.passed, "completed negative review is not an approval")
-    #expect(v.checks.first?.methodLabel == expectedCopy("命令", "Command"))
+    #expect(v.checks.first?.method.text == "命令" && v.checks.first?.mark == .failed, "a verifier's checks are the lines the server wrote")
 }
 
 /// A run's row shows the label the server wrote; a queued run is neither at work nor finished.
@@ -170,28 +177,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(body["brief"] == "新的")
     for k in ["id", "name", "path", "lead", "members"] { #expect(body[k] == ws[k], "\(k)") }
 }
-
-/// The five methods read back with the words the task page shows; a value outside the set stays as
-/// written instead of becoming one of them, and a check with none is 「未说明」, not 「推理判断」.
-@Test func evidenceMethodsLabelThemselves() {
-    for (raw, label) in [("test", expectedCopy("测试", "Test")), ("command", expectedCopy("命令", "Command")),
-                         ("inspection", expectedCopy("检查", "Inspection")), ("reasoning", expectedCopy("推理判断", "Reasoning")),
-                         ("unverified", expectedCopy("未核实", "Unverified"))] {
-        let c = Check(["criterion": "标准1", "passed": true, "method": JSON(raw), "evidence": "证据"])
-        #expect(c.method?.rawValue == raw)
-        #expect(c.methodLabel == label)
-    }
-    // A check that names no method: shown as 未说明, never as reasoning.
-    let none = Check(["criterion": "标准1", "passed": true, "evidence": "看起来没问题"])
-    #expect(none.method == nil && none.badMethod == nil)
-    #expect(none.methodLabel == expectedCopy("未说明", "Unspecified"))
-    // An illegal value is kept as recorded and never mapped onto an allowed method.
-    let bad = Check(["criterion": "标准1", "passed": true, "method": "vibes", "evidence": "看着没问题"])
-    #expect(bad.method == nil)
-    #expect(bad.badMethod == "vibes")
-    #expect(bad.methodLabel == expectedCopy("证据方法「vibes」不认识（没说明）", "Unknown evidence method “vibes” (not given)"))
-}
-
 
 /// An installed app does not use a Janus service of another release (its data upgrade has not run);
 /// an app run from source uses whatever runs.

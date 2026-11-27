@@ -8,123 +8,77 @@ import SwiftUI
 /// One check's method, written out: 「测试」「命令」「检查」「推理判断」「未核实」, 「未说明」 for a
 /// check recorded without one, or the recorded value when it is not an allowed method.
 struct MethodTag: View {
-    /// nil for a criterion that nothing answered yet.
-    let check: Check?
+    let method: CheckView.Method
 
     var body: some View {
-        let style = self.style
         HStack(spacing: 4) {
-            Image(systemName: style.symbol).font(.system(size: 9, weight: .bold)).accessibilityHidden(true)
-            Text(style.text)
+            Image(systemName: method.icon).font(.system(size: 9, weight: .bold)).accessibilityHidden(true)
+            Text(method.text)
         }
         .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(style.tone.color)
+        .foregroundStyle(method.tone.color)
         .padding(.horizontal, 6).padding(.vertical, 1.5)
-        .background(style.tone.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+        .background(method.tone.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
         .fixedSize()
-        .help(style.help.isEmpty ? L.text("证据方法：\(style.text)") : L.text("证据方法：\(style.text) · \(style.help)"))
-        // The text carries the meaning; VoiceOver reads it without the glyph or the tone.
+        .help(L.text("证据方法：\(method.text) · \(method.help)"))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L.text("证据方法：\(style.text)"))
-    }
-
-    private var style: (text: String, tone: Tone, symbol: String, help: String) {
-        guard let check else { return (L.text("未核对"), .gray, "minus.circle", L.text("还没有核对这条标准")) }
-        if let method = check.method {
-            switch method {
-            case .test: return (L.text("测试"), .green, "checkmark.seal", L.text("运行自动化测试得到的结果"))
-            case .command: return (L.text("命令"), .blue, "terminal", L.text("运行命令、脚本或检查工具得到的结果"))
-            case .inspection: return (L.text("检查"), .blue, "doc.text.magnifyingglass", L.text("检查代码、文件、界面或实际状态得到的结果"))
-            case .reasoning: return (L.text("推理判断"), .amber, "brain", L.text("根据推理或自我判断得到的结果，不是运行得到的结果"))
-            case .unverified: return (L.text("未核实"), .amber, "questionmark.circle", L.text("证据缺失、复现不了或暂时没法核实"))
-            }
-        }
-        if check.badMethod != nil {
-            return (check.methodLabel, .red, "exclamationmark.triangle", L.text("不认识的证据方法"))
-        }
-        return (L.text("未说明"), .gray, "minus.circle", L.text("这次结果没有说明证据方法"))
+        .accessibilityLabel(L.text("证据方法：\(method.text)"))
     }
 }
 
-/// One acceptance criterion with the check that answered it: pass mark, method as text, the
-/// criterion and the whole evidence, selectable. `n` is the criterion's place in the result; the
-/// session shows a check without one.
+/// One criterion with the check that answered it, as the server writes it: ✓/✗/○, how it was
+/// checked, and the evidence (two lines until asked for the rest).
 struct CheckLine: View {
-    let n: Int?
-    let criterion: String
-    let check: Check?
+    let line: CheckView
     var dense = false
-    /// The whole evidence is shown; folded, it shows its first two lines.
     @Local private var whole = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(check.map { $0.passed ? "✓" : "✗" } ?? "○")
+            Text(line.mark == .passed ? "✓" : line.mark == .failed ? "✗" : "○")
                 .fontWeight(.bold)
-                .foregroundStyle(check.map { $0.passed ? Tone.green.color : Tone.red.color } ?? Color.secondary)
+                .foregroundStyle(line.mark == .passed ? Tone.green.color : line.mark == .failed ? Tone.red.color : Color.secondary)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    MethodTag(check: check)
-                    Text(criterion.isEmpty ? L.text("（没有写明标准）") : criterion)
+                    MethodTag(method: line.method)
+                    Text(line.criterion)
                         .font(dense ? .footnote.weight(.medium) : .callout.weight(.medium))
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if let check {
-                    if check.evidence.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(L.text("没有给出证据")).font(.caption).foregroundStyle(Tone.red.color)
-                    } else {
-                        // Two lines by default, the whole of it a click away: the text is never
-                        // shortened or rewritten, only folded.
-                        Text(MD.inline(check.evidence))
-                            .font(.caption).foregroundStyle(.secondary)
-                            .lineLimit(whole ? nil : 2)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if CheckLine.folds(check.evidence) {
-                            Button(whole ? L.text("收起") : L.text("全文")) { whole.toggle() }
-                                .buttonStyle(.link).font(.caption)
-                                .accessibilityLabel(whole ? L.text("收起证据") : L.text("展开证据全文"))
-                        }
+                if !line.evidence.isEmpty {
+                    Text(MD.inline(line.evidence))
+                        .font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(whole ? nil : 2)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if line.folds {
+                        Button(whole ? L.text("收起") : L.text("全文")) { whole.toggle() }
+                            .buttonStyle(.link).font(.caption)
+                            .accessibilityLabel(whole ? L.text("收起证据") : L.text("展开证据全文"))
                     }
+                } else if let none = line.noEvidence {
+                    Text(none).font(.caption).foregroundStyle(Tone.red.color)
                 }
             }
             Spacer(minLength: 0)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(voice)
-    }
-
-    /// Evidence long enough that two lines may not hold it.
-    static func folds(_ evidence: String) -> Bool { evidence.count > 120 || evidence.contains("\n") }
-
-    /// What VoiceOver reads: whether it passed, the method as words, the criterion and evidence.
-    private var voice: String {
-        let head = n.map { L.text("第 \($0) 条，") } ?? ""
-        guard let check else { return L.text("\(head)未核对，\(criterion)") }
-        let state = check.passed ? L.text("通过") : L.text("没通过")
-        let method = L.text("证据方法：\(check.methodLabel)")
-        let evidence = check.evidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "\(head)\(state)，\(method)，\(criterion)\(evidence.isEmpty ? L.text("，没有给出证据") : L.text("，证据：\(evidence)"))"
+        .accessibilityLabel(line.voice)
     }
 }
 
-/// Recorded checks one per line, numbered in their order: a result's, a verification's, a
-/// delivery record's.
+/// A record's checks, each as a line.
 struct CheckLines: View {
-    let checks: [Check]
+    let lines: [CheckView]
     var dense = false
 
     var body: some View {
-        ForEach(Array(checks.enumerated()), id: \.offset) { i, c in
-            CheckLine(n: i + 1, criterion: c.criterion, check: c, dense: dense)
-        }
+        ForEach(Array(lines.enumerated()), id: \.offset) { _, l in CheckLine(line: l, dense: dense) }
     }
 }
 
-/// The reminders under a task's checks: weaker evidence that the lead should read but that is not a
-/// failure by itself (reasoning, unverified, no method at all).
 struct EvidenceReminders: View {
     let reminders: [String]
     var body: some View {
@@ -152,7 +106,7 @@ struct VerificationList: View {
                         .font(.caption).foregroundStyle(v.passed ? .secondary : Tone.amber.color)
                 }
                 if !v.summary.isEmpty { Text(MD.inline(v.summary)).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                CheckLines(checks: v.checks, dense: true)
+                CheckLines(lines: v.checks, dense: true)
                 ForEach(v.evidence.indices, id: \.self) { i in
                     Text(MD.inline(v.evidence[i])).font(.caption).foregroundStyle(.secondary)
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -273,7 +227,7 @@ struct DeliveryTaskView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Text(verbatim: L.text("证据：\(record.counts)"))
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            CheckLines(checks: record.checks)
+            CheckLines(lines: record.checks)
             EvidenceReminders(reminders: record.reminders)
             if !record.verifications.isEmpty {
                 Divider()

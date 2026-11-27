@@ -5,6 +5,7 @@
 //! groups what was recorded (`crate::evidence` holds the rules).
 // @project-doc docs/architecture/20261031-frontend.md#evidence_methods
 
+use super::checks::{self, CheckLine};
 use super::words::Words;
 use super::{RunState, TaskShown, TaskView, list, text, texts, truthy};
 use crate::evidence::{Check, Method, MethodCount, Summary, Verdict, effective_verdict};
@@ -22,6 +23,8 @@ pub struct CheckRow {
     pub criterion: String,
     /// The check as recorded; `None` for a criterion nothing answered yet.
     pub check: Option<Value>,
+    /// The two as the person reads them.
+    pub line: CheckLine,
 }
 
 /// One task's evidence, as its page shows it.
@@ -50,6 +53,8 @@ pub struct VerificationView {
     pub passed: bool,
     pub summary: String,
     pub checks: Vec<Value>,
+    /// Its checks as the person reads them.
+    pub lines: Vec<CheckLine>,
     pub evidence: Vec<String>,
     pub risks: Vec<String>,
 }
@@ -134,6 +139,8 @@ pub struct AcceptanceRow {
     /// confirm it. The executor's own risks and reminders only mark the row.
     pub needs_attention: bool,
     pub checks: Vec<Value>,
+    /// Its checks as the person reads them.
+    pub lines: Vec<CheckLine>,
     /// Each independent verification as recorded, with `passed` filled in.
     pub verifications: Vec<Value>,
     pub unverified: bool,
@@ -154,19 +161,21 @@ fn checks_of(v: &[Value]) -> Vec<Check> {
 }
 
 /// Every criterion with the check at its place, then the checks beyond the criteria.
-fn rows(accept: &[String], checks: &[Value]) -> Vec<CheckRow> {
-    let mut out: Vec<CheckRow> = accept
-        .iter()
-        .enumerate()
-        .map(|(i, c)| CheckRow { n: i + 1, criterion: c.clone(), check: checks.get(i).cloned() })
-        .collect();
+fn rows(accept: &[String], checks: &[Value], l: crate::lang::Lang) -> Vec<CheckRow> {
+    let row = |n: usize, criterion: String, check: Option<&Value>| CheckRow {
+        line: checks::line(Some(n), &criterion, check, l),
+        n,
+        criterion,
+        check: check.cloned(),
+    };
+    let mut out: Vec<CheckRow> = accept.iter().enumerate().map(|(i, c)| row(i + 1, c.clone(), checks.get(i))).collect();
     for (i, c) in checks.iter().enumerate().skip(accept.len()) {
-        out.push(CheckRow { n: i + 1, criterion: text(&c["criterion"]), check: Some(c.clone()) });
+        out.push(row(i + 1, text(&c["criterion"]), Some(c)));
     }
     out
 }
 
-fn verification(v: &TaskView) -> VerificationView {
+fn verification(v: &TaskView, l: crate::lang::Lang) -> VerificationView {
     let verdict = (v.status == TaskShown::Succeeded).then(|| {
         let given = v.verdict.as_deref().and_then(Verdict::parse);
         effective_verdict(given, v.accept.len(), &checks_of(&v.checks))
@@ -178,6 +187,7 @@ fn verification(v: &TaskView) -> VerificationView {
         passed: verdict == Some(Verdict::Approved),
         summary: v.summary.clone(),
         checks: v.checks.clone(),
+        lines: checks::lines(&v.checks, l),
         evidence: v.evidence.clone(),
         risks: v.risks.clone(),
     }
@@ -190,13 +200,13 @@ pub(super) fn tasks(st: &RunState, w: &Words) -> BTreeMap<String, TaskEvidence> 
         .iter()
         .map(|t| {
             let s = Summary::of_in(&t.accept, &checks_of(&t.checks), l);
-            let verifications = st.tasks.iter().filter(|v| v.verifies == t.id).map(verification).collect();
+            let verifications = st.tasks.iter().filter(|v| v.verifies == t.id).map(|v| verification(v, l)).collect();
             let e = TaskEvidence {
                 criteria: s.criteria,
                 passed: s.passed,
                 counts: s.counts(l),
                 reminders: s.reminders,
-                rows: rows(&t.accept, &t.checks),
+                rows: rows(&t.accept, &t.checks, l),
                 verifications,
             };
             (t.id.clone(), e)
@@ -243,6 +253,7 @@ fn acceptance_row(r: &Value, w: &Words) -> AcceptanceRow {
             let mut v = v.clone();
             let passed = v["passed"].as_bool().unwrap_or(v["verdict"] == "approved");
             v["passed"] = passed.into();
+            v["lines"] = serde_json::to_value(checks::lines(list(&v["checks"]), l)).unwrap_or_default();
             v
         })
         .collect();
@@ -282,6 +293,7 @@ fn acceptance_row(r: &Value, w: &Words) -> AcceptanceRow {
         markers,
         needs_attention,
         checks: list(&r["checks"]).to_vec(),
+        lines: checks::lines(list(&r["checks"]), l),
         verifications,
         unverified,
         trace_gaps,

@@ -26,30 +26,6 @@ enum Tone: String { case gray, blue, green, amber, red, violet }
 
 /// Labels and small formatting helpers.
 enum L {
-    static let icon: [EventKind: String] = [
-        .runCreated: "✦", .runCancelled: "■", .runPaused: "Ⅱ", .runResumed: "▶",
-        .taskReady: "▸", .taskAssigned: "↗", .attemptStarted: "▶", .attemptFailed: "✕", .taskRetryScheduled: "↻", .taskReopened: "↺",
-        .resultSubmitted: "⇪", .taskSucceeded: "✓", .artifactCreated: "▤", .contextHandoff: "⇄",
-        .questionAsked: "?", .questionEscalated: "⇡", .questionAnswered: "✎", .answerDelivered: "↩",
-        .approvalRequested: "⚑", .inputRequested: "✎", .inputAnswered: "↩", .approvalGranted: "✓", .approvalDenied: "✕",
-        .runDelivered: "★", .riskAccepted: "✓", .runMerged: "✓", .taskFailed: "✕",
-        .taskBlocked: "⊘", .taskSkippedByDecision: "→", .verificationStarted: "◌", .verificationFailed: "✕",
-        .verificationPassed: "✓", .runFailed: "✕", .runInterrupted: "■", .agentStatus: "·", .toolCall: "⌘", .toolStarted: "⌘", .toolCompleted: "✓",
-        .sessionPrompt: "→", .resultAmended: "✎", .runRecovered: "↻", .messageRouted: "↪", .decisionWithdrawn: "↩",
-        .agentMessage: "❝", .userMessage: "✎",
-        .messageDelivered: "↪", .sessionParked: "◌", .controlTaken: "✋", .controlReleased: "↻", .sessionInterrupted: "‖",
-        .taskConflict: "⚠", .leadStalled: "⏳", .taskStalled: "⏳", .taskSplitRequested: "✂",
-    ]
-
-    private static let toneTable: [Tone: [EventKind]] = [
-        .green: [.taskSucceeded, .approvalGranted, .inputAnswered, .runDelivered, .riskAccepted, .runMerged],
-        .amber: [.questionAsked, .questionEscalated, .approvalRequested, .inputRequested, .runPaused, .controlTaken, .sessionInterrupted, .userMessage, .taskConflict, .leadStalled, .taskStalled, .taskSplitRequested],
-        .red: [.attemptFailed, .approvalDenied, .runCancelled, .taskFailed, .runFailed, .runInterrupted],
-        .gray: [.agentStatus, .toolCall, .toolCompleted, .taskReady, .sessionParked],
-        .blue: [.toolStarted, .sessionPrompt],
-    ]
-    static func tone(of type: EventKind) -> Tone? { toneTable.first { $0.value.contains(type) }?.key }
-
     /// Event categories for the feed and the audit filter.
     static func category(_ type: EventKind) -> String {
         let family = type.family

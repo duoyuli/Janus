@@ -134,7 +134,8 @@ struct TaskState {
     /// The session's turn has ended and it waits for a message.
     var idle: Bool { session?.idle ?? false }
     let blockedBy: String
-    let checks: [Check]
+    /// The checks of its result, as the agent handed them in.
+    let checks: [JSON]
     let verificationFailures: [String]
     let error: String
     let question: Question?
@@ -162,7 +163,7 @@ struct TaskState {
         artifacts = j["artifacts"].array.map(Artifact.init)
         session = j["session"].isNull ? nil : SessionTurn(j["session"])
         blockedBy = j["blockedBy"].str
-        checks = Check.list(j["checks"])
+        checks = j["checks"].array
         verificationFailures = j["verificationFailures"].strings
         error = j["error"].str
         question = j["question"].isNull ? nil : Question(j["question"])
@@ -379,6 +380,8 @@ struct RunState {
     var resumeNote: String?
     /// The run page's own lines and lists around the board, as the server writes them.
     var page = ServedPage()
+    /// The checks events carry (a result, a verification), by seq, as the server writes them.
+    var checks: [Int: [CheckView]] = [:]
     /// The newest event the server folded in.
     var seq = 0
     /// The events shown with it, the run's log up to the shown position (the app's own copy).
@@ -416,6 +419,7 @@ struct RunState {
         title = j["title"].str
         resumeNote = j["resumeNote"].string
         page = ServedPage(j["page"])
+        checks = Dictionary(j["checks"].object.compactMap { k, v in Int(k).map { ($0, CheckView.list(v)) } }, uniquingKeysWith: { a, _ in a })
         seq = j["seq"].int ?? 0
         self.events = events
     }
@@ -533,7 +537,7 @@ struct BoardFacts {
 struct ServedPage {
     struct Earlier { let n: Int; let seq: Int; let line: String; let accepted: Bool }
     struct TaskPage {
-        var trace: [Int] = []
+        var trace: [TraceRow] = []
         var downstream: [String] = []
         var structure = ""
         var env: [(String, String)] = []
@@ -565,10 +569,50 @@ struct ServedPage {
         files = j["inspector"]["files"].array.map(Artifact.init)
         delivered = j["inspector"]["delivered"].array.map(RunDoc.init)
         tasks = j["tasks"].object.mapValues { t in
-            TaskPage(trace: t["trace"].array.compactMap(\.int), downstream: t["downstream"].strings, structure: t["structure"].str,
+            TaskPage(trace: t["trace"].array.map(TraceRow.init), downstream: t["downstream"].strings, structure: t["structure"].str,
                      env: t["env"].array.map { ($0["label"].str, $0["value"].str) })
         }
         workspaceNote = j["team"]["workspace"].str
         branchNote = j["team"]["branch"].string
+    }
+}
+
+/// One row of a task's execution trace, as the server writes it (`TraceRow` in
+/// `backend/src/run_view/page.rs`): an attempt's header, or an event with its mark, who did it, its
+/// text and what it shows under that.
+struct TraceRow: Identifiable {
+    struct Attempt { let title, runtime, session, place: String }
+    struct Detail { let kind, text: String; let tone: Tone; let checks: [CheckView] }
+
+    let seq: Int
+    let ts: Double
+    let attempt: Attempt?
+    let mark: EventMark
+    let who: String
+    let text: String
+    let detail: Detail?
+    var id: Int { seq }
+
+    init(_ j: JSON) {
+        seq = j["seq"].int ?? 0
+        ts = j["ts"].double ?? 0
+        let a = j["attempt"]
+        attempt = a.isNull ? nil : Attempt(title: a["title"].str, runtime: a["runtime"].str, session: a["session"].str, place: a["place"].str)
+        mark = EventMark(j["mark"])
+        who = j["who"].str
+        text = j["text"].str
+        let d = j["detail"]
+        detail = d.isNull ? nil : Detail(kind: d["kind"].str, text: d["text"].str, tone: Tone(rawValue: d["tone"].str) ?? .gray, checks: CheckView.list(d["checks"]))
+    }
+}
+
+/// An event kind's symbol and colour, as the server names them (`event_mark`).
+struct EventMark {
+    let icon: String
+    let tone: Tone?
+
+    init(_ j: JSON) {
+        icon = j["icon"].str
+        tone = j["tone"].string.flatMap(Tone.init(rawValue:))
     }
 }

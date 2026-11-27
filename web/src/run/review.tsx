@@ -11,8 +11,9 @@ import { Button, Card, Disclosure, SectionHeader } from "../ui/kit.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { Inline, Markdown } from "../session/Markdown.tsx";
 import type { RunModel } from "../session/model.ts";
+import { CheckLines } from "../session/Items.tsx";
 import { diffLink, docLink, runLink, taskLink } from "./nav.ts";
-import { CheckLines, EvidenceReminders, ListNote, RiskList, SeqButton, StrengthBar, TaskTag, VerificationList } from "./parts.tsx";
+import { EvidenceReminders, ListNote, RiskList, SeqButton, StrengthBar, TaskTag, VerificationList } from "./parts.tsx";
 import { leadFocus } from "./board.tsx";
 
 /** Open rows of the delivery's acceptance, by task: a row without an entry uses its default. */
@@ -247,7 +248,7 @@ function DeliveryTaskRow({ run, row }: { run: RunModel; row: Json }) {
         <div class="delivery-row-body">
           <div class="callout strong">{row.title}</div>
           <div class="caption secondary">{t`证据：${row.counts}`}</div>
-          <CheckLines checks={row.checks ?? []} />
+          <CheckLines lines={row.lines ?? []} />
           <EvidenceReminders reminders={row.reminders ?? []} />
           {(row.verifications ?? []).length > 0 && (
             <>

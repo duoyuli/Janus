@@ -22,7 +22,7 @@ struct TaskView: View {
     private func content(_ st: RunState, _ t: TaskState) -> some View {
         let (label, tone) = t.status.label
         let page = st.page.tasks[t.id] ?? ServedPage.TaskPage()
-        let evs = page.trace.compactMap { st.event($0) }
+        let trace = page.trace
         let w = run.who(t.agent)
         // The evidence summary is a display grouping of what the events recorded; whether the task
         // passed stays with `task.succeeded` / `verification.*`.
@@ -52,13 +52,13 @@ struct TaskView: View {
                         ChatCard(run: run, st: st, title: L.text("会话"), info: session, target: .task(t.id))
                             .frame(height: 560)
                         // The full trace is long and repeats the audit log; it stays folded until asked for.
-                        if !evs.isEmpty {
+                        if !trace.isEmpty {
                             Card {
                                 DisclosureGroup {
                                     // Lazy: a long task has hundreds of events, built only as they scroll into view.
-                                    LazyVStack(alignment: .leading, spacing: 8) { ForEach(evs) { e in TimelineRow(run: run, e: e, note: notes[e.seq]) } }.padding(.top, 6)
+                                    LazyVStack(alignment: .leading, spacing: 8) { ForEach(trace) { r in TimelineRow(run: run, row: r) } }.padding(.top, 6)
                                 } label: {
-                                    HStack { Text(L.text("执行轨迹")).font(.headline); Text(verbatim: L.text("\(evs.count) 条事件")).font(.caption).foregroundStyle(.secondary) }
+                                    HStack { Text(L.text("执行轨迹")).font(.headline); Text(verbatim: L.text("\(trace.count) 条事件")).font(.caption).foregroundStyle(.secondary) }
                                 }
                             }
                         }
@@ -83,7 +83,7 @@ struct TaskView: View {
                                 }
                                 // One row per criterion, and every check is kept even when it names no criterion.
                                 ForEach(summary.rows) { row in
-                                    CheckLine(n: row.n, criterion: row.criterion, check: row.check)
+                                    CheckLine(line: row.line)
                                 }
                                 if !t.checks.isEmpty {
                                     Text(verbatim: L.text("证据：\(summary.counts)")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
@@ -180,23 +180,20 @@ struct TaskView: View {
     }
 }
 
+/// One row of a task's trace, as the server writes it.
 struct TimelineRow: View {
     let run: RunModel
-    let e: Event
-    /// What the server says about an attempt's start: its note and where it works.
-    var note: Conversation.Note?
+    let row: TraceRow
 
     var body: some View {
-        let d = e.data
-        if e.type == .attemptStarted {
+        if let a = row.attempt {
             HStack(spacing: 10) {
-                Text(verbatim: L.text("尝试 \(e.attempt ?? 0)")).fontWeight(.semibold)
-                Text(verbatim: "\(d["runtime"].str)\(note?.note ?? "")").foregroundStyle(.secondary)
-                Text(L.short(d["session"].str, 40)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                let place = note?.git ?? d["workspace"].str
-                Text(verbatim: place).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(place)
+                Text(verbatim: a.title).fontWeight(.semibold)
+                Text(verbatim: a.runtime).foregroundStyle(.secondary)
+                Text(a.session).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                Text(verbatim: a.place).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(a.place)
                 Spacer()
-                SeqButton(seq: e.seq, run: run)
+                SeqButton(seq: row.seq, run: run)
             }
             .font(.callout)
             .padding(.vertical, 4)
@@ -204,32 +201,26 @@ struct TimelineRow: View {
             .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
         } else {
             HStack(alignment: .top, spacing: 10) {
-                EventIcon(type: e.type)
+                EventIcon(mark: row.mark)
                 VStack(alignment: .leading, spacing: 4) {
-                    (Text(run.who(e.actor).name).fontWeight(.semibold) + Text("　" + e.text)).font(.callout).textSelection(.enabled)
-                    detail(d)
+                    (Text(row.who).fontWeight(.semibold) + Text("　" + row.text)).font(.callout).textSelection(.enabled)
+                    if let d = row.detail { detail(d) }
                 }
                 Spacer()
-                Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary)
-                SeqButton(seq: e.seq, run: run)
+                Text(L.clock(row.ts)).font(.caption).foregroundStyle(.secondary)
+                SeqButton(seq: row.seq, run: run)
             }
         }
     }
 
-    @ViewBuilder private func detail(_ d: JSON) -> some View {
-        switch e.type {
-        case .toolCall, .toolStarted, .toolCompleted:
-            Text(verbatim: "\(d["tool"].str) \(L.short(d["input"].str, 200))\n\(e.type == .toolStarted ? L.text("等待返回…") : "→ " + L.short(d["output"].str, 200))").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-        case .questionAsked: Note(text: L.text("\(d["question"].str)\n选项：\(d["options"].strings.joined(separator: " / "))"))
-        case .questionAnswered: if d["note"].truthy { Note(text: L.text("补充说明：\(d["note"].str)")) }
-        case .attemptFailed: Note(text: d["error"].str, tone: .red)
-        case .taskRetryScheduled: Note(text: L.text("重试策略：\(d["strategy"].str)"))
-        case .artifactCreated: Note(text: "\(d["desc"].str)\n\(L.tilde(d["path"].str)) · sha256 \(d["hash"].str)…")
-        case .resultSubmitted:
-            CheckLines(checks: Check.list(d["checks"]), dense: true)
-            if !d["risks"].array.isEmpty { Note(text: L.text("风险：\(d["risks"].strings.joined(separator: L.text("；")))"), tone: .amber) }
-        case .approvalRequested: CodeBlock(text: "$ \(d["command"].str)")
-        default: EmptyView()
+    @ViewBuilder private func detail(_ d: TraceRow.Detail) -> some View {
+        switch d.kind {
+        case "call": Text(verbatim: d.text).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+        case "code": CodeBlock(text: d.text)
+        case "checks":
+            CheckLines(lines: d.checks, dense: true)
+            if !d.text.isEmpty { Note(text: d.text, tone: .amber) }
+        default: Note(text: d.text, tone: d.tone)
         }
     }
 }

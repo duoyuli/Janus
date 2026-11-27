@@ -6,63 +6,45 @@ import Foundation
 // decodes and draws them; whether a task passed stays with `task.succeeded` and `verification.*`
 // (docs/architecture/20261031-frontend.md#evidence_methods).
 
-/// How a check says it was verified. Only these five values are methods; any other value is kept as
-/// recorded and shown as such instead of being read as a method.
-enum EvidenceMethod: String, CaseIterable {
-    case test, command, inspection, reasoning, unverified
+/// A criterion with the check that answered it, as the server writes it (`CheckLine`,
+/// `backend/src/run_view/checks.rs`): how it came out, how it was checked (a word, a colour, a
+/// symbol and what it means), the evidence and whether it folds, and the whole line read out.
+struct CheckView: Equatable {
+    enum Mark: String { case passed, failed, unchecked }
+    struct Method: Equatable { let text: String; let tone: Tone; let icon: String; let help: String }
 
-    var label: String {
-        switch self {
-        case .test: return L.text("测试")
-        case .command: return L.text("命令")
-        case .inspection: return L.text("检查")
-        case .reasoning: return L.text("推理判断")
-        case .unverified: return L.text("未核实")
-        }
-    }
-}
-
-struct Check: Hashable {
+    let mark: Mark
+    let method: Method
     let criterion: String
-    let passed: Bool
     let evidence: String
-    /// The method the check named, if it named one.
-    let method: EvidenceMethod?
-    /// A `method` value outside the allowed set, kept exactly as recorded so it is shown, not guessed.
-    let badMethod: String?
+    let noEvidence: String?
+    let folds: Bool
+    let voice: String
 
     init(_ j: JSON) {
+        mark = Mark(rawValue: j["mark"].str) ?? .unchecked
+        let m = j["method"]
+        method = Method(text: m["text"].str, tone: Tone(rawValue: m["tone"].str) ?? .gray, icon: m["icon"].str, help: m["help"].str)
         criterion = j["criterion"].str
-        passed = j["passed"].bool ?? false
         evidence = j["evidence"].str
-        let raw = j["method"]
-        let parsed = raw.string.flatMap(EvidenceMethod.init(rawValue:))
-        method = parsed
-        badMethod = raw.isNull || parsed != nil ? nil : (raw.string ?? raw.str)
+        noEvidence = j["noEvidence"].string
+        folds = j["folds"].bool ?? false
+        voice = j["voice"].str
     }
 
-    static func list(_ j: JSON) -> [Check] { j.array.map(Check.init) }
-
-    /// 「测试」/「推理判断」/「未核实」/「未说明」; an illegal value is shown as written.
-    var methodLabel: String {
-        if let method { return method.label }
-        if let badMethod { return L.text("证据方法「\(badMethod)」不认识（没说明）") }
-        return L.text("未说明")
-    }
+    static func list(_ j: JSON) -> [CheckView] { j.array.map(CheckView.init) }
 }
 
 /// A criterion with the check that answered it, as the server pairs them: every criterion has a
 /// row and every check is kept.
 struct CriterionCheck: Identifiable {
     let n: Int
-    let criterion: String
-    let check: Check?
+    let line: CheckView
     var id: Int { n }
 
     init(_ j: JSON) {
         n = j["n"].int ?? 0
-        criterion = j["criterion"].str
-        check = j["check"].isNull ? nil : Check(j["check"])
+        line = CheckView(j["line"])
     }
 }
 
@@ -87,7 +69,7 @@ struct VerificationRecord: Identifiable {
     let verdict: Verdict?
     let passed: Bool
     let summary: String
-    let checks: [Check]
+    let checks: [CheckView]
     let evidence: [String]
     let risks: [String]
     var id: String { task }
@@ -98,7 +80,7 @@ struct VerificationRecord: Identifiable {
         verdict = j["verdict"].string.flatMap(Verdict.init(rawValue:))
         passed = j["passed"].bool ?? false
         summary = j["summary"].str
-        checks = Check.list(j["checks"])
+        checks = CheckView.list(j["lines"])
         evidence = j["evidence"].strings
         risks = j["risks"].strings
     }
@@ -164,7 +146,7 @@ struct DeliveryAcceptance: Identifiable {
     /// Starts open when a criterion failed, a trace gap exists, or an independent verification did
     /// not pass.
     let needsAttention: Bool
-    let checks: [Check]
+    let checks: [CheckView]
     let verifications: [VerificationRecord]
     /// It changed files and no independent verification checks it.
     let unverified: Bool
@@ -184,7 +166,7 @@ struct DeliveryAcceptance: Identifiable {
         metrics = j["metrics"].str
         markers = j["markers"].strings
         needsAttention = j["needsAttention"].bool ?? false
-        checks = Check.list(j["checks"])
+        checks = CheckView.list(j["lines"])
         verifications = j["verifications"].array.map(VerificationRecord.init)
         unverified = j["unverified"].truthy
         traceGaps = j["traceGaps"].strings

@@ -11,7 +11,7 @@ import { Icon } from "../ui/Icon.tsx";
 import { Pill } from "../ui/kit.tsx";
 import { Inline } from "../session/Markdown.tsx";
 import type { RunModel } from "../session/model.ts";
-import { CheckLine } from "../session/Items.tsx";
+import { CheckLines } from "../session/Items.tsx";
 import { runLink } from "./nav.ts";
 import { link } from "../lib/router.ts";
 import { pattern } from "../lib/format.ts";
@@ -136,38 +136,17 @@ export function StatusGlyph({ tone, label }: { tone: Tone; label: string }) {
   );
 }
 
-// MARK: Event kinds (Mac: `L.icon`, `L.tone(of:)`, `L.category`)
+// MARK: Event marks (the service names each event kind's symbol: `mark` of a trace row)
 
-const ICON: Record<string, string> = {
-  "run.created": "✦", "run.cancelled": "■", "run.paused": "Ⅱ", "run.resumed": "▶",
-  "task.ready": "▸", "task.assigned": "↗", "attempt.started": "▶", "attempt.failed": "✕", "task.retry_scheduled": "↻", "task.reopened": "↺",
-  "result.submitted": "⇪", "task.succeeded": "✓", "artifact.created": "▤", "context.handoff": "⇄",
-  "question.asked": "?", "question.escalated": "⇡", "question.answered": "✎", "answer.delivered": "↩",
-  "approval.requested": "⚑", "input.requested": "✎", "input.answered": "↩", "approval.granted": "✓", "approval.denied": "✕",
-  "run.delivered": "★", "risk.accepted": "✓", "run.merged": "✓", "task.failed": "✕",
-  "task.blocked": "⊘", "task.skipped_by_decision": "→", "verification.started": "◌", "verification.failed": "✕",
-  "verification.passed": "✓", "run.failed": "✕", "run.interrupted": "■", "agent.status": "·", "tool.call": "⌘", "tool.started": "⌘", "tool.completed": "✓",
-  "session.prompt": "→", "result.amended": "✎", "run.recovered": "↻", "message.routed": "↪", "decision.withdrawn": "↩",
-  "agent.message": "❝", "user.message": "✎",
-  "message.delivered": "↪", "session.parked": "◌", "control.taken": "✋", "control.released": "↻", "session.interrupted": "‖",
-  "task.conflict": "⚠", "lead.stalled": "⏳", "task.stalled": "⏳", "task.split_requested": "✂",
+const GLYPH: Record<string, string> = {
+  created: "✦", stop: "■", pause: "Ⅱ", start: "▶", next: "▸", assign: "↗", fail: "✕", retry: "↻", reopen: "↺", submit: "⇪",
+  done: "✓", artifact: "▤", handoff: "⇄", question: "?", escalate: "⇡", write: "✎", reply: "↩", flag: "⚑", delivered: "★",
+  blocked: "⊘", forward: "→", waiting: "◌", tool: "⌘", route: "↪", quote: "❝", hand: "✋", interrupt: "‖", warning: "⚠",
+  stall: "⏳", split: "✂", dot: "·",
 };
 
-const TONES: [Tone, string[]][] = [
-  ["green", ["task.succeeded", "approval.granted", "input.answered", "run.delivered", "risk.accepted", "run.merged"]],
-  ["amber", ["question.asked", "question.escalated", "approval.requested", "input.requested", "run.paused", "control.taken", "session.interrupted", "user.message", "task.conflict", "lead.stalled", "task.stalled", "task.split_requested"]],
-  ["red", ["attempt.failed", "approval.denied", "run.cancelled", "task.failed", "run.failed", "run.interrupted"]],
-  ["gray", ["agent.status", "tool.call", "tool.completed", "task.ready", "session.parked"]],
-  ["blue", ["tool.started", "session.prompt"]],
-];
-
-export function eventTone(type: string): Tone | null {
-  return TONES.find(([, kinds]) => kinds.includes(type))?.[0] ?? null;
-}
-
-export function EventIcon({ type }: { type: string }) {
-  const tone = eventTone(type);
-  return <span class={`event-icon${tone ? ` tone-bg-${tone}` : ""}`} aria-hidden="true">{ICON[type] ?? "·"}</span>;
+export function EventIcon({ mark }: { mark: { icon: string; tone: Tone | null } }) {
+  return <span class={`event-icon${mark.tone ? ` tone-bg-${mark.tone}` : ""}`} aria-hidden="true">{GLYPH[mark.icon] ?? "·"}</span>;
 }
 
 /** The audit filter's category of an event kind. */
@@ -186,16 +165,6 @@ export function categories(): [string, string][] {
 }
 
 // MARK: Evidence (Mac: UI/Run/Evidence.swift)
-
-export function CheckLines({ checks }: { checks: Json[]; dense?: boolean }) {
-  return (
-    <>
-      {checks.map((c) => (
-        <CheckLine criterion={c.criterion ?? ""} check={c} />
-      ))}
-    </>
-  );
-}
 
 /** A note of lines, `format` given the lines as 「· a\n· b」 (the Mac app's keys say 「…：\n%@」). */
 export function ListNote({ items, tone, format }: { items: string[]; tone: Tone; format: (lines: string) => string }) {
@@ -234,7 +203,7 @@ export function VerificationList({ records }: { records: Json[] }) {
                 <Inline text={v.summary} />
               </div>
             )}
-            <CheckLines checks={v.checks ?? []} dense />
+            <CheckLines lines={v.lines ?? []} />
             {(v.evidence ?? []).map((e: string) => (
               <div class="caption secondary">
                 <Inline text={e} />

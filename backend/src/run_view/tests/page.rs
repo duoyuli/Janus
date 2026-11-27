@@ -29,11 +29,15 @@ fn a_task_page_has_its_trace_its_downstream_and_its_setting() {
     log.add(ev("task.ready").data(json!({ "unlocked": ["T2"] })));
     let p = page_of(&log, Lang::Zh);
     let t1 = &p.tasks["T1"];
-    assert_eq!(t1.trace, vec![3, 4], "its own events");
+    let seqs = |rows: &[crate::run_view::page::TraceRow]| rows.iter().map(|r| r.seq).collect::<Vec<_>>();
+    assert_eq!(seqs(&t1.trace), vec![3, 4], "its own events");
+    let head = t1.trace[1].attempt.as_ref().expect("an attempt's start is a header");
+    assert_eq!((head.title.as_str(), head.session.as_str()), ("尝试 1", "s1"));
+    assert_eq!((t1.trace[0].mark.icon, t1.trace[0].who.as_str()), ("next", "Janus"));
     assert_eq!(t1.downstream, vec!["T2".to_string()]);
     assert_eq!(t1.env[0].value, "Codex", "the member's Agent when the attempt named none");
     assert_eq!(t1.env[2].value, "s1");
-    assert_eq!(p.tasks["T2"].trace, vec![5], "an event that unlocks it names it");
+    assert_eq!(seqs(&p.tasks["T2"].trace), vec![5], "an event that unlocks it names it");
     assert!(p.tasks["T2"].downstream.is_empty());
     assert_eq!(p.progress.as_deref(), Some("子任务 0 / 2"));
 }
@@ -79,4 +83,29 @@ fn the_team_page_says_where_the_run_works() {
     let p = page_of(&goal_run(), Lang::Zh);
     assert!(p.team.workspace.starts_with("Git 仓库，基线"), "{}", p.team.workspace);
     assert_eq!(p.team.branch, None, "a run working in place has no branch of its own");
+}
+
+#[test]
+fn a_check_reads_as_the_apps_drew_it() {
+    use crate::run_view::checks::{Mark, line};
+    let none = line(Some(2), "有除零保护", None, Lang::Zh);
+    assert_eq!(
+        (none.mark, none.method.text.as_str(), none.voice.as_str()),
+        (Mark::Unchecked, "未核对", "第 2 条，未核对，有除零保护")
+    );
+    let ran =
+        line(None, "", Some(&json!({ "passed": true, "method": "test", "evidence": "cargo test 通过" })), Lang::En);
+    assert_eq!(
+        (ran.mark, ran.method.text.as_str(), ran.method.icon, ran.criterion.as_str()),
+        (Mark::Passed, "Test", "checkmark.seal", "(No criterion specified)")
+    );
+    let odd = line(Some(1), "x", Some(&json!({ "passed": false, "method": "vibes", "evidence": "" })), Lang::Zh);
+    assert_eq!(
+        (odd.mark, odd.method.text.as_str(), odd.no_evidence.as_deref()),
+        (Mark::Failed, "证据方法「vibes」不认识（没说明）", Some("没有给出证据"))
+    );
+    assert!(
+        line(None, "x", Some(&json!({ "passed": true, "evidence": "a\nb" })), Lang::Zh).folds,
+        "several lines fold"
+    );
 }

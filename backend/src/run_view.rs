@@ -15,6 +15,7 @@ mod audit;
 mod board;
 mod card;
 mod cards;
+pub mod checks;
 pub mod docs;
 mod evidence;
 mod inbox;
@@ -1085,6 +1086,8 @@ pub struct Fold {
     diffs: BTreeMap<i64, Vec<DiffView>>,
     docs: docs::DocsFold,
     traces: page::TraceFold,
+    /// The checks events carry (a result, a verification), by seq.
+    checks: BTreeMap<i64, Vec<Value>>,
 }
 
 /// One file change an event carries (a tool call's edit, the edit an approval asks about), as it
@@ -1112,6 +1115,10 @@ impl Fold {
         let d = e.data.as_ref().unwrap_or(&null);
         self.docs.apply(e, d);
         self.traces.apply(e, d);
+        let checks = list(&d["checks"]);
+        if !checks.is_empty() {
+            self.checks.insert(e.seq, checks.to_vec());
+        }
         if sessions::in_conversation(e, d) {
             // A tool call's edits are its `diffs` (`old`, `new`); an approval's are the diffs in the
             // content of the call it asks about (`oldText`, `newText`).
@@ -1196,6 +1203,7 @@ impl Fold {
             state: self.state.clone(),
             lines,
             cards,
+            checks: self.checks.iter().map(|(seq, c)| (*seq, checks::lines(c, words.lang))).collect(),
             board,
             review,
             sessions,
@@ -1219,15 +1227,7 @@ impl Fold {
     /// The run page's own lines and lists for `view` (`page`), once the service has filled in its
     /// documents and title.
     pub fn page(&self, view: &RunView, words: &Words) -> page::Page {
-        page::page(
-            &self.state,
-            &self.traces,
-            view.review.as_ref(),
-            view.delivery.as_ref(),
-            &view.docs,
-            &view.title,
-            words,
-        )
+        page::page(&self.state, &self.traces, view, words)
     }
 
     /// Only what the inbox reads: the person's open items and the latest delivery's review,
@@ -1273,6 +1273,8 @@ pub struct RunView {
     pub lines: BTreeMap<i64, lines::Line>,
     /// The card each request waiting on the person is answered with, in the order they wait.
     pub cards: Vec<cards::RequestCard>,
+    /// The checks events carry (a result, a verification), by seq, as the person reads them.
+    pub checks: BTreeMap<i64, Vec<checks::CheckLine>>,
     pub board: BoardFacts,
     pub review: Option<Review>,
     /// Each conversation's events and what its composer offers, by `task:<id>` or `agent:<id>`.

@@ -48,11 +48,20 @@ struct ProgressBoard: View {
     }
 }
 
+/// An event kind's symbol, as the server names it (`EventMark`), drawn as the app's glyph.
 struct EventIcon: View {
-    let type: EventKind
+    let mark: EventMark
+
+    static let glyph: [String: String] = [
+        "created": "✦", "stop": "■", "pause": "Ⅱ", "start": "▶", "next": "▸", "assign": "↗", "fail": "✕", "retry": "↻",
+        "reopen": "↺", "submit": "⇪", "done": "✓", "artifact": "▤", "handoff": "⇄", "question": "?", "escalate": "⇡",
+        "write": "✎", "reply": "↩", "flag": "⚑", "delivered": "★", "blocked": "⊘", "forward": "→", "waiting": "◌",
+        "tool": "⌘", "route": "↪", "quote": "❝", "hand": "✋", "interrupt": "‖", "warning": "⚠", "stall": "⏳", "split": "✂",
+    ]
+
     var body: some View {
-        let tone = L.tone(of: type)
-        Text(L.icon[type] ?? "·")
+        let tone = mark.tone
+        Text(Self.glyph[mark.icon] ?? "·")
             .font(.system(size: 12, weight: .semibold))
             .frame(width: 22, height: 22)
             .foregroundStyle(tone?.color ?? .secondary)

@@ -16,10 +16,10 @@ import { Inline } from "../session/Markdown.tsx";
 import type { RunModel } from "../session/model.ts";
 import { who } from "../session/Items.tsx";
 import { diffLink, docLink, runLink, taskLink } from "./nav.ts";
-import { categories, category, CheckLines, clock, EventIcon, EvidenceReminders, KV, ListNote, phaseLabel, RiskList, SeqButton, short, TaskTag, taskLabel, attemptLabel, VerificationList } from "./parts.tsx";
+import { categories, category, clock, EventIcon, EvidenceReminders, KV, ListNote, phaseLabel, RiskList, SeqButton, short, TaskTag, taskLabel, attemptLabel, VerificationList } from "./parts.tsx";
 import { Folded } from "./review.tsx";
 import { SessionPanel } from "../session/SessionPanel.tsx";
-import { CheckLine, CodeBlock } from "../session/Items.tsx";
+import { CheckLine, CheckLines, CodeBlock } from "../session/Items.tsx";
 
 function back(run: RunModel) {
   return <a class="link callout back-link" {...link(runLink(run.id))}><Icon name="chevron.left" size={12} /> {t`返回工作台`}</a>;
@@ -28,7 +28,7 @@ function back(run: RunModel) {
 export function TaskPage({ run, id }: { run: RunModel; id: string }) {
   const st = run.shown.value;
   const x = (st?.tasks ?? []).find((y: Json) => y.id === id);
-  useDrawn("task", () => (x ? { id, status: x.status, trace: st.page?.tasks?.[id]?.trace ?? [], downstream: st.page?.tasks?.[id]?.downstream ?? [], criteria: st.evidence?.[id]?.criteria ?? 0, passed: st.evidence?.[id]?.passed ?? 0 } : { id, missing: true }));
+  useDrawn("task", () => (x ? { id, status: x.status, trace: (st.page?.tasks?.[id]?.trace ?? []).map((r: Json) => r.seq), downstream: st.page?.tasks?.[id]?.downstream ?? [], criteria: st.evidence?.[id]?.criteria ?? 0, passed: st.evidence?.[id]?.passed ?? 0 } : { id, missing: true }));
   if (!st) return null;
   if (!x) {
     return (
@@ -40,11 +40,10 @@ export function TaskPage({ run, id }: { run: RunModel; id: string }) {
   }
   const [label, tone] = taskLabel(x.status);
   const page = st.page?.tasks?.[id] ?? { trace: [], downstream: [], structure: "", env: [] };
-  const evs = (page.trace as number[]).map((s) => run.event(s)).filter(Boolean) as Json[];
+  const trace: Json[] = page.trace ?? [];
   const w = who(run, x.agent);
   const summary = st.evidence?.[id] ?? { criteria: 0, passed: 0, counts: "", reminders: [], rows: [], verifications: [] };
   const session = st.sessions?.[`task:${id}`] ?? {};
-  const notes = session.notes ?? {};
   const title = (d: string) => (st.tasks ?? []).find((y: Json) => y.id === d)?.title ?? "";
   const deps = (label: string, ids: string[]): [string, preact.ComponentChildren] => [
     label,
@@ -70,10 +69,10 @@ export function TaskPage({ run, id }: { run: RunModel; id: string }) {
       <div class="split">
         <div class="split-main">
           <SessionPanel run={run} sessionKey={`task:${id}`} title={t`会话`} />
-          {evs.length > 0 && (
+          {trace.length > 0 && (
             <Card>
-              <Folded title={`${t`执行轨迹`} · ${t`${evs.length} 条事件`}`}>
-                <div class="trace">{evs.map((e) => <TraceRow run={run} e={e} note={notes[String(e.seq)]} />)}</div>
+              <Folded title={`${t`执行轨迹`} · ${t`${trace.length} 条事件`}`}>
+                <div class="trace">{trace.map((r) => <TraceRow run={run} row={r} />)}</div>
               </Folded>
             </Card>
           )}
@@ -86,7 +85,7 @@ export function TaskPage({ run, id }: { run: RunModel; id: string }) {
                 {summary.criteria > 0 && <span class="caption secondary">{t`${summary.criteria} 条 · 通过 ${summary.passed} 条`}</span>}
               </div>
               <ListNote items={x.traceGaps ?? []} tone="amber" format={(l) => t`和工作目录对不上：\n${l}`} />
-              {(summary.rows ?? []).map((r: Json) => <CheckLine criterion={r.criterion} check={r.check} />)}
+              {(summary.rows ?? []).map((r: Json) => <CheckLine line={r.line} />)}
               {(x.checks ?? []).length > 0 && <div class="caption secondary">{t`证据：${summary.counts}`}</div>}
               <EvidenceReminders reminders={summary.reminders ?? []} />
               <ListNote items={x.verificationFailures ?? []} tone="red" format={(l) => t`最近一次核对没有通过：\n${l}`} />
@@ -173,64 +172,38 @@ export function TaskPage({ run, id }: { run: RunModel; id: string }) {
   );
 }
 
-/** One event of a task's trace (Mac: `TimelineRow`). */
-function TraceRow({ run, e, note }: { run: RunModel; e: Json; note?: Json }) {
-  const d = e.data ?? {};
-  if (e.type === "attempt.started") {
-    const place = note?.git ?? d.workspace ?? "";
+/** One row of a task's trace, as the service wrote it (Mac: `TimelineRow`). */
+function TraceRow({ run, row }: { run: RunModel; row: Json }) {
+  const a = row.attempt;
+  if (a) {
     return (
       <div class="trace-attempt callout">
-        <b>{t`尝试 ${e.attempt ?? 0}`}</b>
-        <span class="secondary">{`${d.runtime ?? ""}${note?.note ?? ""}`}</span>
-        <span class="mono caption secondary">{short(d.session ?? "", 40)}</span>
-        <span class="caption secondary ellipsis grow" title={place}>{place}</span>
-        <SeqButton run={run} seq={e.seq} />
+        <b>{a.title}</b>
+        <span class="secondary">{a.runtime}</span>
+        <span class="mono caption secondary">{a.session}</span>
+        <span class="caption secondary ellipsis grow" title={a.place}>{a.place}</span>
+        <SeqButton run={run} seq={row.seq} />
       </div>
     );
   }
-  let detail: preact.ComponentChildren = null;
-  switch (e.type) {
-    case "tool.call":
-    case "tool.started":
-    case "tool.completed":
-      detail = <div class="mono caption secondary pre-line">{`${d.tool ?? ""} ${short(String(d.input ?? ""), 200)}\n${e.type === "tool.started" ? t`等待返回…` : "→ " + short(String(d.output ?? ""), 200)}`}</div>;
-      break;
-    case "question.asked":
-      detail = <Note text={t`${d.question ?? ""}\n选项：${(d.options ?? []).join(" / ")}`} />;
-      break;
-    case "question.answered":
-      if (d.note) detail = <Note text={t`补充说明：${d.note}`} />;
-      break;
-    case "attempt.failed":
-      detail = <Note text={d.error ?? ""} tone="red" />;
-      break;
-    case "task.retry_scheduled":
-      detail = <Note text={t`重试策略：${d.strategy ?? ""}`} />;
-      break;
-    case "artifact.created":
-      detail = <Note text={`${d.desc ?? ""}\n${tilde(d.path ?? "")} · sha256 ${d.hash ?? ""}…`} />;
-      break;
-    case "result.submitted":
-      detail = (
-        <>
-          <CheckLines checks={d.checks ?? []} dense />
-          {(d.risks ?? []).length > 0 && <Note text={t`风险：${(d.risks ?? []).join(t`；`)}`} tone="amber" />}
-        </>
-      );
-      break;
-    case "approval.requested":
-      detail = <CodeBlock text={`$ ${d.command ?? ""}`} />;
-      break;
-  }
+  const d = row.detail;
   return (
     <div class="trace-row">
-      <EventIcon type={e.type} />
+      <EventIcon mark={row.mark} />
       <div class="grow min0">
-        <div class="callout"><b>{who(run, e.actor).name}</b>{"　" + (e.text ?? "")}</div>
-        {detail}
+        <div class="callout"><b>{row.who}</b>{"　" + (row.text ?? "")}</div>
+        {d?.kind === "call" && <div class="mono caption secondary pre-line">{d.text}</div>}
+        {d?.kind === "note" && <Note text={d.text} tone={d.tone} />}
+        {d?.kind === "code" && <CodeBlock text={d.text} />}
+        {d?.kind === "checks" && (
+          <>
+            <CheckLines lines={d.checks ?? []} />
+            {d.text && <Note text={d.text} tone="amber" />}
+          </>
+        )}
       </div>
-      <span class="caption secondary">{clock(e.ts)}</span>
-      <SeqButton run={run} seq={e.seq} />
+      <span class="caption secondary">{clock(row.ts)}</span>
+      <SeqButton run={run} seq={row.seq} />
     </div>
   );
 }
@@ -364,7 +337,7 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
               {on && (e.data?.checks ?? []).length > 0 && ["result.submitted", "verification.passed", "verification.failed", "task.succeeded"].includes(e.type) && (
                 <div class="audit-checks">
                   <div class="caption strong secondary">{t`逐条验收`}</div>
-                  <CheckLines checks={e.data.checks} dense />
+                  <CheckLines lines={full?.checks?.[e.seq] ?? []} />
                 </div>
               )}
               {on && <pre class="code-block mono audit-raw">{JSON.stringify(e, null, 2)}</pre>}

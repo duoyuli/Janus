@@ -4,7 +4,10 @@
 //! and the team page's notes on where the run works.
 // @project-doc docs/architecture/20261031-frontend.md#run_page
 
-use super::docs::{Doc, Source};
+use super::aside::SectionNote;
+use super::card::Tone;
+use super::checks::{self, CheckLine};
+use super::docs::{Doc, Source, tilde};
 use super::evidence::DeliveryEvidence;
 use super::review::{Review, ReviewStage};
 use super::words::Words;
@@ -72,14 +75,130 @@ pub struct Inspector {
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskPage {
-    /// The events of its execution trace, by seq: its own, and those that name it.
-    pub trace: Vec<i64>,
+    /// Its execution trace: its own events, and those that name it, one row each.
+    pub trace: Vec<TraceRow>,
     /// The tasks that wait on it.
     pub downstream: Vec<String>,
     /// 「负责 a、b · 独立验证 T1」, empty when it owns and verifies nothing.
     pub structure: String,
     /// Its latest attempt's setting: runtime, isolation, session and workspace.
     pub env: Vec<Line>,
+}
+
+/// One row of a task's execution trace (the apps' `TimelineRow`).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TraceRow {
+    pub seq: i64,
+    pub ts: i64,
+    /// An attempt's start is a header of its own; every other event is a row.
+    pub attempt: Option<AttemptHead>,
+    /// What kind of event it is, as a symbol (`EventMark`) and its colour.
+    pub mark: EventMark,
+    /// Who did it, by name.
+    pub who: String,
+    pub text: String,
+    /// What else the row shows under its text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<Detail>,
+}
+
+/// The header of an attempt in a trace.
+#[derive(Clone, Debug, Serialize)]
+pub struct AttemptHead {
+    /// 「尝试 2」.
+    pub title: String,
+    /// Its runtime with the note after it (` · 接上原会话`).
+    pub runtime: String,
+    /// The ACP session id, cut short.
+    pub session: String,
+    /// Where it works: its Git facts, else its workspace line.
+    pub place: String,
+}
+
+/// What a trace row shows under its text: the call and its answer (`call`), a note in a tone
+/// (`note`), a command (`code`), or the checks of a result with its risks (`checks`).
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Detail {
+    pub kind: &'static str,
+    pub text: String,
+    pub tone: Tone,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<CheckLine>,
+}
+
+/// An event kind as a symbol and a colour: a name both clients draw their own way, and no colour
+/// for the quiet ones.
+#[derive(Clone, Debug, Serialize)]
+pub struct EventMark {
+    pub icon: &'static str,
+    pub tone: Option<Tone>,
+}
+
+/// The symbol and colour of an event of `kind` (the apps' `L.icon`, `L.tone(of:)`).
+pub fn event_mark(kind: &str) -> EventMark {
+    let icon = match kind {
+        "run.created" => "created",
+        "run.cancelled" | "run.interrupted" => "stop",
+        "run.paused" => "pause",
+        "run.resumed" | "attempt.started" => "start",
+        "task.ready" => "next",
+        "task.assigned" => "assign",
+        "attempt.failed" | "approval.denied" | "task.failed" | "verification.failed" | "run.failed" => "fail",
+        "task.retry_scheduled" | "run.recovered" | "control.released" => "retry",
+        "task.reopened" => "reopen",
+        "result.submitted" => "submit",
+        "task.succeeded"
+        | "approval.granted"
+        | "risk.accepted"
+        | "run.merged"
+        | "verification.passed"
+        | "tool.completed" => "done",
+        "artifact.created" => "artifact",
+        "context.handoff" => "handoff",
+        "question.asked" => "question",
+        "question.escalated" => "escalate",
+        "question.answered" | "input.requested" | "result.amended" | "user.message" => "write",
+        "answer.delivered" | "input.answered" | "decision.withdrawn" => "reply",
+        "approval.requested" => "flag",
+        "run.delivered" => "delivered",
+        "task.blocked" => "blocked",
+        "task.skipped_by_decision" | "session.prompt" => "forward",
+        "verification.started" | "session.parked" => "waiting",
+        "tool.call" | "tool.started" => "tool",
+        "message.routed" | "message.delivered" => "route",
+        "agent.message" => "quote",
+        "control.taken" => "hand",
+        "session.interrupted" => "interrupt",
+        "task.conflict" => "warning",
+        "lead.stalled" | "task.stalled" => "stall",
+        "task.split_requested" => "split",
+        _ => "dot",
+    };
+    let tone =
+        match kind {
+            "task.succeeded" | "approval.granted" | "input.answered" | "run.delivered" | "risk.accepted"
+            | "run.merged" => Some(Tone::Green),
+            "question.asked"
+            | "question.escalated"
+            | "approval.requested"
+            | "input.requested"
+            | "run.paused"
+            | "control.taken"
+            | "session.interrupted"
+            | "user.message"
+            | "task.conflict"
+            | "lead.stalled"
+            | "task.stalled"
+            | "task.split_requested" => Some(Tone::Amber),
+            "attempt.failed" | "approval.denied" | "run.cancelled" | "task.failed" | "run.failed"
+            | "run.interrupted" => Some(Tone::Red),
+            "agent.status" | "tool.call" | "tool.completed" | "task.ready" | "session.parked" => Some(Tone::Gray),
+            "tool.started" | "session.prompt" => Some(Tone::Blue),
+            _ => None,
+        };
+    EventMark { icon, tone }
 }
 
 /// One labelled line.
@@ -99,7 +218,7 @@ pub struct TeamNotes {
 /// The events that belong to each task's trace, collected as they are folded.
 #[derive(Clone, Debug, Default)]
 pub(super) struct TraceFold {
-    seqs: BTreeMap<String, Vec<i64>>,
+    events: BTreeMap<String, Vec<Event>>,
     /// Each task's latest `attempt.started`, for its setting.
     started: BTreeMap<String, Value>,
 }
@@ -116,7 +235,7 @@ impl TraceFold {
         named.sort();
         named.dedup();
         for t in named {
-            self.seqs.entry(t).or_default().push(e.seq);
+            self.events.entry(t).or_default().push(e.clone());
         }
         if let (EventKind::AttemptStarted, Some(t)) = (e.kind(), &e.task) {
             self.started.insert(t.clone(), d.clone());
@@ -124,17 +243,10 @@ impl TraceFold {
     }
 }
 
-/// The run page's lines and lists. `docs` are the run's Markdown files that exist; `title` is what
-/// the run is called.
-pub(super) fn page(
-    st: &RunState,
-    traces: &TraceFold,
-    review: Option<&Review>,
-    delivery: Option<&DeliveryEvidence>,
-    docs: &[Doc],
-    title: &str,
-    w: &Words,
-) -> Page {
+/// The run page's lines and lists for `view` once it has its documents and title.
+pub(super) fn page(st: &RunState, traces: &TraceFold, view: &super::RunView, w: &Words) -> Page {
+    let (review, delivery, docs, title, sessions) =
+        (view.review.as_ref(), view.delivery.as_ref(), &view.docs, view.title.as_str(), &view.sessions);
     let result = st.result().filter(|_| !st.run.kind.single_session());
     Page {
         review_line: match (result, review) {
@@ -149,7 +261,14 @@ pub(super) fn page(
         changes: result.map(|r| changes(st, r)).unwrap_or_default(),
         earlier: result.map(|r| earlier(st, r)).unwrap_or_default(),
         inspector: inspector(st, docs),
-        tasks: st.tasks.iter().map(|t| (t.id.clone(), task_page(st, traces, &t.id, w))).collect(),
+        tasks: st
+            .tasks
+            .iter()
+            .map(|t| {
+                let notes = sessions.get(&format!("task:{}", t.id)).map(|v| &v.notes);
+                (t.id.clone(), task_page(st, traces, notes, &t.id, w))
+            })
+            .collect(),
         team: team(st, w),
     }
 }
@@ -345,7 +464,13 @@ fn inspector(st: &RunState, docs: &[Doc]) -> Inspector {
     Inspector { diffs, files, delivered }
 }
 
-fn task_page(st: &RunState, traces: &TraceFold, id: &str, w: &Words) -> TaskPage {
+fn task_page(
+    st: &RunState,
+    traces: &TraceFold,
+    notes: Option<&BTreeMap<i64, SectionNote>>,
+    id: &str,
+    w: &Words,
+) -> TaskPage {
     let l = w.lang;
     let Some(t) = st.task(id) else { return TaskPage::default() };
     let mut structure = vec![];
@@ -381,7 +506,11 @@ fn task_page(st: &RunState, traces: &TraceFold, id: &str, w: &Words) -> TaskPage
     let last = t.attempts.last();
     let line = |label: &str, value: String| Line { label: label.into(), value };
     TaskPage {
-        trace: traces.seqs.get(id).cloned().unwrap_or_default(),
+        trace: traces
+            .events
+            .get(id)
+            .map(|evs| evs.iter().map(|e| trace_row(e, notes.and_then(|n| n.get(&e.seq)), w)).collect())
+            .unwrap_or_default(),
         downstream: st.tasks.iter().filter(|x| x.deps.iter().any(|d| d == id)).map(|x| x.id.clone()).collect(),
         structure: structure.join(" · "),
         env: vec![
@@ -422,4 +551,76 @@ fn team(st: &RunState, w: &Words) -> TeamNotes {
         }
     });
     TeamNotes { workspace, branch }
+}
+
+/// A string cut to `n` characters with an ellipsis (the apps' `L.short`).
+fn short(t: &str, n: usize) -> String {
+    if t.chars().count() > n { t.chars().take(n).collect::<String>() + "…" } else { t.to_string() }
+}
+
+/// One event of a task's trace, as the task page shows it.
+fn trace_row(e: &Event, note: Option<&SectionNote>, w: &Words) -> TraceRow {
+    let l = w.lang;
+    let null = Value::Null;
+    let d = e.data.as_ref().unwrap_or(&null);
+    let kind = e.kind.as_str();
+    let attempt = (kind == "attempt.started").then(|| {
+        let n = e.attempt.unwrap_or(0);
+        AttemptHead {
+            title: tr!(l, "尝试 {n}", "Attempt {n}"),
+            runtime: format!("{}{}", text(&d["runtime"]), note.map(|x| x.note.as_str()).unwrap_or("")),
+            session: short(&text(&d["session"]), 40),
+            place: note.and_then(|x| x.git.clone()).unwrap_or_else(|| text(&d["workspace"])),
+        }
+    });
+    let plain = |kind: &'static str, text: String, tone: Tone| Some(Detail { kind, text, tone, checks: vec![] });
+    let detail = match kind {
+        "tool.call" | "tool.started" | "tool.completed" => {
+            let after = if kind == "tool.started" {
+                l.pick("等待返回…", "Waiting for the result…").to_string()
+            } else {
+                format!("→ {}", short(&text(&d["output"]), 200))
+            };
+            plain("call", format!("{} {}\n{after}", text(&d["tool"]), short(&text(&d["input"]), 200)), Tone::Gray)
+        }
+        "question.asked" => {
+            let (q, options) = (text(&d["question"]), texts(&d["options"]).join(" / "));
+            plain("note", tr!(l, "{q}\n选项：{options}", "{q}\nOptions: {options}"), Tone::Gray)
+        }
+        "question.answered" if !text(&d["note"]).is_empty() => {
+            let n = text(&d["note"]);
+            plain("note", tr!(l, "补充说明：{n}", "Note: {n}"), Tone::Gray)
+        }
+        "attempt.failed" => plain("note", text(&d["error"]), Tone::Red),
+        "task.retry_scheduled" => {
+            let s = text(&d["strategy"]);
+            plain("note", tr!(l, "重试策略：{s}", "Retry strategy: {s}"), Tone::Gray)
+        }
+        "artifact.created" => plain(
+            "note",
+            format!("{}\n{} · sha256 {}…", text(&d["desc"]), tilde(&text(&d["path"])), text(&d["hash"])),
+            Tone::Gray,
+        ),
+        "result.submitted" => {
+            let risks = texts(&d["risks"]);
+            let text = if risks.is_empty() {
+                String::new()
+            } else {
+                let r = risks.join(l.pick("；", " · "));
+                tr!(l, "风险：{r}", "Risks: {r}")
+            };
+            Some(Detail { kind: "checks", text, tone: Tone::Amber, checks: checks::lines(list(&d["checks"]), l) })
+        }
+        "approval.requested" => plain("code", format!("$ {}", text(&d["command"])), Tone::Gray),
+        _ => None,
+    };
+    TraceRow {
+        seq: e.seq,
+        ts: e.ts,
+        attempt,
+        mark: event_mark(kind),
+        who: w.name(&e.actor),
+        text: e.text.clone(),
+        detail,
+    }
 }

@@ -7,7 +7,6 @@ import { useEffect, useState } from "preact/hooks";
 import type { Json } from "../lib/api.ts";
 import { dur, tilde } from "../lib/format.ts";
 import { t } from "../lib/i18n.ts";
-import type { Tone } from "../lib/status.ts";
 import { roles } from "../lib/store.ts";
 import { Avatar, Pill } from "../ui/kit.tsx";
 import { Icon } from "../ui/Icon.tsx";
@@ -99,61 +98,48 @@ export function StoredImages({ run, paths, size = 72 }: { run: RunModel; paths: 
   );
 }
 
-/** How a criterion was checked, as a word and a color (`MethodTag`). */
-function methodTag(check: Json | null): [string, Tone, string] {
-  if (!check) return [t`未核对`, "gray", t`还没有核对这条标准`];
-  switch (check.method) {
-    case "test":
-      return [t`测试`, "green", t`运行自动化测试得到的结果`];
-    case "command":
-      return [t`命令`, "blue", t`运行命令、脚本或检查工具得到的结果`];
-    case "inspection":
-      return [t`检查`, "blue", t`检查代码、文件、界面或实际状态得到的结果`];
-    case "reasoning":
-      return [t`推理判断`, "amber", t`根据推理或自我判断得到的结果，不是运行得到的结果`];
-    case "unverified":
-      return [t`未核实`, "amber", t`证据缺失、复现不了或暂时没法核实`];
-    case undefined:
-    case null:
-      return [t`未说明`, "gray", t`这次结果没有说明证据方法`];
-    default:
-      return [String(check.method), "red", t`不认识的证据方法`];
-  }
-}
-
-/** One acceptance criterion with the check that answered it (`CheckLine`). */
-export function CheckLine({ criterion, check }: { criterion: string; check: Json | null }) {
+/** One acceptance criterion with the check that answered it, as the service wrote it (`CheckLine`,
+ * backend/src/run_view/checks.rs): passed or not, how it was checked, the evidence. */
+export function CheckLine({ line }: { line: Json }) {
   const [whole, setWhole] = useState(false);
-  const [label, tone, help] = methodTag(check);
-  const evidence = String(check?.evidence ?? "").trim();
-  const folds = evidence.length > 120 || evidence.includes("\n");
+  const m = line.method ?? {};
   return (
-    <div class="check-line">
-      <span class={"check-mark " + (check ? (check.passed ? "fg-green" : "fg-red") : "secondary")} aria-hidden="true">
-        {check ? (check.passed ? "✓" : "✗") : "○"}
+    <div class="check-line" aria-label={line.voice}>
+      <span class={"check-mark " + (line.mark === "passed" ? "fg-green" : line.mark === "failed" ? "fg-red" : "secondary")} aria-hidden="true">
+        {line.mark === "passed" ? "✓" : line.mark === "failed" ? "✗" : "○"}
       </span>
       <div class="grow">
         <div class="check-head">
-          <span class={`method-tag fg-${tone}`} title={help ? t`证据方法：${label} · ${help}` : t`证据方法：${label}`}>
-            {label}
+          <span class={`method-tag fg-${m.tone}`} title={t`证据方法：${m.text} · ${m.help}`}>
+            <Icon name={m.icon} size={10} /> {m.text}
           </span>
-          <span class="check-criterion">{criterion || t`（没有写明标准）`}</span>
+          <span class="check-criterion">{line.criterion}</span>
         </div>
-        {check &&
-          (evidence ? (
-            <>
-              <div class={"caption check-evidence" + (whole ? "" : " clamp2")}>{evidence}</div>
-              {folds && (
-                <button type="button" class="link-btn caption" onClick={() => setWhole(!whole)}>
-                  {whole ? t`收起` : t`全文`}
-                </button>
-              )}
-            </>
-          ) : (
-            <div class="caption fg-red">{t`没有给出证据`}</div>
-          ))}
+        {line.evidence ? (
+          <>
+            <div class={"caption check-evidence" + (whole ? "" : " clamp2")}>{line.evidence}</div>
+            {line.folds && (
+              <button type="button" class="link-btn caption" onClick={() => setWhole(!whole)}>
+                {whole ? t`收起` : t`全文`}
+              </button>
+            )}
+          </>
+        ) : (
+          line.noEvidence && <div class="caption fg-red">{line.noEvidence}</div>
+        )}
       </div>
     </div>
+  );
+}
+
+/** Lines of checks. */
+export function CheckLines({ lines }: { lines: Json[] }) {
+  return (
+    <>
+      {(lines ?? []).map((l) => (
+        <CheckLine line={l} />
+      ))}
+    </>
   );
 }
 
@@ -237,9 +223,7 @@ export function ChatItem({ run, e, more = [], docked }: { run: RunModel; e: Json
               </span>
             }
           >
-            {(d.checks ?? []).map((c: Json) => (
-              <CheckLine criterion={c.criterion ?? ""} check={c} />
-            ))}
+            <CheckLines lines={v?.checks?.[e.seq] ?? []} />
             {line.evidence && <div class="caption">{line.evidence}</div>}
             {line.risks && <div class="caption fg-amber">{line.risks}</div>}
           </Fold>

@@ -46,10 +46,11 @@ struct ChatItem: View {
             ForEach(Array(items.enumerated()), id: \.offset) { _, b in userBubble(b) }
         // One line in the conversation; each criterion is a click away (and on the task page).
         case .result(let title, let pills, let evidence, let risks)?:
-            let checks = Check.list(d["checks"])
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(checks.indices, id: \.self) { i in CheckRow(c: checks[i]) }
+                    // The method is shown as text here too; the conversation only shows it, the task
+                    // page groups it and the delivery repeats it per task.
+                    CheckLines(lines: st.checks[e.seq] ?? [], dense: true)
                     if let evidence { Text(verbatim: evidence).font(.caption).foregroundStyle(.secondary) }
                     if let risks { Text(verbatim: risks).font(.caption).foregroundStyle(Tone.amber.color) }
                 }
@@ -96,15 +97,6 @@ struct ChatItem: View {
             .background(b.insert ? Color.accent.opacity(0.06) : Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(b.insert ? Color.accent.opacity(0.4) : .clear, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
         }
-    }
-}
-
-struct CheckRow: View {
-    let c: Check
-    var body: some View {
-        // The method is shown as text here too; the conversation only shows it, the task page
-        // groups it and the delivery repeats it per task.
-        CheckLine(n: nil, criterion: c.criterion, check: c, dense: true)
     }
 }
 
