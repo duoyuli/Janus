@@ -135,8 +135,8 @@ enum Snapshots {
         case "mcp-edit":
             let p = arg.split(separator: " ").map(String.init)
             store.openLibrary(.mcp)
-            if let pick = Catalog.servers.first(where: { "catalog:\($0.name)" == p.first }) {
-                store.editingMcp = AppStore.McpEditing(draft: pick.draft, item: nil, json: p.last == "json", note: pick.needs)
+            if let pick = p.first, pick.hasPrefix("catalog:") {
+                await store.addPick("mcp", String(pick.dropFirst("catalog:".count)))
             } else {
                 await store.editMcp(store.libraryItems.first { $0["kind"].str == "mcp" && $0["name"].str == p.first }, json: p.last == "json")
             }
@@ -289,15 +289,12 @@ enum Snapshots {
                 "adapters": JSON.array(store.adapters["adapters"].array.map { a in
                     ["id": a["id"], "current": a["current"], "versions": JSON.array(a["versions"].array.map { $0["version"] }),
                      "pinned": a["pinned"], "latest": a["latest"], "job": a["job"],
-                     "state": JSON(String(describing: AdapterText.state(a, now: L.nowMs(), seen: store.autoUpdateSeen))),
-                     "menuShown": JSON(AdapterText.showsMenu(a)),
-                     "menu": JSON.array(AdapterText.menuItems(a).map { item -> JSON in
-                         switch item {
-                         case .resume(let v): return JSON("resume:\(v)")
-                         case .switchTo(let v): return JSON("switch:\(v)")
-                         }
+                     "state": JSON(AdapterText.state(a, seen: store.autoUpdateSeen)),
+                     "menuShown": JSON(!a["line"]["menu"].array.isEmpty),
+                     "menu": JSON.array(a["line"]["menu"].array.map { item -> JSON in
+                         item["action"].str == "use" ? JSON("switch:\(item["version"].str)") : JSON("resume:\(a["latest"].str)")
                      }),
-                     "reason": a["job"]["detail"], "recent": JSON.array(AdapterText.recentNotes(a).map(JSON.init))]
+                     "reason": a["job"]["detail"], "recent": a["line"]["notes"]]
                 }),
                 // The library's MCP tab as shown: the code-mode switch.
                 "mcp": ["codeMode": JSON(store.codeMode)],

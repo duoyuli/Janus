@@ -38,7 +38,7 @@ extension AppStore {
     /// Called when an Agent card's runtime line goes away: the person has seen this update's word.
     func acknowledgeAutoUpdate(_ a: JSON) {
         guard a["job"]["action"].str == "auto", a["job"]["state"].str == "ok", a["job"]["ended"].truthy else { return }
-        autoUpdateSeen.insert(AdapterText.autoUpdatedKey(a))
+        autoUpdateSeen.insert(a["line"]["autoUpdated"]["key"].str)
     }
 
     /// Read the adapters: when the settings page opens, and again whenever the server says one
@@ -48,7 +48,7 @@ extension AppStore {
     func loadAdapters(quiet: Bool = false) async {
         let running = Set(adapters["adapters"].array.filter { $0["job"]["state"].str == "running" }.map { $0["id"].str })
         do {
-            let a = try await api.get("/api/adapters")
+            let a = try await api.get("/api/adapters?lang=\(L.serverLanguage)")
             // Read in the background: an unchanged list leaves the sidebar alone.
             if a != adapters { adapters = a }
         } catch {
@@ -68,7 +68,7 @@ extension AppStore {
     enum AdapterAction: String { case install, use }
 
     func adapterAction(_ id: String, _ action: AdapterAction, version: String? = nil) async {
-        do { adapters = try await api.post("/api/adapters/\(API.q(id))/\(action.rawValue)", version.map { ["version": JSON($0)] } ?? [:]) } catch { show(error.localizedDescription); return }
+        do { adapters = try await api.post("/api/adapters/\(API.q(id))/\(action.rawValue)?lang=\(L.serverLanguage)", version.map { ["version": JSON($0)] } ?? [:]) } catch { show(error.localizedDescription); return }
         if action == .use, let version { show(L.text("已切到 \(version)，下个会话开始用")) }
         await loadAdapters()
     }

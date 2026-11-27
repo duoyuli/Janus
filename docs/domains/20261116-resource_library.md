@@ -82,7 +82,7 @@ Git 来源是一个 GitHub 仓库或仓库中的一个目录。添加链接后�
 <a id="catalog"></a>
 ## 精选库
 
-应用的资源库在 Skill 和 MCP 两个标签的最下面各有一块「推荐」：社区常用、逐项核对过的 Skill 和 MCP 服务器，一键加入资源库。列表写在应用的 `Catalog` 中，随版本发布，显示时不访问网络；挑选标准和不锁版本的取舍见 [ADR：资源库的精选库随应用发布](../decisions/20261119-library_catalog.md)。
+应用的资源库在 Skill 和 MCP 两个标签的最下面各有一块「推荐」：社区常用、逐项核对过的 Skill 和 MCP 服务器，一键加入资源库。列表写在服务端的 `setup_view/picks.rs` 中（`GET /api/library/picks`，Mac 应用和 Web 客户端读同一份），随版本发布，显示时不访问网络；加入一项也由服务端做（`POST /api/library/picks/add`：Skill 经这个仓库的来源导入，没有来源时先加上；不需要填值的服务器直接加入，需要 API key 的交回编辑器的草稿和要填的说明）；挑选标准和不锁版本的取舍见 [ADR：资源库的精选库随应用发布](../decisions/20261119-library_catalog.md)。
 
 - **挑选**（2026-11-26 和用户逐项定过，评审时的取舍见下）：Skill 18 个，第一个是 ego-browser（`citrolabs/ego-lite`，要先装 ego lite 浏览器），然后是文档（PDF、Word、Excel、PowerPoint、中文技术文档规范）、界面、写 Skill、写代码的方法和 Web 实践；MCP 服务器 8 个：Context7、DeepWiki、Exa、GitHub、Chrome DevTools、Hugging Face、Firecrawl、Tavily。不收：依赖和用户来回对话的 Skill（资源库的 Skill 给所有数字员工，协作者不能直接问用户；Grilling 是用户指定保留的例外）；和 Janus 自带能力重复的服务器（团队记忆之外的记忆、Agent 自带的抓网页和时间、模型自带的逐步推理、Janus 自己管理的 worktree）；同一件事已有更好的一项时的第二个（浏览器操作用 ego-browser，不再收 Playwright；搜索留 Exa 和 Tavily）；只服务单一厂商的文档。
 - **Skill**：每项是一个 GitHub 仓库里的 Skill 目录；SKILL.md 在仓库根目录的（例如 `unclebob/ub-mode`）目录为空，按仓库名认出资源库里已有的。添加时，资源库已经有整个仓库（没有指定目录和 ref）的 [Git 来源](#sources)就直接从中导入，否则先添加这个仓库的来源再导入，和粘贴链接后勾选一样；来源的扫描结果里没有这个目录时报错，提示先更新来源。

@@ -112,7 +112,7 @@ pub struct Found {
 }
 
 /// MCP server names: letters, digits, `-` and `_`; `janus` belongs to the board.
-pub(super) fn check_name(name: &str) -> Result<()> {
+pub(crate) fn check_name(name: &str) -> Result<()> {
     if name.is_empty() || name.len() > 64 || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         bail!("MCP 名称只能包含字母、数字、- 和 _（最多 64 个字符）：{name}");
     }

@@ -512,42 +512,43 @@ struct AdapterLine: View {
     @Local private var tick = false
 
     private var id: String { a["id"].str }
-    private var running: Bool { AdapterText.running(a) }
-    private var state: AdapterText.State {
+    private var line: JSON { a["line"] }
+    private var running: Bool { line["running"].truthy }
+    private var word: String? {
         _ = tick
-        return AdapterText.state(a, now: L.nowMs(), seen: store.autoUpdateSeen)
+        return AdapterText.word(a, seen: store.autoUpdateSeen)
     }
+    private var shown: Bool { !line["menu"].array.isEmpty }
 
     var body: some View {
         HStack(spacing: 8) {
             info
-            if state == .failed || state == .installFailed {
-                let failed = state == .installFailed
-                Text(failed ? L.text("安装没成功") : L.text("更新没成功"))
+            if let failure = line["failure"].string {
+                Text(failure)
                     .font(.caption).foregroundStyle(Tone.red.color)
                     .accessibilityHidden(true)
                 Button(L.text("查看原因")) { why.toggle() }
                     .buttonStyle(.link).font(.caption)
                     // One element to reach and open the popover from the keyboard or VoiceOver.
-                    .accessibilityLabel(failed ? L.text("安装没成功，查看原因") : L.text("更新没成功，查看原因"))
+                    .accessibilityLabel(line["state"].str == "installFailed" ? L.text("安装没成功，查看原因") : L.text("更新没成功，查看原因"))
                     .popover(isPresented: $why) { reason }
             }
             Spacer(minLength: 8)
-            if AdapterText.showsMenu(a) {
+            if shown {
                 menu
-            } else if state == .notInstalled || state == .installFailed {
+            } else if line["install"].truthy {
                 Button(L.text("安装")) { Task { await store.adapterAction(id, .install) } }
                     .buttonStyle(.link).font(.caption).disabled(running)
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .help(hover)
-        .task(id: AdapterText.autoUpdatedKey(a)) {
-            guard let until = AdapterText.autoUpdatedUntil(a) else { return }
+        .help(line["hover"].str)
+        .task(id: line["autoUpdated"]["key"].str) {
+            guard let until = line["autoUpdated"]["until"].double else { return }
             let wait = until - L.nowMs()
             guard wait > 0 else { return }
             try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000))
-            if !Task.isCancelled { tick.toggle() }
+            if !Task.isCancelled { await store.loadAdapters(quiet: true); tick.toggle() }
         }
         .onDisappear { store.acknowledgeAutoUpdate(a) }
     }
@@ -573,17 +574,6 @@ struct AdapterLine: View {
         .accessibilityLabel(accessibilityLine)
     }
 
-    /// The state word that belongs on the line itself, if this state has one.
-    private var word: String? {
-        switch state {
-        case .updating: return L.text("更新中…")
-        case .installing: return L.text("安装中…")
-        case .autoUpdated: return L.text("已自动更新")
-        case .notInstalled: return L.text("运行组件还没装")
-        default: return nil
-        }
-    }
-
     /// What VoiceOver reads for the row as one element. The menu is an element of its own (its
     /// action must stay reachable), so the row names it too: 「运行组件 <版本>，切回历史版本」,
     /// with 「不会自动更新」 while the version is pinned (P1 AC-16).
@@ -596,26 +586,23 @@ struct AdapterLine: View {
         } else {
             parts = [word ?? L.text("运行组件")]
         }
-        if AdapterText.showsMenu(a) { parts.append(L.text("切回历史版本")) }
+        if shown { parts.append(L.text("切回历史版本")) }
         return parts.joined(separator: L.text("，"))
     }
 
     /// The version menu: a native menu, so Tab reaches it, Space or Return opens it and Esc closes
     /// it. A plain button style keeps it grey like the rest of the line instead of brand blue.
     private var menu: some View {
-        Menu {
-            ForEach(AdapterText.menuItems(a), id: \.self) { item in
-                switch item {
-                case .resume(let latest):
-                    Button(latest.isEmpty ? L.text("恢复自动更新") : L.text("恢复自动更新（\(latest)）")) {
-                        Task { await store.adapterAction(id, .install) }
-                    }
-                    if !AdapterText.others(a).isEmpty { Divider() }
-                case .switchTo(let version):
-                    Button(L.text("切回 \(version)")) {
-                        Task { await store.adapterAction(id, .use, version: version) }
+        let items = line["menu"].array
+        return Menu {
+            ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                Button(item["label"].str) {
+                    Task {
+                        if item["action"].str == "use" { await store.adapterAction(id, .use, version: item["version"].str) }
+                        else { await store.adapterAction(id, .install) }
                     }
                 }
+                if item["action"].str == "install" && i + 1 < items.count { Divider() }
             }
         } label: {
             HStack(spacing: 3) {
@@ -640,9 +627,9 @@ struct AdapterLine: View {
     /// Janus's own recent steps, a retry and the whole log. The popover never shows the install
     /// tool's command line or output; 「查看日志」 opens the complete log instead (P1 AC-15).
     private var reason: some View {
-        let recent = AdapterText.recentNotes(a)
+        let recent = line["notes"].strings
         return VStack(alignment: .leading, spacing: 10) {
-            Text(a["job"]["detail"].truthy ? a["job"]["detail"].str : L.text("没有更多信息"))
+            Text(line["detail"].str)
                 .font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             if !recent.isEmpty {
                 DisclosureGroup(L.text("最近日志")) {
@@ -651,7 +638,7 @@ struct AdapterLine: View {
                 .disclosureGroupStyle(.row)
             }
             HStack(spacing: 14) {
-                Button(state == .installFailed ? L.text("安装") : L.text("重试更新")) {
+                Button(line["state"].str == "installFailed" ? L.text("安装") : L.text("重试更新")) {
                     why = false
                     Task { await store.adapterAction(id, .install) }
                 }
@@ -664,11 +651,5 @@ struct AdapterLine: View {
         }
         .padding(12)
         .frame(width: 420)
-    }
-
-    private var hover: String {
-        if !a["current"].truthy { return L.text("第一次检查 Agent 时会自动装。装不上时可以在这里再来一次。") }
-        if a["pinned"].truthy { return L.text("你选了这个版本，它不会被自动更新，直到你恢复自动更新。") }
-        return L.text("Janus 用它启动 Agent。它会自动保持最新，正在跑的会话不受影响。")
     }
 }

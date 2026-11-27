@@ -8,7 +8,7 @@
 // @project-doc docs/domains/20261116-resource_library.md#model
 
 mod deliver;
-mod mcp;
+pub(crate) mod mcp;
 mod offers;
 mod quality;
 mod skill;

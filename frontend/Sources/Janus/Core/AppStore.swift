@@ -211,6 +211,7 @@ final class AppStore {
     func loadLibrary() async {
         if let l = try? await api.get("/api/library?lang=\(L.serverLanguage)") { library = l }
         else if library == nil { library = ["items": [], "sources": []] }
+        picks = (try? await api.get("/api/library/picks?lang=\(L.serverLanguage)")) ?? picks
     }
 
     /// Sources whose remote moved on since the last fetch (the server checks every few hours).
@@ -436,26 +437,46 @@ final class AppStore {
     /// library lists it (nil for a new one), whether it opens on the form or the JSON, and what to
     /// fill in (a pick from the catalog that needs a key).
     struct McpEditing: Identifiable {
-        let draft: McpDraft
+        /// The server the editor opens on, as the service wrote it out.
+        let edit: McpEdit
         let item: JSON?
         var json = false
         var note = ""
-        var id: String { draft.id }
+        var id: String { edit.draft.id }
     }
 
     var editingMcp: McpEditing?
 
     /// Opens the MCP editor on a new server, or on a saved one read whole first, values included.
     func editMcp(_ item: JSON?, json: Bool = false) async {
-        guard let item else {
-            editingMcp = McpEditing(draft: McpDraft(), item: nil, json: json)
-            return
-        }
         do {
-            let full = try await api.get("/api/library/items/\(item["id"].str)")
-            let values = try await api.get("/api/library/mcp/\(item["id"].str)/values")
-            editingMcp = McpEditing(draft: McpDraft(item: full, values: values["values"]), item: item, json: json)
+            guard let item else {
+                editingMcp = McpEditing(edit: try await mcpEdit(McpDraft()), item: nil, json: json)
+                return
+            }
+            let start = try await api.get("/api/library/mcp/\(item["id"].str)/draft?lang=\(L.serverLanguage)")
+            editingMcp = McpEditing(edit: McpEdit(start), item: item, json: json)
         } catch { show(error.localizedDescription) }
+    }
+
+    /// The community's picks on the library's shelves, as the service lists them.
+    var picks: JSON = .null
+
+    /// Adds a pick (`kind`: skill or mcp): the service imports or adds it, or hands back the editor
+    /// for a server that needs a key.
+    func addPick(_ kind: String, _ id: String) async {
+        do {
+            let r = try await api.post("/api/library/picks/add?lang=\(L.serverLanguage)", ["kind": JSON(kind), "id": JSON(id)], timeout: 240)
+            if r["editor"].exists {
+                editingMcp = McpEditing(edit: McpEdit(r["editor"]), item: nil, note: r["editor"]["note"].str)
+                return
+            }
+            await loadLibrary()
+            show(r["message"].str)
+        } catch {
+            await loadLibrary()
+            show(error.localizedDescription)
+        }
     }
 
     /// The settings page covers the main window; closing it shows the screen underneath again.

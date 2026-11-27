@@ -9,7 +9,8 @@ import SwiftUI
 // @project-doc docs/domains/20261116-resource_library.md#mcp
 struct McpEditor: View {
     let store: AppStore
-    let start: McpDraft
+    /// The server the editor opens on, as the service wrote it out.
+    let start: McpEdit
     /// The server as the library lists it; nil for a new one.
     let item: JSON?
     /// Opens on the JSON rather than the form.
@@ -29,8 +30,10 @@ struct McpEditor: View {
     @Local private var text = ""
     /// Why the JSON isn't one server's, while it isn't.
     @Local private var bad = ""
-    /// The servers a new server's JSON holds, when it holds more than one.
-    @Local private var several: [McpDraft] = []
+    /// The servers a new server's JSON holds, when it holds more than one, by name.
+    @Local private var several: [String] = []
+    /// Edits sent to the service; an answer to an older one is dropped.
+    @Local private var sent = 0
     @Local private var saving = false
 
     var body: some View {
@@ -52,9 +55,9 @@ struct McpEditor: View {
         }
         .frame(width: 660)
         .onAppear {
-            d = start
+            d = start.draft
             line = start.line
-            text = start.json
+            text = start.text
             if json { mode = .json }
         }
     }
@@ -100,7 +103,7 @@ struct McpEditor: View {
             field(L.text("命令"), hint: L.text("命令和它的参数，像在终端里那样写；含空格的参数加引号")) {
                 TextField("npx -y @modelcontextprotocol/server-github", text: $line)
                     .textFieldStyle(.roundedBorder).font(.system(.body, design: .monospaced))
-                    .onChange(of: line) { d.setLine(line) }
+                    .onChange(of: line) { takeLine() }
             }
             field(L.text("环境变量"), hint: valuesHint) { pairs(key: "GITHUB_TOKEN") }
         } else {
@@ -133,7 +136,7 @@ struct McpEditor: View {
         }
         if !several.isEmpty {
             field("") {
-                Note(text: L.text("JSON 里有 \(several.count) 个服务器：\(several.map(\.name).joined(separator: L.text("、")))。保存时全部添加，重名自动加后缀。"), tone: .blue)
+                Note(text: L.text("JSON 里有 \(several.count) 个服务器：\(several.joined(separator: L.text("、")))。保存时全部添加，重名自动加后缀。"), tone: .blue)
             }
         }
     }
@@ -196,36 +199,47 @@ struct McpEditor: View {
 
     // MARK: Actions
 
-    /// Going to JSON writes the form out; back to the form needs the JSON to be one server.
+    /// Going to JSON writes the form out; back to the form needs the JSON to be one server. The
+    /// service writes the server either way.
     private func switchTo(_ next: Mode) {
         guard next != mode else { return }
-        if next == .json {
-            text = d.json
-            bad = ""
-        } else {
-            guard bad.isEmpty, several.isEmpty else {
-                if bad.isEmpty { bad = L.text("这里有多个服务器，表单一次只能编辑一个") }
-                return
-            }
-            line = d.line
+        if next == .form, !(bad.isEmpty && several.isEmpty) {
+            if bad.isEmpty { bad = L.text("这里有多个服务器，表单一次只能编辑一个") }
+            return
         }
-        mode = next
+        Task {
+            guard let e = try? await store.mcpEdit(d) else { return }
+            if next == .json { text = e.text; bad = "" } else { line = e.line }
+            mode = next
+        }
+    }
+
+    /// The typed command line taken apart by the service.
+    private func takeLine() {
+        sent += 1
+        let mine = sent, typed = line
+        Task {
+            guard let e = try? await store.mcpEdit(d, line: typed), mine == sent else { return }
+            d.command = e.draft.command
+            d.args = e.draft.args
+        }
     }
 
     /// Reads the JSON as it is typed: one server goes into the form at once.
     private func read() {
-        guard let found = McpDraft.servers(in: text) else {
-            bad = L.text("这不是 MCP 服务器的 JSON")
-            several = []
-            return
+        sent += 1
+        let mine = sent, typed = text
+        Task {
+            guard let e = try? await store.mcpEdit(d, text: typed), mine == sent else { return }
+            if let error = e.error {
+                bad = error
+                if e.several.isEmpty && item == nil { several = [] }
+                return
+            }
+            bad = ""
+            several = e.several
+            if e.several.isEmpty { d = e.draft }
         }
-        if found.count > 1 && item != nil {
-            bad = L.text("这里只能是这一个服务器")
-            return
-        }
-        bad = ""
-        several = found.count > 1 ? found : []
-        if found.count == 1 { d.take(found[0]) }
     }
 
     private func save() {
@@ -236,9 +250,10 @@ struct McpEditor: View {
                 var saved: [JSON] = []
                 var warnings: [String] = []
                 if several.isEmpty {
+                    let body = try await store.mcpEdit(d).body
                     saved = [d.id.isEmpty
-                        ? try await store.api.post("/api/library/mcp", d.body)
-                        : try await store.api.put("/api/library/mcp/\(d.id)", d.body)]
+                        ? try await store.api.post("/api/library/mcp", body)
+                        : try await store.api.put("/api/library/mcp/\(d.id)", body)]
                 } else {
                     let r = try await store.api.post("/api/library/mcp/import", ["text": JSON(text)])
                     saved = r["items"].array

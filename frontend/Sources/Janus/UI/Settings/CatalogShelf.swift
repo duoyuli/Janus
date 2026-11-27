@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The community's picks of a library tab (`Catalog`), last on the tab: tiles of community skills or MCP servers, each added in
+/// The community's picks of a library tab, as the service lists them (`setup_view/picks.rs`), last on the tab: tiles of community skills or MCP servers, each added in
 /// one click. A skill is imported from its GitHub repository, through the library's source for
 /// that repository when there is one. A server that needs nothing is added at once (kept for the
 /// workers that pick it, as every new server is); one that needs a key opens the MCP editor with
@@ -19,9 +19,7 @@ struct CatalogShelf: View {
     static let first = 6
 
     var body: some View {
-        // What the library doesn't have yet comes first: that is what the shelf is for.
-        let tiles = (kind == .skill ? skillTiles : serverTiles).enumerated()
-            .sorted { ($0.element.have ? 1 : 0, $0.offset) < ($1.element.have ? 1 : 0, $1.offset) }.map(\.element)
+        let tiles = tiles
         let shown = query.isEmpty && !all ? Array(tiles.prefix(Self.first)) : tiles
         if !(tiles.isEmpty && !query.isEmpty) {
             VStack(alignment: .leading, spacing: 10) {
@@ -46,7 +44,7 @@ struct CatalogShelf: View {
         }
     }
 
-    /// One pick, as a tile reads it.
+    /// One pick, as the service lists it (`GET /api/library/picks`).
     private struct Tile {
         let id: String
         let icon: String
@@ -58,23 +56,13 @@ struct CatalogShelf: View {
         let add: () -> Void
     }
 
-    private func matches(_ text: String) -> Bool {
-        query.isEmpty || text.lowercased().contains(query.lowercased())
-    }
-
-    private var skillTiles: [Tile] {
-        Catalog.skills.filter { matches("\($0.title) \($0.path) \($0.publisher) \(L.catalogText($0.blurb))") }.map { s in
-            Tile(id: s.id, icon: "sparkles", title: s.title, byline: "\(s.publisher) · \(s.repo)", blurb: L.catalogText(s.blurb), tags: [],
-                 have: Catalog.item(for: s, items: store.libraryItems, sources: store.librarySources) != nil) { addSkill(s) }
-        }
-    }
-
-    private var serverTiles: [Tile] {
-        Catalog.servers.filter { matches("\($0.title) \($0.name) \($0.publisher) \(L.catalogText($0.blurb))") }.map { s in
-            let tags = [s.transport == .stdio ? L.text("命令") : "HTTP",
-                        s.inputs.contains(where: \.required) ? L.text("需要 API key") : s.inputs.isEmpty ? "" : L.text("API key 可选")].filter { !$0.isEmpty }
-            return Tile(id: s.id, icon: s.transport == .stdio ? "terminal" : "globe", title: s.title, byline: s.publisher, blurb: L.catalogText(s.blurb), tags: tags,
-                        have: Catalog.item(for: s, items: store.libraryItems) != nil) { addServer(s) }
+    /// The tab's tiles, what the library doesn't have yet first, those a search finds.
+    private var tiles: [Tile] {
+        let kindName = kind == .skill ? "skill" : "mcp"
+        let q = query.lowercased()
+        return store.picks[kind == .skill ? "skills" : "servers"].array.filter { q.isEmpty || $0["search"].str.contains(q) }.map { t in
+            Tile(id: t["id"].str, icon: t["icon"].str, title: t["title"].str, byline: t["byline"].str, blurb: t["blurb"].str,
+                 tags: t["tags"].strings, have: t["have"].truthy) { add(kindName, t["id"].str) }
         }
     }
 
@@ -110,46 +98,13 @@ struct CatalogShelf: View {
 
     // MARK: Adding
 
-    /// Imports a skill from its repository: through the library's source for the whole repository
-    /// when there is one, otherwise by adding that source first (a clone, like a pasted link).
-    private func addSkill(_ s: Catalog.Skill) {
-        busy.insert(s.id)
+    /// Imports a skill from its repository, or adds a server, as the service does it; a server that
+    /// needs a key opens the editor on it.
+    private func add(_ kind: String, _ id: String) {
+        busy.insert(id)
         Task {
-            defer { busy.remove(s.id) }
-            do {
-                let have = store.librarySources.first {
-                    $0["repo"].str.lowercased() == s.repo.lowercased() && $0["path"].str.isEmpty && $0["gitRef"].str.isEmpty
-                }
-                let source: JSON
-                if let have { source = have } else {
-                    source = try await store.api.post("/api/library/sources", ["url": JSON("https://github.com/\(s.repo)")], timeout: 240)
-                }
-                guard source["offers"].array.contains(where: { $0["path"].str == s.path }) else {
-                    await store.loadLibrary()
-                    store.show(L.text("\(s.repo) 里没有找到 \(s.location)，可以在来源里「更新」后再试"))
-                    return
-                }
-                let r = try await store.api.post("/api/library/sources/\(source["id"].str)/import", ["paths": JSON([s.path])])
-                await store.loadLibrary()
-                store.show(L.text("已导入 \(r.array.map { $0["name"].str }.joined(separator: L.text("、")))，全员可用"))
-            } catch { store.show(error.localizedDescription) }
-        }
-    }
-
-    /// Adds a server that needs nothing at once; one that needs a key opens the editor on it.
-    private func addServer(_ s: Catalog.Server) {
-        guard s.oneClick else {
-            store.editingMcp = AppStore.McpEditing(draft: s.draft, item: nil, note: s.needs)
-            return
-        }
-        busy.insert(s.id)
-        Task {
-            defer { busy.remove(s.id) }
-            do {
-                let item = try await store.api.post("/api/library/mcp", s.draft.body)
-                await store.loadLibrary()
-                store.show(L.text("已添加 \(item["name"].str)，全员可用"))
-            } catch { store.show(error.localizedDescription) }
+            await store.addPick(kind, id)
+            busy.remove(id)
         }
     }
 }

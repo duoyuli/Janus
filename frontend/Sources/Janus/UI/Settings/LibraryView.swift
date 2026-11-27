@@ -63,7 +63,7 @@ struct LibraryView: View {
             }
         }
         .sheet(item: Binding(get: { store.editingMcp }, set: { store.editingMcp = $0 })) { e in
-            McpEditor(store: store, start: e.draft, item: e.item, json: e.json, note: e.note, remove: e.item.map { i in { remove(i) } })
+            McpEditor(store: store, start: e.edit, item: e.item, json: e.json, note: e.note, remove: e.item.map { i in { remove(i) } })
         }
     }
 

@@ -250,8 +250,16 @@ pub(super) async fn local_preview(Query(q): Query<PreviewQuery>) -> ApiResult {
 }
 
 /// The ACP adapters: installed versions, the newest known one, and any install in progress.
-pub(super) async fn adapters(State(app): State<Arc<App>>) -> ApiResult {
-    reply(app.adapters())
+/// The adapters, each with its runtime line in `lang` (`setup_view::adapters`).
+fn adapters_in(app: &App, lang: crate::lang::Lang) -> Value {
+    let mut a = app.adapters();
+    crate::setup_view::adapters::dress(&mut a, crate::util::now_ms() as f64, lang);
+    a
+}
+
+pub(super) async fn adapters(State(app): State<Arc<App>>, Query(q): Query<SetupQuery>) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    reply(adapters_in(&app, lang))
 }
 
 /// `install` (body: optional `version`) or `use` an installed `version`. Installs run in the
@@ -260,8 +268,10 @@ pub(super) async fn adapters(State(app): State<Arc<App>>) -> ApiResult {
 pub(super) async fn adapter_action(
     State(app): State<Arc<App>>,
     UrlPath((id, action)): UrlPath<(String, String)>,
+    Query(q): Query<SetupQuery>,
     body: Option<Json<Value>>,
 ) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
     let action = AdapterAction::parse(&action).ok_or_else(|| ApiError::not_found(format!("没有这个操作：{action}")))?;
     let body = body.map(|b| b.0).unwrap_or_default();
     let version = body["version"].as_str().filter(|v| !v.is_empty()).map(str::to_owned);
@@ -269,7 +279,7 @@ pub(super) async fn adapter_action(
         AdapterAction::Install => app.start_adapter_install(&id, version),
         AdapterAction::Use => app.use_adapter_version(&id, version.as_deref().unwrap_or("")),
     }?;
-    reply(app.adapters())
+    reply(adapters_in(&app, lang))
 }
 
 #[derive(Deserialize)]

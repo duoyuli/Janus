@@ -9,7 +9,7 @@
 
 ## 决策
 
-1. **只有写在代码里的精选**：列表在应用的 `Catalog`（`frontend/Sources/Janus/Core/Catalog.swift`）中，随版本发布，显示精选不访问网络。不接 MCP Registry 或 skills.sh 这类运行时目录，不新增下载来源。
+1. **只有写在代码里的精选**：列表在应用的 `Catalog`（`frontend/Sources/Janus/Core/Catalog.swift`）中，随版本发布，显示精选不访问网络（2026-11-26 起这份列表在服务端的 `backend/src/setup_view/picks.rs`，Mac 和 Web 读同一份，见 [ADR：由事件推导的状态只在服务端算](20261126-backend_owns_derived_state.md)）。不接 MCP Registry 或 skills.sh 这类运行时目录，不新增下载来源。
 2. **挑选标准**：每个 Skill 的目录在它的 GitHub 仓库中存在（核对过仓库的文件树）；每个命令启动的服务器的 npm 或 PyPI 包已经发布；每个 HTTP 服务器的地址能回答 MCP 的 `initialize`（需要令牌的返回 401）；不收需要 OAuth 登录的服务器，因为 Janus 不能替服务器完成登录。
 3. **添加 Skill 走 Git 来源**：等同于用户粘贴仓库链接后勾选这个 Skill。已经有整个仓库的来源时直接从中导入，否则先添加仓库来源（克隆默认分支），再导入。导入的 Skill 和其他 Skill 一样默认给所有数字员工。
 4. **添加 MCP 服务器走 MCP 编辑器的同一个接口**：不需要填值（或只有可选的值）的服务器一键添加；需要 API key 的，打开预填好的 MCP 编辑器，写明去哪里拿 key。新服务器和其他服务器一样默认只给选中的数字员工。
