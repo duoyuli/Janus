@@ -244,4 +244,10 @@ a.inspector-row:hover { background: var(--hover); }
   .review-body button.link, .review-body a.link, .run-card button.link, .progress a.link, .progress button.link { min-height: 32px; }
   a.link, button.link { padding: 0 2px; }
   .kv { grid-template-columns: 64px 1fr; }
+  /* The diff keeps its text wide: narrower line numbers; the overall feedback takes its own line. */
+  .diff-code .ln { width: 28px; padding-right: 4px; }
+  .comment-btn { width: 32px; min-height: 28px; }
+  .diff-footer > .text-field { flex: 1 1 100%; }
+  /* The audit's 「回放到这里」 is a glyph-sized button on a phone, so each event keeps its line. */
+  .audit-line .btn-small { min-height: 32px; padding: 2px 8px; }
 }

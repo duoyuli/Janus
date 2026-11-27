@@ -4,7 +4,7 @@
 // action is ink, not the accent. Pages compose these; they do not restyle them.
 
 import type { ButtonHTMLAttributes, ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Tone } from "../lib/status.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -130,13 +130,34 @@ export function Menu({ icon, label, items }: { icon: string; label: string; item
       document.removeEventListener("keydown", close);
     };
   }, [open]);
+  // The list opens under the button, its right edge on the button's; where that would leave the
+  // window (a button near a phone's left edge, or near the tabs), it moves inside.
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = list.current;
+    if (!open || !el) return;
+    el.style.right = "";
+    el.style.left = "";
+    el.style.top = "";
+    el.style.bottom = "";
+    const r = el.getBoundingClientRect();
+    if (r.left < 8) {
+      el.style.right = "auto";
+      el.style.left = "0";
+    }
+    const tabs = document.querySelector(".tabbar")?.getBoundingClientRect().top || innerHeight;
+    if (r.bottom > tabs - 8) {
+      el.style.top = "auto";
+      el.style.bottom = "calc(100% + 4px)";
+    }
+  }, [open]);
   return (
     <div class="menu" ref={ref}>
       <button type="button" class="icon-btn" aria-label={label} title={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Icon name={icon} />
       </button>
       {open && (
-        <div class="menu-list" role="menu">
+        <div class="menu-list" role="menu" ref={list}>
           {items.map((it) => (
             <button
               type="button"

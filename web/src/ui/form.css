@@ -52,6 +52,10 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  /* A path or an id under a field (a folder in Janus home) has no spaces to break at: it wraps
+     anywhere rather than widen the form past a phone's screen. */
+  overflow-wrap: anywhere;
 }
 
 .field-label {
