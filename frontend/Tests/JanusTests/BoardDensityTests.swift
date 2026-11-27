@@ -83,71 +83,17 @@ private func ledger(tokens: UsageTokens? = nil, completeness: UsageCompleteness 
     #expect(reported.showsLedgerControl(open: false) && reported.showsLedgerControl(open: true))
 }
 
-// MARK: Delivery overview and rows
+// MARK: Delivery rows
 
-private func check(_ criterion: String, _ method: String?, passed: Bool = true, evidence: String = "看到结果") -> Check {
-    var j: JSON = ["criterion": JSON(criterion), "passed": JSON(passed), "evidence": JSON(evidence)]
-    if let method { j["method"] = JSON(method) }
-    return Check(j)
-}
-
-private func verification(_ task: String, passed: Bool) -> VerificationRecord {
-    VerificationRecord(["task": JSON(task), "label": JSON(passed ? "已完成" : "验收没通过"), "passed": JSON(passed),
-                        "summary": JSON(""), "checks": [], "evidence": [], "risks": []])!
-}
-
-private func record(_ task: String, title: String = "标题", status: TaskStatus = .succeeded,
-                    accept: [String] = [], checks: [Check] = [], verifications: [VerificationRecord] = [],
-                    unverified: Bool = false, traceGaps: [String] = [], risks: [String] = []) -> DeliveryAcceptance {
-    DeliveryAcceptance(task: task, title: title, status: status,
-                       summary: EvidenceSummary(accept: accept, checks: checks),
-                       checks: checks, verifications: verifications, unverified: unverified, traceGaps: traceGaps, risks: risks)
-}
-
-@Test func deliveryRowCarriesTheNumbersAndOnlyMarksProblems() {
-    let accept = ["一", "二", "三", "四", "五"]
-    let checks = [check("一", "test"), check("二", "command"), check("三", "command", passed: false),
-                  check("四", "reasoning"), check("五", "inspection")]
-    let r = record("T3", title: "清理旧构建", accept: accept, checks: checks).row
-    #expect(r.metrics == expectedCopy("通过 4 / 5 条 · 测试 1 条、命令 2 条、检查 1 条、推理判断 1 条", "Passed 4 of 5 · Test: 1, Command: 2, Inspection: 1, Reasoning: 1"))
-    #expect(r.markers == [expectedCopy("提醒 1 条", "Notes: 1")])
-    #expect(r.needsAttention, "a failed criterion opens the row by default")
-    #expect(r.voice(open: true)
-        == expectedCopy("T3，清理旧构建，通过 4 / 5 条，测试 1 条、命令 2 条、检查 1 条、推理判断 1 条，已展开，提醒 1 条", "T3, 清理旧构建, Passed 4 of 5, Test: 1, Command: 2, Inspection: 1, Reasoning: 1, Expanded, Notes: 1"))
-
-    // Everything passed and nothing else reported: collapsed, no markers.
-    let clean = record("T1", title: "调研", accept: ["一", "二"], checks: [check("一", "test"), check("二", "command")]).row
-    #expect(clean.markers.isEmpty && !clean.needsAttention)
-    #expect(clean.voice(open: false) == expectedCopy("T1，调研，通过 2 / 2 条，测试 1 条、命令 1 条，已收起", "T1, 调研, Passed 2 of 2, Test: 1, Command: 1, Collapsed"))
-}
-
-@Test func deliveryRowsOpenOnAttentionAndOnlyMarkReminders() {
-    func needs(_ r: DeliveryAcceptance) -> Bool { r.row.needsAttention }
-    let passed = [check("一", "test")]
-
-    #expect(!needs(record("T1", accept: ["一"], checks: passed)))
-    #expect(needs(record("T1", accept: ["一"], checks: [check("一", "test", passed: false)])))
-    #expect(needs(record("T1", accept: ["一"], checks: passed, traceGaps: ["T1 改了没有的文件"])))
-    // The executor's own risks mark the row and leave it folded.
-    #expect(!needs(record("T1", accept: ["一"], checks: passed, risks: ["没有测试覆盖"])))
-    #expect(needs(record("T1", accept: ["一"], checks: passed, verifications: [verification("V1", passed: false)])))
-    #expect(!needs(record("T1", accept: ["一"], checks: passed, verifications: [verification("V1", passed: true)])))
-
-    // A reminder alone marks the row and leaves it folded.
-    let reminder = record("T1", accept: ["一"], checks: [check("一", "reasoning")])
-    #expect(!reminder.row.needsAttention)
-    #expect(reminder.row.markers == [expectedCopy("提醒 1 条", "Notes: 1")])
-
-    // Changed files with no independent verification is a fact to mark, not a problem: the lead's
-    // summary says how it checked the task.
-    let unverified = record("T1", accept: ["一"], checks: passed, unverified: true)
-    #expect(unverified.row.markers == [expectedCopy("没有独立验证", "No independent verification")])
-    #expect(!unverified.row.needsAttention)
-
-    // A task that did not succeed says so in words.
-    let failed = record("T2", status: .verificationFailed, accept: ["一"], checks: passed)
-    #expect(failed.row.markers == [expectedCopy("验收没通过", "Acceptance failed")])
-    #expect(!failed.row.needsAttention, "the default expansion rules do not include the status alone")
+/// A delivery row reads what the server worked out, and VoiceOver reads it whole.
+@Test func deliveryRowReadsTheServedNumbersAndMarkers() {
+    let row = DeliveryAcceptance(["task": "T3", "title": "清理旧构建", "status": "succeeded", "criteria": 5, "passed": 4,
+                                  "counts": "测试 1 条、命令 2 条", "metrics": "通过 4 / 5 条 · 测试 1 条、命令 2 条",
+                                  "markers": ["提醒 1 条"], "needsAttention": true,
+                                  "strength": ["ran": 3, "read": 0, "said": 1, "text": "运行 3 · 只是说法 1"],
+                                  "verifications": [["task": "V1", "status": "succeeded", "verdict": "rejected", "passed": false]]])
+    #expect(row.needsAttention && row.strength.total == 4 && row.verifications.first?.passed == false)
+    #expect(row.voice(open: true) == expectedCopy("T3，清理旧构建，通过 4 / 5 条，测试 1 条、命令 2 条，已展开，提醒 1 条", "T3, 清理旧构建, Passed 4 of 5, 测试 1 条、命令 2 条, Expanded, 提醒 1 条"))
 }
 
 // MARK: Layout rules
@@ -228,6 +174,11 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
                                     check(3, "性能不变", "reasoning", passed: false)],
                          "verifications": [["task": "V1", "label": "验收没通过", "passed": false, "summary": "没有独立复现", "checks": [], "evidence": [], "risks": []]],
                          "traceGaps": ["T2 声称改了 shared.swift，但 diff 里没有"], "risks": ["没有跑集成测试"]]
+    func served(_ record: JSON, _ extra: [String: JSON]) -> JSON {
+        var j = record
+        for (k, v) in extra { j[k] = v }
+        return j
+    }
     var events: [Event] = []
     func add(_ type: String, actor: String = "janus", task: String? = nil, attempt: Int? = nil, ts: Int, data: JSON = [:]) {
         var j: JSON = ["seq": JSON(events.count + 1), "ts": JSON(ts), "type": JSON(type), "actor": JSON(actor), "text": "", "data": data]
@@ -266,6 +217,14 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
         "tasks": [["id": "T1", "title": "调研调用方", "agent": "researcher", "status": "succeeded", "accept": ["列出调用方"]],
                   ["id": "T2", "title": "实现一个很长的子任务标题，用来检查单行截断和数字不被截断", "agent": "impl", "status": "pending", "deps": ["T1"], "accept": ["测试通过"]]],
         "deliveries": [["d": deliveredData, "seq": JSON(events.count), "n": 1, "since": 0]],
+        // Each task's row as the server writes it from the record.
+        "delivery": ["facts": "子任务 1/2 完成 · 验收标准 6/8 达到 · 运行 5 · 检查 1 · 只是说法 1 · 改了 2 个文件", "tasks": [
+            served(accept1, ["counts": "测试 2 条、命令 3 条", "reminders": [], "metrics": "通过 5 / 5 条 · 测试 2 条、命令 3 条",
+                             "markers": [], "needsAttention": false, "strength": ["ran": 5, "read": 0, "said": 0, "text": "运行 5"]]),
+            served(accept2, ["counts": "检查 1 条、推理判断 1 条", "reminders": ["第 3 条「性能不变」是推理判断，不是运行得到的结果"],
+                             "metrics": "通过 1 / 3 条 · 检查 1 条、推理判断 1 条", "markers": ["验收没通过", "自述风险 1 条", "对不上 1 处", "提醒 1 条"],
+                             "needsAttention": true, "strength": ["ran": 0, "read": 1, "said": 1, "text": "检查 1 · 只是说法 1"]]),
+        ]],
         "review": ["stage": "awaiting", "conflict": false, "requests": [], "signals": [
             ["source": "lead", "kind": "decision", "text": "旧截图要不要按新折叠位置重拍？"],
             ["source": "janus", "kind": "risk", "text": "T2：独立验证 V2 判定为「需要修改」，结论没有得到确认", "task": "T2"],
@@ -274,7 +233,7 @@ private func record(_ task: String, title: String = "标题", status: TaskStatus
             ["source": "janus", "kind": "lead_edits", "text": "负责人自己改了 1 个文件，没有子任务验收和独立验证", "detail": "docs/architecture/20261031-frontend.md"],
         ]],
     ], events: events)
-    #expect(st.result.map { Delivery($0).acceptance.count } == 2)
+    #expect(st.delivery?.tasks.count == 2)
     try render("result-card-light", dark: false, width: 1100, ResultCard(run: run, st: st, width: 1100))
     try render("result-card-dark", dark: true, width: 1100, ResultCard(run: run, st: st, width: 1100))
     // Every row closed: what the delivery looks like before anything is opened.

@@ -217,13 +217,14 @@ extension RunModel {
             lines += signals.map { "- " + $0.text + ($0.detail.isEmpty ? "" : L.text("（\($0.detail)）")) }
         }
         if !d.mergeNote.isEmpty { lines += ["", d.mergeNote] }
-        let acceptance = d.acceptance
-        lines += ["", ReviewBody.factsLine(acceptance, changed: d.changed.count)]
+        let evidence = state.delivery ?? DeliveryEvidence()
+        let acceptance = evidence.tasks
+        lines += ["", evidence.facts]
         if !acceptance.isEmpty {
             lines += ["", L.text("逐条验收：")]
             for a in acceptance {
                 let verified: [String] = a.verifications.map { v in v.passed ? L.text("\(v.task) 通过") : L.text("\(v.task) 未确认（\(v.label)）") }
-                var line = L.text("- \(a.task)：通过 \(a.summary.passed)/\(a.summary.criteria) · 证据：\(a.summary.countsText)")
+                var line = L.text("- \(a.task)：通过 \(a.passed)/\(a.criteria) · 证据：\(a.counts)")
                 if !verified.isEmpty { line += L.text(" · 独立验证：") + verified.joined(separator: L.text("、")) }
                 if a.unverified { line += L.text(" · 没有独立验证") }
                 lines.append(line)

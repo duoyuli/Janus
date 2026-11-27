@@ -26,8 +26,8 @@ struct TaskView: View {
         let w = run.who(t.agent)
         // The evidence summary is a display grouping of what the events recorded; whether the task
         // passed stays with `task.succeeded` / `verification.*`.
-        let summary = EvidenceSummary(accept: t.accept, checks: t.checks)
-        let verifiers = st.verifiers(of: t.id)
+        let summary = st.evidence[t.id] ?? TaskEvidence()
+        let verifiers = summary.verifications
         let session = st.session(.task(t.id))
         let notes = session.notes
         return ScrollView {
@@ -83,11 +83,11 @@ struct TaskView: View {
                                     Note(text: L.text("和工作目录对不上：\n\(t.traceGaps.map { "· \($0)" }.joined(separator: "\n"))"), tone: .amber)
                                 }
                                 // One row per criterion, and every check is kept even when it names no criterion.
-                                ForEach(CriterionCheck.rows(accept: t.accept, checks: t.checks)) { row in
+                                ForEach(summary.rows) { row in
                                     CheckLine(n: row.n, criterion: row.criterion, check: row.check)
                                 }
                                 if !t.checks.isEmpty {
-                                    Text(verbatim: L.text("证据：\(summary.countsText)")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                                    Text(verbatim: L.text("证据：\(summary.counts)")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                                 }
                                 EvidenceReminders(reminders: summary.reminders)
                                 if !t.verificationFailures.isEmpty {
@@ -105,7 +105,7 @@ struct TaskView: View {
                                 if !verifiers.isEmpty {
                                     Divider()
                                     Text(L.text("独立验证")).font(.callout).foregroundStyle(.secondary)
-                                    VerificationList(records: verifiers.map(VerificationRecord.init))
+                                    VerificationList(records: verifiers)
                                 }
                                 if !t.risks.isEmpty {
                                     Divider()
@@ -233,9 +233,7 @@ struct TimelineRow: View {
         case .taskRetryScheduled: Note(text: L.text("重试策略：\(d["strategy"].str)"))
         case .artifactCreated: Note(text: "\(d["desc"].str)\n\(L.tilde(d["path"].str)) · sha256 \(d["hash"].str)…")
         case .resultSubmitted:
-            ForEach(CriterionCheck.rows(accept: [], checks: Check.list(d["checks"]))) { row in
-                CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
-            }
+            CheckLines(checks: Check.list(d["checks"]), dense: true)
             if !d["risks"].array.isEmpty { Note(text: L.text("风险：\(d["risks"].strings.joined(separator: L.text("；")))"), tone: .amber) }
         case .approvalRequested: CodeBlock(text: "$ \(d["command"].str)")
         default: EmptyView()

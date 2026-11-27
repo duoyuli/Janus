@@ -381,7 +381,8 @@ enum Snapshots {
                                 "headline": JSON(d.headline), "decisions": strings(d.decisions), "merge": JSON(d.merge?.rawValue),
                                 "changed": strings(d.changed), "requests": strings((s.review?.requests ?? []).map(\.text)),
                                 "signals": JSON.array((s.review?.signals ?? []).map { ["source": JSON(String(describing: $0.source)), "text": JSON($0.text)] }),
-                                "tasks": strings(d.acceptance.map(\.task)), "facts": JSON(ReviewBody.factsLine(d.acceptance, changed: d.changed.count))]
+                                "tasks": strings((s.delivery?.tasks ?? []).map(\.task)), "facts": JSON(s.delivery?.facts ?? ""),
+                                "rows": JSON.array((s.delivery?.tasks ?? []).map { ["task": JSON($0.task), "metrics": JSON($0.metrics), "markers": strings($0.markers), "open": .bool($0.needsAttention), "strength": JSON($0.strength.text)] })]
                     } ?? .null,
                     "tasks": JSON.array(s.orderedTasks.map { t in
                         ["id": JSON(t.id), "status": JSON(t.status.rawValue), "agent": JSON(t.agent), "attempts": JSON(t.attempts.count),

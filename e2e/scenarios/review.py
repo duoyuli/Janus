@@ -34,6 +34,11 @@ def review(ctx, c):
         marks = [f"{m['kind']}:{m['title']}" for m in view["timeline"]["milestones"]]
         c(st["run"]["timeline"] == {"tasks": served, "milestones": marks} and served[0]["result"],
           f"应用：进展时间线的子任务、尝试、结论和上面一栏的决定与服务端一致（{st['run']['timeline']}）")
+        rows = [{"task": t["task"], "metrics": t["metrics"], "markers": t["markers"], "open": t["needsAttention"],
+                 "strength": t["strength"]["text"]} for t in view["delivery"]["tasks"]]
+        rv = st["run"]["review"]
+        c(rv["facts"] == view["delivery"]["facts"] and rv["rows"] == rows and rows[0]["metrics"],
+          f"应用：交付的一行数字和每个子任务的一行（通过数、方法计数、标记、是否展开、证据强度）与服务端一致（{rv['facts']}，{rv['rows']}）")
 
     code, text = run.act_error("cancel")
     c(code == 400 and "已经交付过" in text, f"交付后停止被拒绝：结果已经在分支上（{code}）")

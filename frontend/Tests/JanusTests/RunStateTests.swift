@@ -57,53 +57,22 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(st.session(.agent("nobody")).composer == .ended, "a conversation the server did not serve takes nothing")
 }
 
-/// The independent verifier is kept apart from the task it checks, with its own methods; a
-/// completed negative review is not an approval.
-@Test func aVerifierIsKeptApartAndARejectionIsNoApproval() {
-    let check: JSON = ["criterion": "复现行为", "passed": true, "method": "command", "evidence": "python3 calc.py"]
-    let st = RunState(["tasks": [servedTask("T2", status: "succeeded", ["checks": [["criterion": "测试通过", "passed": true, "method": "test", "evidence": "ok"]], "risks": ["没有覆盖负数"]]),
-                                 servedTask("V1", agent: "qa", status: "succeeded", ["verifies": "T2", "checks": [check], "accept": ["复现行为"]])]], events: [])
+/// A task's evidence reads as the server pairs and counts it, its independent verifier apart with
+/// its own conclusion; a completed negative review is not an approval.
+@Test func aTasksEvidenceAndItsVerifierReadAsServed() throws {
+    let st = RunState(["tasks": [servedTask("T2", status: "succeeded", ["checks": [["criterion": "测试通过", "passed": true, "method": "test", "evidence": "ok"]], "risks": ["没有覆盖负数"]])],
+                       "evidence": ["T2": ["criteria": 2, "passed": 1, "counts": "测试 1 条", "reminders": [],
+                                           "rows": [["n": 1, "criterion": "测试通过", "check": ["criterion": "测试通过", "passed": true, "method": "test"]],
+                                                    ["n": 2, "criterion": "有保护", "check": .null]],
+                                           "verifications": [["task": "V1", "status": "succeeded", "verdict": "rejected", "passed": false,
+                                                              "checks": [["criterion": "边界通过", "passed": false, "method": "command", "evidence": "panic"]]]]]]],
+                      events: [])
     #expect(st.tasks["T2"]?.checks.first?.method == .test && st.tasks["T2"]?.risks == ["没有覆盖负数"])
-    #expect(st.verifiers(of: "T2").map(\.id) == ["V1"])
-    #expect(st.verifiers(of: "T2").first?.checks.first?.methodLabel == expectedCopy("命令", "Command"))
-    #expect(st.verifiers(of: "T1").isEmpty)
-    let rejected = TaskState(servedTask("V1", agent: "qa", status: "succeeded", ["verdict": "rejected", "accept": ["边界通过"],
-                                                                                    "checks": [["criterion": "边界通过", "passed": false, "method": "test", "evidence": "panic"]]]))
-    let vr = VerificationRecord(rejected)
-    #expect(vr.verdict == .rejected && vr.passed == false, "completed negative review is not an approval")
-}
-
-/// The delivery's per-task record keeps every check with its method, the independent verification,
-/// the trace gaps and the risks.
-@Test func deliveryReadsEveryTaskAcceptanceApart() throws {
-    let record: JSON = [
-        "task": "T1", "title": "实现", "status": "succeeded", "label": "已完成",
-        "criteria": 2, "passed": 2,
-        "methods": [["method": "test", "label": "测试", "count": 1], ["method": "unverified", "label": "未核实", "count": 1]],
-        "unspecified": 0, "invalid": [],
-        "reminders": ["第 2 条「界面正常」未核实：本机没有 Xcode"],
-        "checks": [
-            ["criterion": "测试通过", "passed": true, "method": "test", "evidence": "cargo test 96 passed"],
-            ["criterion": "界面正常", "passed": true, "method": "unverified", "evidence": "本机没有 Xcode"],
-        ],
-        "verifications": [[
-            "task": "V1", "status": "failed", "label": "失败", "passed": false, "summary": "没能复现",
-            "checks": [["criterion": "复现行为", "passed": false, "method": "command", "evidence": "运行后没有提示"]],
-            "evidence": ["输出见上"], "risks": ["只在 macOS 上测过"],
-        ]],
-        "traceGaps": ["改了负责范围以外的文件：notes.md"],
-        "risks": ["旧版本没有回归测试"],
-    ]
-    let r = RunResult(["d": ["summary": "完成", "acceptance": [record]], "seq": 5, "n": 1, "since": 0])
-    let records = Delivery(r).acceptance
-    #expect(records.count == 1)
-    let a = try #require(records.first)
-    #expect((a.summary.passed, a.summary.criteria) == (2, 2))
-    #expect(a.checks.count == 2 && a.checks[1].methodLabel == expectedCopy("未核实", "Unverified"))
-    #expect(a.summary.countsText == expectedCopy("测试 1 条、未核实 1 条", "Test: 1, Unverified: 1"))
-    #expect(a.verifications.first?.passed == false && a.verifications.first?.label == expectedCopy("失败", "Failed"), "a failed verification is shown apart from the executor's checks")
-    #expect(a.traceGaps.count == 1 && a.risks == ["旧版本没有回归测试"])
-    #expect(a.summary.reminders.count == 1)
+    let e = try #require(st.evidence["T2"])
+    #expect(e.rows.map(\.n) == [1, 2] && e.rows[1].check == nil, "a criterion nothing answered keeps its row")
+    let v = try #require(e.verifications.first)
+    #expect(v.task == "V1" && v.verdict == .rejected && !v.passed, "completed negative review is not an approval")
+    #expect(v.checks.first?.methodLabel == expectedCopy("命令", "Command"))
 }
 
 /// A queued run's row names its place in the queue; a queued run is neither at work nor finished.
@@ -263,45 +232,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(bad.methodLabel == expectedCopy("证据方法「vibes」不认识（没说明）", "Unknown evidence method “vibes” (not given)"))
 }
 
-/// Every criterion gets a row even with no check, and every check is kept even when the result
-/// names more checks than criteria: nothing is truncated to the first one.
-@Test func everyCriterionAndEveryCheckGetsARow() {
-    let checks = [
-        Check(["criterion": "多给的一条", "passed": true, "method": "inspection", "evidence": "读了代码"]),
-        Check(["criterion": "旧结果", "passed": true, "evidence": "第一条证据"]),
-        Check(["criterion": "旧结果第二条", "passed": false, "evidence": "第二条证据"]),
-    ]
-    let rows = CriterionCheck.rows(accept: ["标准1", "标准2"], checks: checks)
-    #expect(rows.count == 3, "the extra check is not dropped")
-    #expect(rows[0].criterion == "标准1" && rows[0].check?.method == .inspection)
-    #expect(rows[2].check?.evidence == "第二条证据", "extra checks keep their own criterion")
-    let unanswered = CriterionCheck.rows(accept: ["标准1", "标准2"], checks: [checks[1]])
-    #expect(unanswered.count == 2 && unanswered[1].check == nil, "a criterion with no check still gets a row")
-    #expect(CriterionCheck.rows(accept: [], checks: checks).map(\.criterion) == ["多给的一条", "旧结果", "旧结果第二条"])
-}
-
-/// Reasoning, unverified and a missing method only remind; they neither pass nor fail a task, and
-/// an illegal method is counted apart instead of being turned into one of the five.
-@Test func weakerEvidenceOnlyReminds() {
-    let checks = [
-        Check(["criterion": "跑过测试", "passed": true, "method": "test", "evidence": "cargo test"]),
-        Check(["criterion": "推断不影响", "passed": true, "method": "reasoning", "evidence": "调用方只有这一处"]),
-        Check(["criterion": "本机没有 Xcode", "passed": true, "method": "unverified", "evidence": "本机没有 Xcode"]),
-        Check(["criterion": "没写方法", "passed": true, "evidence": "看起来没问题"]),
-        Check(["criterion": "写错方法", "passed": true, "method": "vibes", "evidence": "看着没问题"]),
-    ]
-    let s = EvidenceSummary(accept: ["跑过测试", "推断不影响", "本机没有 Xcode", "没写方法", "写错方法"], checks: checks)
-    #expect(s.criteria == 5 && s.passed == 5, "reminders do not change how many passed")
-    #expect(s.unspecified == 1)
-    #expect(s.invalid == 1)
-    #expect(s.reminders.count == 3, "\(s.reminders)")
-    #expect(s.reminders.contains { $0.contains(expectedCopy("推理判断", "assessed by reasoning")) && $0.contains(expectedCopy("不是运行得到的结果", "without an executed check")) })
-    #expect(s.reminders.contains { $0.contains(expectedCopy("未核实", "was not verified")) && $0.contains("本机没有 Xcode") })
-    #expect(s.reminders.contains { $0.contains(expectedCopy("没有说明证据方法", "has no evidence method")) })
-    #expect(s.methods.map(\.method) == ["test", "reasoning", "unverified"], "counts keep the five methods' order: \(s.methods)")
-    #expect(s.countsText == expectedCopy("测试 1 条、推理判断 1 条、未核实 1 条、未说明 1 条、方法不合法 1 条", "Test: 1, Reasoning: 1, Unverified: 1, Unspecified: 1, Invalid methods: 1"), "\(s.countsText)")
-    #expect(EvidenceSummary(accept: [], checks: []).countsText == expectedCopy("没有记录", "No records"))
-}
 
 /// An installed app does not use a Janus service of another release (its data upgrade has not run);
 /// an app run from source uses whatever runs.

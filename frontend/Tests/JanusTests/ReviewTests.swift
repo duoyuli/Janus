@@ -22,22 +22,3 @@ import Testing
     #expect(r.signals[1].source == .janus && r.signals[1].detail == "改了 c.rs" && r.signals[1].task == "T2")
 }
 
-@Test func evidenceStrengthBandsTheMethods() {
-    let checks = ["test", "command", "inspection", "reasoning", "unverified"].map { Check(["criterion": "x", "passed": true, "method": JSON($0)]) }
-        + [Check(["criterion": "y", "passed": true])]
-    let e = EvidenceStrength(EvidenceSummary(accept: [], checks: checks))
-    #expect((e.ran, e.read, e.said) == (2, 1, 3))
-    #expect(e.text == expectedCopy("运行 2 · 检查 1 · 只是说法 3", "Ran 2 · Read 1 · Only said 3"))
-    let line = ReviewBody.factsLine([], changed: 0)
-    #expect(line == expectedCopy("没有子任务，负责人自己完成 · 没有改动文件", "No subtasks, the lead did it itself · No files changed"))
-}
-
-/// A subtask's own risks mark its row but do not open it; a failed criterion, a trace gap or an
-/// unconfirmed verification does.
-@Test func onlyWhatJanusFindsOpensASubtaskRow() {
-    let risky = DeliveryAcceptance(["task": "T1", "title": "改", "status": "succeeded", "criteria": 1, "passed": 1, "checks": [["criterion": "一", "passed": true]], "risks": ["没跑全量"]])!
-    #expect(!risky.row.needsAttention)
-    #expect(risky.row.markers == [expectedCopy("自述风险 1 条", "Self-reported risks: 1")])
-    let gap = DeliveryAcceptance(["task": "T2", "title": "写", "status": "succeeded", "criteria": 1, "passed": 1, "traceGaps": ["改了 c.rs"]])!
-    #expect(gap.row.needsAttention)
-}

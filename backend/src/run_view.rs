@@ -13,6 +13,7 @@
 mod aside;
 mod board;
 pub mod docs;
+mod evidence;
 mod inbox;
 pub mod preview;
 mod review;
@@ -1174,6 +1175,8 @@ impl Fold {
             diffs: self.diffs.clone(),
             docs: vec![],
             timeline,
+            evidence: evidence::tasks(&self.state, words),
+            delivery: evidence::delivery(&self.state, words),
             live,
             actions: BTreeMap::new(),
             read_only,
@@ -1230,6 +1233,10 @@ pub struct RunView {
     pub docs: Vec<docs::Doc>,
     /// The progress timeline's rows and marks.
     pub timeline: timeline::Timeline,
+    /// Each task's acceptance evidence, by its id.
+    pub evidence: BTreeMap<String, evidence::TaskEvidence>,
+    /// The latest delivery's evidence: the round's numbers and each task's row.
+    pub delivery: Option<evidence::DeliveryEvidence>,
     /// The run is in the service's memory.
     pub live: bool,
     /// What can be done to the whole run now, by `RunOp` (`run_ops::answers`); filled in by the

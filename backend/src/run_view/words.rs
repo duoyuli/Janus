@@ -43,6 +43,28 @@ impl Words {
         self.lang.pick("；", " · ")
     }
 
+    /// A task's status in a word or two, as its pill reads.
+    pub fn task_status(&self, s: super::TaskShown) -> String {
+        use super::TaskShown::*;
+        let l = self.lang;
+        match s {
+            Pending => l.pick("等上游", "Waiting on upstream"),
+            Ready => l.pick("待开工", "Ready"),
+            Assigned => l.pick("已派活", "Assigned"),
+            Running => l.pick("干活中", "Working"),
+            WaitingInput => l.pick("等你回答", "Waiting for your answer"),
+            WaitingApproval => l.pick("等你审批", "Waiting for approval"),
+            Blocked => l.pick("上游出错", "Upstream failed"),
+            SkippedByDecision => l.pick("负责人取消", "Cancelled by lead"),
+            Verifying => l.pick("核对中", "Verifying"),
+            VerificationFailed => l.pick("验收没通过", "Acceptance failed"),
+            Succeeded => l.pick("已完成", "Completed"),
+            Failed => l.pick("失败", "Failed"),
+            Cancelled => l.pick("已取消", "Cancelled"),
+        }
+        .into()
+    }
+
     /// Above the run card of a run that stopped short: a restart interrupted it (`interrupted`),
     /// or it failed; either way it goes on from where it stopped.
     pub fn resume_note(&self, interrupted: bool) -> String {

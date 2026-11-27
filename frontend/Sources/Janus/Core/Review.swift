@@ -2,7 +2,7 @@ import Foundation
 
 // Reviewing a delivery: where the run stands after one (`ReviewStage`), what the latest delivery
 // says (`Delivery`), what in it needs the person (`ReviewSignal`) and how strong each task's
-// evidence is (`EvidenceStrength`). The stage and the signals are the server's
+// evidence is (the run view's `delivery`). The stage and the signals are the server's
 // (docs/architecture/20261031-frontend.md#review).
 
 /// How a delivery's result reached the person's branch (`run.delivered` `merge.state`).
@@ -45,7 +45,6 @@ struct Delivery {
     var risks: [(task: String?, text: String)] { d["risks"].array.map { ($0["task"].string, $0["text"].str) }.filter { !$0.text.isEmpty } }
     var evidence: [JSON] { d["evidence"].array }
     var deliverables: [JSON] { d["deliverables"].array }
-    var acceptance: [DeliveryAcceptance] { d["acceptance"].array.compactMap(DeliveryAcceptance.init) }
 
     init(_ result: RunResult) { self.result = result }
 }
@@ -125,31 +124,5 @@ struct ReviewSignal: Equatable, Identifiable {
         text = j["text"].str
         detail = j["detail"].str
         task = j["task"].string
-    }
-}
-
-/// How a task's checks were verified, in three bands: run (tests, commands), read (inspection),
-/// or only said (reasoning, unverified, no method or an illegal one).
-struct EvidenceStrength: Equatable {
-    var ran = 0
-    var read = 0
-    var said = 0
-    var total: Int { ran + read + said }
-
-    init(_ s: EvidenceSummary) {
-        for m in s.methods {
-            switch EvidenceMethod(rawValue: m.method) {
-            case .test?, .command?: ran += m.count
-            case .inspection?: read += m.count
-            default: said += m.count
-            }
-        }
-        said += s.unspecified
-    }
-
-    /// 「运行 2 · 检查 1 · 只是说法 1」
-    var text: String {
-        [(ran, L.text("运行 \(ran)")), (read, L.text("检查 \(read)")), (said, L.text("只是说法 \(said)"))]
-            .filter { $0.0 > 0 }.map(\.1).joined(separator: " · ")
     }
 }

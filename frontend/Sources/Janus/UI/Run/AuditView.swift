@@ -78,9 +78,7 @@ struct AuditView: View {
                                [.resultSubmitted, .verificationPassed, .verificationFailed, .taskSucceeded].contains(e.type) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(L.text("逐条验收")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                                    ForEach(CriterionCheck.rows(accept: [], checks: Check.list(e.data["checks"]))) { row in
-                                        CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
-                                    }
+                                    CheckLines(checks: Check.list(e.data["checks"]), dense: true)
                                 }
                                 .padding(.leading, 50)
                             }

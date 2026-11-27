@@ -354,6 +354,10 @@ struct RunState {
     var docs: [RunDoc] = []
     /// The progress timeline's rows and marks, as the server lays out what is on it.
     var timeline: JSON = .null
+    /// Each task's acceptance evidence, by its id, as the server groups it.
+    var evidence: [String: TaskEvidence] = [:]
+    /// The latest delivery's evidence: the round's numbers and each task's row.
+    var delivery: DeliveryEvidence?
     /// What can be done to the whole run now, as the server answers it.
     var allowed = RunActions()
     /// Nothing can be done in it any more: a stopped run the service no longer holds.
@@ -385,6 +389,8 @@ struct RunState {
         diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
         docs = j["docs"].array.map(RunDoc.init)
         timeline = j["timeline"]
+        evidence = j["evidence"].object.mapValues(TaskEvidence.init)
+        delivery = j["delivery"].isNull ? nil : DeliveryEvidence(j["delivery"])
         allowed = RunActions(answers: j["actions"].object)
         readOnly = j["readOnly"].bool ?? false
         resumeNote = j["resumeNote"].string
@@ -400,10 +406,6 @@ struct RunState {
     func event(_ seq: Int) -> Event? { seq >= 1 && seq <= events.count && events[seq - 1].seq == seq ? events[seq - 1] : events.first { $0.seq == seq } }
 
     var active: Bool { !run.goal.isEmpty && !run.status.isFinished }
-
-    /// The tasks that verify `task` independently; their conclusion is shown apart from the
-    /// evidence the executor reported.
-    func verifiers(of task: String) -> [TaskState] { orderedTasks.filter { $0.verifies == task } }
 }
 
 /// What can be done to the whole run now, as the server answers it (`backend/src/run_ops.rs`):

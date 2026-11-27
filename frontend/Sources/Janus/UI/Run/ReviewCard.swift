@@ -94,13 +94,14 @@ struct ReviewBody: View {
     var width: CGFloat
 
     var body: some View {
-        let acceptance = d.acceptance
+        let evidence = st.delivery ?? DeliveryEvidence()
+        let acceptance = evidence.tasks
         let signals = st.review?.signals ?? []
         VStack(alignment: .leading, spacing: 14) {
             header
             requests
             conclusion
-            facts(acceptance)
+            facts(evidence)
             attention(signals)
             changes
             if run.offersReview(stage) { actions(signals) }
@@ -157,32 +158,11 @@ struct ReviewBody: View {
         }
     }
 
-    /// One line of numbers for the round: subtasks done, criteria met, how the evidence was got.
-    @ViewBuilder private func facts(_ acceptance: [DeliveryAcceptance]) -> some View {
-        let line = ReviewBody.factsLine(acceptance, changed: d.changed.count)
-        Text(verbatim: line).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+    /// One line of numbers for the round, as the server writes it: subtasks done, criteria met, how
+    /// the evidence was got, files changed.
+    @ViewBuilder private func facts(_ evidence: DeliveryEvidence) -> some View {
+        Text(verbatim: evidence.facts).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// 「子任务 3/3 完成 · 验收标准 12/12 · 运行 5 · 检查 7 · 改了 2 个文件」
-    static func factsLine(_ acceptance: [DeliveryAcceptance], changed: Int) -> String {
-        var parts: [String] = []
-        if acceptance.isEmpty {
-            parts.append(L.text("没有子任务，负责人自己完成"))
-        } else {
-            let done = acceptance.filter { $0.status == .succeeded }.count
-            parts.append(L.text("子任务 \(done)/\(acceptance.count) 完成"))
-            let criteria = acceptance.map(\.summary.criteria).reduce(0, +), passed = acceptance.map(\.summary.passed).reduce(0, +)
-            parts.append(L.text("验收标准 \(passed)/\(criteria) 达到"))
-            var all = EvidenceStrength(EvidenceSummary(accept: [], checks: []))
-            for a in acceptance {
-                let s = EvidenceStrength(a.summary)
-                all.ran += s.ran; all.read += s.read; all.said += s.said
-            }
-            if all.total > 0 { parts.append(all.text) }
-        }
-        parts.append(changed == 0 ? L.text("没有改动文件") : L.text("改了 \(changed) 个文件"))
-        return parts.joined(separator: " · ")
     }
 
     /// What the person should look at before accepting; says so when there is nothing.

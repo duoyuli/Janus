@@ -534,7 +534,6 @@
 "派出子任务：%@" = "Dispatched subtasks: %@";
 "提示词" = "Prompt";
 "提醒" = "Notice";
-"提醒 %lld 条" = "Notes: %lld";
 "提醒（不影响是否通过）：\n%@" = "Notes (do not affect acceptance):\n%@";
 "提醒（按已上报数据）" = "Notice (reported data only)";
 "插话" = "Steer";
@@ -571,7 +570,6 @@
 "新版本的签名者与当前的 Janus 不同，已拒绝安装" = "Installation refused because the update and the installed app have different signers";
 "新目标" = "New Goal";
 "证据方法「%@」不认识（没说明）" = "Unknown evidence method “%@” (not given)";
-"方法不合法 %lld 条" = "Invalid methods: %lld";
 "无" = "None";
 "无权限模式" = "No permission modes";
 "没法保存权限引导记录，下次启动可能还会提醒：%@" = "Couldn't save the permission checklist; you may see it again next launch: %@";
@@ -694,8 +692,6 @@
 "没有在干活的任务" = "Nothing running";
 "没有比例" = "No ratio reported";
 "没有给出证据" = "No evidence provided";
-"没有记录" = "No records";
-"没有说明原因" = "No reason given";
 "清空了，没有待处理的事。" = "All clear. Nothing pending.";
 "没通过" = "Failed";
 "验收没通过" = "Acceptance failed";
@@ -732,7 +728,6 @@
 "申请授权" = "Request Access";
 "留言" = "Leave Message";
 "留言 · 这次会话开始时已带上" = "Note · Delivered when this session started";
-"对不上 %lld 处" = "Mismatches: %lld";
 "改动核对（结果和工作目录对不上）：\n%@" = "Change check (result doesn't match the workspace):\n%@";
 "登录" = "Sign In";
 "目录不存在" = "Directory does not exist";
@@ -754,9 +749,6 @@
 "竞品与定位" = "Competitors & Positioning";
 "端口 %@ 被其他程序占用，改用 %@" = "Port %@ is in use. Using %@ instead.";
 "第 %lld / %lld 条 · %@ · %@：%@" = "%lld of %lld · %@ · %@: %@";
-"第 %lld 条「%@」是推理判断，不是运行得到的结果" = "Criterion %lld (“%@”) was assessed by reasoning without an executed check";
-"第 %lld 条「%@」未核实：%@" = "Criterion %lld (“%@”) was not verified: %@";
-"第 %lld 条「%@」没有说明证据方法" = "Criterion %lld (“%@”) has no evidence method";
 "第 %lld 条，" = "Criterion %lld, ";
 "第 %lld 条，共 %lld 条" = "Event %lld of %lld";
 "第 %lld 次" = "Attempt %lld";
@@ -774,7 +766,6 @@
 "等队友" = "Waiting on a teammate";
 "等待登录" = "Waiting for sign-in";
 "等待看板上的进展" = "Wait for board activity";
-"等待调度" = "Waiting to be scheduled";
 "等你输入" = "Waiting for you";
 "等待输入时附带可回答的问题" = "Waiting for input requires an answerable question";
 "等待返回" = "Waiting for result";
@@ -1517,7 +1508,6 @@
 /* Reviewing a delivery */
 "运行 %lld" = "Ran %lld";
 "检查 %lld" = "Read %lld";
-"只是说法 %lld" = "Only said %lld";
 "交付" = "Delivery";
 "看这次交付" = "View This Delivery";
 "让它接着做" = "Let It Go On";
@@ -1534,10 +1524,6 @@
 "第 %lld 次交付" = "Delivery %lld";
 "结果没进你的分支" = "The result is not on your branch";
 "你在交付后的要求" = "What you asked after the delivery";
-"没有子任务，负责人自己完成" = "No subtasks, the lead did it itself";
-"子任务 %lld/%lld 完成" = "Subtasks done: %lld/%lld";
-"验收标准 %lld/%lld 达到" = "Criteria met: %lld/%lld";
-"没有改动文件" = "No files changed";
 "需要你看的" = "To Look At";
 "没有。负责人没留下要你决定的事，Janus 也没查出问题。" = "Nothing. The lead left nothing for you to decide, and Janus found no problems.";
 "负责人留给你的问题" = "A question the lead leaves for you";
@@ -1558,7 +1544,6 @@
 "负责人的完整报告" = "The Lead's Full Report";
 "其他证据 %lld 条" = "Other evidence: %lld";
 "之前的交付 %lld 次" = "Earlier deliveries: %lld";
-"自述风险 %lld 条" = "Self-reported risks: %lld";
 "你打断了负责人" = "You interrupted the lead";
 "这一轮改的东西还没有交付" = "What this turn changed is not delivered yet";
 "等你决定" = "Your call";

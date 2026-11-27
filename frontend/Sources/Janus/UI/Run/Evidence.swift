@@ -110,6 +110,19 @@ struct CheckLine: View {
     }
 }
 
+/// Recorded checks one per line, numbered in their order: a result's, a verification's, a
+/// delivery record's.
+struct CheckLines: View {
+    let checks: [Check]
+    var dense = false
+
+    var body: some View {
+        ForEach(Array(checks.enumerated()), id: \.offset) { i, c in
+            CheckLine(n: i + 1, criterion: c.criterion, check: c, dense: dense)
+        }
+    }
+}
+
 /// The reminders under a task's checks: weaker evidence that the lead should read but that is not a
 /// failure by itself (reasoning, unverified, no method at all).
 struct EvidenceReminders: View {
@@ -139,9 +152,7 @@ struct VerificationList: View {
                         .font(.caption).foregroundStyle(v.passed ? .secondary : Tone.amber.color)
                 }
                 if !v.summary.isEmpty { Text(MD.inline(v.summary)).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                ForEach(CriterionCheck.rows(accept: [], checks: v.checks)) { row in
-                    CheckLine(n: row.n, criterion: row.criterion, check: row.check, dense: true)
-                }
+                CheckLines(checks: v.checks, dense: true)
                 ForEach(v.evidence.indices, id: \.self) { i in
                     Text(MD.inline(v.evidence[i])).font(.caption).foregroundStyle(.secondary)
                         .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -179,7 +190,7 @@ struct DeliveryTaskView: View {
     var width: CGFloat
 
     var body: some View {
-        let row = record.row
+        let row = record
         // The person's switch wins for this opening of the run; otherwise the row's own default.
         let open = run.taskOpen[record.task] ?? row.needsAttention
         VStack(alignment: .leading, spacing: 6) {
@@ -205,7 +216,7 @@ struct DeliveryTaskView: View {
 
     /// The id, title, passed count and method counts; in the wide layout they share the row, in the
     /// narrow one the numbers sit below. One VoiceOver element with the row's full reading.
-    @ViewBuilder private func header(_ row: DeliveryTaskRow, open: Bool, titleLimit: Int) -> some View {
+    @ViewBuilder private func header(_ row: DeliveryAcceptance, open: Bool, titleLimit: Int) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             // The id stays whole; the title gives way first.
             TaskTag(id: record.task).fixedSize()
@@ -214,7 +225,7 @@ struct DeliveryTaskView: View {
             if !BoardLayout.deliveryRowStacks(width) {
                 Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                StrengthBar(strength: EvidenceStrength(record.summary))
+                StrengthBar(strength: record.strength)
                 if !row.markers.isEmpty {
                     Text(verbatim: row.markers.joined(separator: " · "))
                         .font(.caption).foregroundStyle(Tone.amber.color)
@@ -226,11 +237,11 @@ struct DeliveryTaskView: View {
         .accessibilityLabel(row.voice(open: open))
     }
 
-    @ViewBuilder private func numbers(_ row: DeliveryTaskRow) -> some View {
+    @ViewBuilder private func numbers(_ row: DeliveryAcceptance) -> some View {
         HStack(spacing: 6) {
             Text(verbatim: row.metrics).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            StrengthBar(strength: EvidenceStrength(record.summary))
+            StrengthBar(strength: record.strength)
         }
         if !row.markers.isEmpty {
             Text(verbatim: row.markers.joined(separator: " · "))
@@ -260,12 +271,10 @@ struct DeliveryTaskView: View {
             // The row title was shortened to one line; the body starts with the whole one.
             Text(record.title).font(.callout.weight(.semibold)).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: L.text("证据：\(record.summary.countsText)"))
+            Text(verbatim: L.text("证据：\(record.counts)"))
                 .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-            ForEach(CriterionCheck.rows(accept: [], checks: record.checks)) { row in
-                CheckLine(n: row.n, criterion: row.criterion, check: row.check)
-            }
-            EvidenceReminders(reminders: record.summary.reminders)
+            CheckLines(checks: record.checks)
+            EvidenceReminders(reminders: record.reminders)
             if !record.verifications.isEmpty {
                 Divider()
                 Text(L.text("独立验证")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
