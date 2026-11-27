@@ -1,0 +1,113 @@
+.loop-examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.loop-when {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 24px;
+}
+
+.loop-shape {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.loop-shape .input.mono {
+  width: 220px;
+}
+
+.loop-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.loop-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.loop-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.loop-name {
+  margin: 0;
+  font-size: 22px;
+}
+
+.loop-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.loop-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.loop-session {
+  flex: 1;
+  min-width: 0;
+}
+
+.loop-side {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dispatched-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dispatched-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 900px) {
+  .loop-body {
+    flex-direction: column;
+  }
+
+  .loop-side {
+    flex-basis: auto;
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .loop-actions {
+    width: 100%;
+  }
+
+  .loop-actions .btn {
+    min-height: var(--tap);
+    flex: 1;
+  }
+
+  .loop-when {
+    padding-left: 0;
+  }
+}

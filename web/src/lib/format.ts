@@ -61,20 +61,6 @@ export function dur(ms: number): string {
   return t`${Math.floor(s / 3600)} 小时 ${Math.floor((s % 3600) / 60)} 分`;
 }
 
-/** Markdown marks dropped, for previews cut to a length. */
-export function plain(text: string): string {
-  return text
-    .replace(/\[([^\]\n]+)\]\([^)\s]+\)/g, "$1")
-    .replace(/\*\*|`/g, "")
-    .replace(/^#+\s*/gm, "");
-}
-
-/** A goal can be a long pasted brief; lists and headers show its first line. */
-export function goalTitle(goal: string): string {
-  const first = (goal ?? "").split("\n").map((l) => l.trim()).find((l) => l) ?? "";
-  return plain(first).trim();
-}
-
 /** A home-relative path for display. */
 export function tilde(p: string): string {
   return (p ?? "").replace(/^\/(?:Users|home)\/[^/]+\//, "~/");

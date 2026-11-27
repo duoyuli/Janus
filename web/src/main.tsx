@@ -6,13 +6,17 @@ import { unpaired } from "./lib/api.ts";
 import "./lib/appearance.ts";
 import { lang } from "./lib/i18n.ts";
 import { route } from "./lib/router.ts";
-import { boot, loadInbox } from "./lib/store.ts";
+import { boot, readAll } from "./lib/store.ts";
 import { follow, stop } from "./lib/stream.ts";
 import "./lib/testing.ts";
 import { Shell } from "./app/Shell.tsx";
+import { ChatsPage, NewChatPage } from "./pages/chats.tsx";
 import { InboxPage } from "./pages/inbox.tsx";
-import { ChatsPage, MissingPage, RunPage, SettingsPage } from "./pages/misc.tsx";
+import { LoopEditor } from "./pages/loops.tsx";
+import { MemoryPage, NotePage } from "./pages/memory.tsx";
+import { MissingPage, RunPage, SettingsPage } from "./pages/misc.tsx";
 import { PairPage, UnpairedPage } from "./pages/pair.tsx";
+import { BriefEditor, WorkspaceEditor } from "./pages/workspace-edit.tsx";
 import { WorkspacePage, WorkspacesPage } from "./pages/workspace.tsx";
 import "./styles/tokens.css";
 import "./styles/base.css";
@@ -29,10 +33,26 @@ function Page() {
       return <WorkspacesPage />;
     case "workspace":
       return <WorkspacePage id={r.id} key={r.id} />;
+    case "newWorkspace":
+      return <WorkspaceEditor key="new" />;
+    case "workspaceSettings":
+      return <WorkspaceEditor id={r.id} key={r.id} />;
+    case "brief":
+      return <BriefEditor id={r.id} key={r.id} />;
+    case "memory":
+      return <MemoryPage id={r.id} key={r.id} />;
+    case "note":
+      return <NotePage id={r.id} note={r.note} key={r.note} />;
+    case "newLoop":
+      return <LoopEditor ws={r.id} key={`new-${r.id}`} />;
+    case "editLoop":
+      return <LoopEditor loopId={r.loop} key={r.loop} />;
     case "run":
       return <RunPage id={r.id} key={r.id} />;
     case "chats":
       return <ChatsPage />;
+    case "newChat":
+      return <NewChatPage />;
     case "settings":
       return <SettingsPage />;
     default:
@@ -56,11 +76,12 @@ effect(() => {
   if (unpaired.value) stop();
 });
 
-// What the service words follows the interface language: the inbox is read again in the new one.
+// What the service words follows the interface language: everything it wrote is read again in
+// the new one (the setup, the lists, the Loops, the team memory shown, the inbox).
 let first = true;
 effect(() => {
   document.documentElement.lang = lang.value === "en" ? "en" : "zh-Hans";
-  if (!first) void loadInbox();
+  if (!first) void readAll();
   first = false;
 });
 

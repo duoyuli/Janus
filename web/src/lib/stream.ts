@@ -6,7 +6,7 @@
 
 import { signal } from "@preact/signals";
 import { api, type ApiError, type Json, unpaired } from "./api.ts";
-import { attention, chats, loadInbox, loadRuns, loadSetup, readAll, runs } from "./store.ts";
+import { attention, chats, loadInbox, loadLoops, loadMemories, loadRuns, loadSetup, memories, readAll, runs } from "./store.ts";
 
 /** The stream is open now. */
 export const connected = signal(false);
@@ -65,11 +65,20 @@ export function follow() {
     void readAll();
   });
   on("lagged", () => void readAll());
-  on("run", () => note(true));
+  on("run", (n) => {
+    note(true);
+    // A run a Loop dispatched changed: that Loop's counts did too.
+    if (n.loop) void loadLoops();
+  });
+  on("loop", () => void loadLoops());
+  // A workspace's team memory changed: read it again if its page has shown.
+  on("memory", (n) => {
+    if (memories.value[n.workspace]) void loadMemories(n.workspace);
+  });
   on("connection", () => void loadSetup());
   on("inbox", () => void loadInbox());
   on("event", (n) => note(listChanges(String(n.type ?? ""), String(n.run ?? ""))));
-  for (const name of ["loop", "memory", "library", "adapters", "devices"]) on(name, () => {});
+  for (const name of ["library", "adapters", "devices"]) on(name, () => {});
   s.onerror = () => {
     // The service restarted or is gone for a moment, or this device was unpaired (the service
     // ends its streams then): after a moment, ask who this device is. Unpaired, the window shows

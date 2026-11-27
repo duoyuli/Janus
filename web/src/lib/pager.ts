@@ -5,6 +5,7 @@
 
 import { signal } from "@preact/signals";
 import { api, type Json } from "./api.ts";
+import { serverLang } from "./i18n.ts";
 
 export class RunPager {
   readonly query: string;
@@ -25,7 +26,7 @@ export class RunPager {
   }
 
   private path(limit: number, cursor: string | null): string {
-    let p = `/api/runs?${this.query}&limit=${Math.min(limit, 500)}`;
+    let p = `/api/runs?${this.query}&limit=${Math.min(limit, 500)}&lang=${serverLang()}`;
     if (cursor) p += `&cursor=${encodeURIComponent(cursor)}`;
     return p;
   }

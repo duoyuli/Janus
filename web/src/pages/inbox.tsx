@@ -6,10 +6,10 @@
 import { useSignal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
 import type { Json } from "../lib/api.ts";
-import { ago, dateTime, goalTitle } from "../lib/format.ts";
+import { ago, dateTime } from "../lib/format.ts";
 import { t } from "../lib/i18n.ts";
 import { go, link } from "../lib/router.ts";
-import { listLabel, type Tone } from "../lib/status.ts";
+import type { Tone } from "../lib/status.ts";
 import { ignore, inbox, inboxAct, snooze, wake, working, workspace } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
@@ -118,18 +118,15 @@ export function InboxPage() {
       <Disclosure title={t`干活中（${busy.length}）`} open={showWorking.value} onToggle={(v) => (showWorking.value = v)}>
         <Card pad={4} class="rows">
           {busy.length === 0 && <div class="row secondary">{t`没有在干活的任务`}</div>}
-          {busy.map((r) => {
-            const [label, tone] = listLabel(r.status);
-            return (
-              <a class="row" {...link(`/runs/${encodeURIComponent(r.id)}`)}>
-                <div class="grow">
-                  <div class="ellipsis">{goalTitle(r.goal)}</div>
-                  <div class="caption ellipsis">{workspace(r.config?.workspace?.id ?? "")?.name ?? r.cwd}</div>
-                </div>
-                <Pill text={label} tone={tone} />
-              </a>
-            );
-          })}
+          {busy.map((r) => (
+            <a class="row" {...link(`/runs/${encodeURIComponent(r.id)}`)}>
+              <div class="grow">
+                <div class="ellipsis">{r.title}</div>
+                <div class="caption ellipsis">{workspace(r.workspace ?? "")?.name ?? r.cwd}</div>
+              </div>
+              <Pill text={r.label.text} tone={r.label.tone} />
+            </a>
+          ))}
         </Card>
       </Disclosure>
     </div>
@@ -191,7 +188,7 @@ function Entry({ e, now }: { e: Json; now: number }) {
 }
 
 function Summary({ e, now }: { e: Json; now: number }) {
-  const line = [e.workspaceName, goalTitle(e.goal), e.sub, e.ts > 0 ? ago(e.ts, now) : ""].filter(Boolean).join(" · ");
+  const line = [e.workspaceName, e.runTitle, e.sub, e.ts > 0 ? ago(e.ts, now) : ""].filter(Boolean).join(" · ");
   return (
     <div class="grow inbox-summary">
       <div class="inbox-title">{e.title}</div>

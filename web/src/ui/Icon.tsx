@@ -41,6 +41,16 @@ const P: Record<string, string> = {
   "line.3.horizontal": "M4 7h16 M4 12h16 M4 17h16",
   "wifi.slash": "M3 3l18 18 M8.5 16.5a5 5 0 0 1 7 0 M5 13a10 10 0 0 1 4.5-2.5 M14.5 10.5A10 10 0 0 1 19 13 M2 9.5a15 15 0 0 1 4-2.6 M12 20h.01",
   iphone: "M8 2.5h8a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 20V4A1.5 1.5 0 0 1 8 2.5z M11 18.5h2",
+  "doc.text": "M6 3h8l4 4v14H6z M14 3v4h4 M9 12h6 M9 15h6 M9 18h4",
+  brain: "M9 4a3 3 0 0 0-3 3 3 3 0 0 0-2 5 3 3 0 0 0 2 5 3 3 0 0 0 3 3h0a3 3 0 0 0 3-3V7a3 3 0 0 0-3-3z M15 4a3 3 0 0 1 3 3 3 3 0 0 1 2 5 3 3 0 0 1-2 5 3 3 0 0 1-3 3h0a3 3 0 0 1-3-3",
+  "ellipsis.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M8 12h.01 M12 12h.01 M16 12h.01",
+  "arrow.triangle.2.circlepath": "M4 12a8 8 0 0 1 13.7-5.6L20 9 M20 4v5h-5 M20 12a8 8 0 0 1-13.7 5.6L4 15 M4 20v-5h5",
+  paperclip: "M20 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L14.8 7",
+  "checkmark.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M8 12.5l3 3 5-6",
+  circle: "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z",
+  "largecircle.fill.circle": "M12 3a9 9 0 1 1 0 18a9 9 0 0 1 0-18z M12 8a4 4 0 1 1 0 8a4 4 0 0 1 0-8z",
+  minus: "M5 12h14",
+  trash: "M4 7h16 M9 7V4h6v3 M6 7l1 13h10l1-13 M10 11v6 M14 11v6",
 };
 
 /** Names drawn filled: the shape of the plain name, filled with the current color. */
@@ -54,6 +64,7 @@ const FILLED = new Set([
   "questionmark.bubble",
   "questionmark.circle",
   "text.bubble",
+  "checkmark.circle",
 ]);
 
 export function Icon({ name, size = 16, label, class: cls }: { name: string; size?: number; label?: string; class?: string }) {

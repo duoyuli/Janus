@@ -1,0 +1,39 @@
+.team-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.team-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.team-group {
+  padding: 10px 0 2px;
+  font-weight: 600;
+}
+
+.team-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.team-row.off {
+  opacity: 0.6;
+}
+
+.team-name {
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .team-row .grow {
+    flex-basis: calc(100% - 120px);
+  }
+}

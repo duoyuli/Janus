@@ -1648,7 +1648,6 @@
 "Janus 服务 %@" = "Janus service %@";
 "没有这个页面。" = "There is no such page.";
 "没有这个工作区。" = "There is no such workspace.";
-"还没有工作区：在 Mac 上的 Janus 新建一个。" = "No workspaces yet. Create one in Janus on the Mac.";
 "配对" = "Pairing";
 "配对没有成功" = "Pairing failed";
 "正在和 Janus 配对…" = "Pairing with Janus…";
@@ -1659,3 +1658,13 @@
 "已交付" = "Delivered";
 "负责人上岗中" = "Lead getting started";
 "和 %@ 的新对话" = "New chat with %@";
+"按 Mac 上的时间（%@）。上次没干完就顺延；Mac 睡着错过的，醒来补一次。它也能自己约个时间再来，值班页会写明。" = "In the Mac's time (%@). If the last wake is still going, the next one waits; wakes missed while the Mac sleeps are made up once. It can also book its own extra wake, shown on the Loop page.";
+"怎样运作" = "How It Works";
+"这条笔记已经不在了。" = "This note is gone.";
+"工作区设置" = "Workspace Settings";
+"先填一个目录" = "Enter a folder first";
+"网页上不能浏览这台 Mac 的文件夹：填目录的完整路径（可以用 ~ 开头）。" = "The web can't browse the Mac's folders: enter the folder's full path (it may start with ~).";
+"图片太大，没有加上：%@" = "Images too large to add: %@";
+"可以粘贴截图" = "You can paste screenshots";
+"减少" = "Decrease";
+"增加" = "Increase";

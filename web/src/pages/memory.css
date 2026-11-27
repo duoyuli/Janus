@@ -1,0 +1,34 @@
+.note-row {
+  align-items: flex-start;
+}
+
+.note-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.memory-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.note-head {
+  display: flex;
+  gap: 8px;
+}
+
+.note-head .input:not(.select) {
+  flex: 1;
+}
+
+.how {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--secondary);
+}

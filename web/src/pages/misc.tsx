@@ -1,66 +1,55 @@
-// The smaller pages of the first web version: the chats list (the sidebar's, the 「对话」 tab on a
-// phone), a run's page while it is being built, this browser's settings, and a path that names
-// nothing.
+// The smaller pages of the first web version: a run's page while it is being built (a Loop's and
+// a consolidation's have their own), this browser's settings, and a path that names nothing.
 
-import type { Json } from "../lib/api.ts";
+import { useSignal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
+import { api, type Json } from "../lib/api.ts";
 import { chooseAppearance, appearance, type Appearance } from "../lib/appearance.ts";
-import { dateTime } from "../lib/format.ts";
-import { choice, choose, t, type Choice } from "../lib/i18n.ts";
-import { link } from "../lib/router.ts";
-import { ACTIVE, runLabel } from "../lib/status.ts";
-import { attention, chats, inbox, meta, runs } from "../lib/store.ts";
+import { choice, choose, serverLang, t, type Choice } from "../lib/i18n.ts";
+import { meta } from "../lib/store.ts";
+import { onNotice } from "../lib/stream.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
-import { chatTitle, InitialMark } from "../app/Shell.tsx";
 import { Card, Note, Pill, SectionHeader } from "../ui/kit.tsx";
-import { More } from "./workspace.tsx";
 import { PhoneAccess } from "./pair.tsx";
-import { goalTitle } from "../lib/format.ts";
+import { LoopPage } from "./loops.tsx";
+import { DreamPage } from "./memory.tsx";
 
-export function ChatsPage() {
-  usePageTitle(t`对话`);
-  const list = chats.runs.value;
-  useDrawn("chats", () => ({ chats: list.map((c) => ({ id: c.id, title: chatTitle(c) })), more: chats.more }));
-  return (
-    <div class="page">
-      <SectionHeader title={t`对话`} />
-      {list.length > 0 && (
-        <Card pad={4} class="rows">
-          {list.map((c) => {
-            const waiting = inbox.open.value.filter((e) => e.run === c.id).length;
-            const [label, tone] = ACTIVE.has(c.status) ? [t`会话中`, "blue" as const] : [t`已结束`, "gray" as const];
-            return (
-              <a class="row" {...link(`/runs/${encodeURIComponent(c.id)}`)}>
-                <InitialMark text={c.config?.team?.[0]?.name ?? ""} />
-                <div class="grow">
-                  <div class="ellipsis">{chatTitle(c)}</div>
-                  <div class="caption ellipsis">{[c.config?.team?.[0]?.name, dateTime(c.createdAt ?? 0)].filter(Boolean).join(" · ")}</div>
-                </div>
-                {waiting > 0 && <span class="badge">{waiting}</span>}
-                <Pill text={label} tone={tone} />
-              </a>
-            );
-          })}
-        </Card>
-      )}
-      {chats.more && <More onMore={() => void chats.loadMore()} />}
-    </div>
-  );
+/** A run's page: what it is and how it stands, until the full page (board, sessions, review) is
+ * in. A Loop's session and a consolidation have pages of their own. The run's view is read as
+ * the service writes it (`GET /api/runs/{id}/view?lang=`), and again when the run changes. */
+export function RunPage({ id }: { id: string }) {
+  const view = useSignal<Json>(null);
+  useEffect(() => {
+    const load = () =>
+      api.get(`/api/runs/${encodeURIComponent(id)}/view?lang=${serverLang()}`).then(
+        (v) => (view.value = v),
+        () => {},
+      );
+    void load();
+    return onNotice((name, n) => {
+      if ((name === "run" || name === "event") && n.run === id) void load();
+    });
+  }, [id, serverLang()]);
+  const v = view.value;
+  const kind = v?.run?.kind ?? null;
+  useDrawn("run", () => ({ id, kind, status: v?.run?.status ?? null }));
+  if (!v) return <div class="page" />;
+  const later = <Note text={t`这个页面在网页上还没有做完：先在 Mac 上的 Janus 打开它。`} />;
+  const run = { ...v.run, id, title: v.title };
+  if (kind === "loop") return <LoopPage run={run} session={later} />;
+  if (kind === "dream") return <DreamPage run={run} session={later} />;
+  return <PlainRun v={v} />;
 }
 
-/** A run's page: what it is and how it stands, until the full page (board, sessions, review) is in. */
-export function RunPage({ id }: { id: string }) {
-  const r: Json | undefined = [...runs.value, ...attention.value, ...chats.runs.value].find((x) => x.id === id);
-  const title = r ? (r.kind === "chat" ? chatTitle(r) : goalTitle(r.goal)) : "";
-  usePageTitle(title, r?.kind === "chat" ? "/chats" : r?.config?.workspace?.id ? `/workspaces/${encodeURIComponent(r.config.workspace.id)}` : "/inbox");
-  useDrawn("run", () => ({ id, status: r?.status ?? null }));
-  if (!r) return <div class="page" />;
-  const [label, tone] = runLabel(r);
+function PlainRun({ v }: { v: Json }) {
+  const ws = v.run?.workspace ?? "";
+  usePageTitle(v.title ?? "", v.run?.kind === "chat" ? "/chats" : ws ? `/workspaces/${encodeURIComponent(ws)}` : "/inbox");
   return (
     <div class="page">
       <div class="section-header">
-        <h1 class="display">{title}</h1>
-        <Pill text={label} tone={tone} />
+        <h1 class="display">{v.title}</h1>
+        {v.capsule && <Pill text={v.capsule.text} tone={v.capsule.tone} />}
       </div>
       <Note text={t`这个页面在网页上还没有做完：先在 Mac 上的 Janus 打开它。`} />
     </div>
