@@ -603,9 +603,7 @@ button.row {
     gap: 4px;
     min-height: calc(var(--tap) + env(safe-area-inset-top));
     padding: env(safe-area-inset-top) 8px 0;
-    background: color-mix(in srgb, var(--page) 88%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--page);
     border-bottom: 1px solid var(--line);
   }
 
@@ -634,9 +632,7 @@ button.row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     padding-bottom: env(safe-area-inset-bottom);
-    background: color-mix(in srgb, var(--sidebar) 92%, transparent);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    background: var(--sidebar);
     border-top: 1px solid var(--line);
   }
 
@@ -686,6 +682,13 @@ button.row {
 
   .icon-btn {
     width: var(--tap);
+  }
+
+  /* Safari on a phone zooms the page into any field whose text is smaller than 16px. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
   }
 
   .toast {
