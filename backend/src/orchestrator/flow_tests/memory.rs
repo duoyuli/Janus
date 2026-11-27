@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::db::{MemoryKind, MemoryWrite};
+use crate::lang::Lang;
 
 fn note(h: &Harness, workspace: &str, id: &str, title: &str) {
     let write = MemoryWrite {
@@ -199,7 +200,7 @@ async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     assert_eq!((row["kind"].as_str(), row["config"]["workspace"]["id"].as_str()), (Some("dream"), Some("ws")));
     let again = h.app.consolidate("ws").await.unwrap_err();
     assert!(matches!(again, Refused::Conflict(_)), "one consolidation at a time");
-    assert_eq!(h.app.memories("ws").unwrap()["consolidation"]["running"], dream.as_str());
+    assert_eq!(h.app.memories("ws", Lang::Zh).unwrap()["consolidation"]["running"], dream.as_str());
 
     // Its session has the memory tools and `forget`, and no board.
     let (text, err) = tool(&h.app, &dream, "lead", "orchestrate", json!({ "tasks": [] })).await;
@@ -235,9 +236,15 @@ async fn a_consolidation_merges_and_prunes_notes_in_one_turn() {
     wait_until(&h.app, &dream, "it is delivered", |_| status(&h.app, &dream) == "delivered").await;
     let ids: Vec<String> = h.app.db.memories("ws").unwrap().into_iter().map(|m| m.id).collect();
     assert!(ids.contains(&"m-a".to_string()) && !ids.contains(&"m-b".to_string()) && ids.len() == 2);
-    let view = h.app.memories("ws").unwrap();
+    let view = h.app.memories("ws", Lang::Zh).unwrap();
     assert!(view["consolidation"]["running"].is_null());
     assert_eq!(view["consolidation"]["last"]["run"], dream.as_str());
+    // What the clients show of the notes is written here.
+    assert_eq!(view["status"], "2 条笔记");
+    let a = view["memories"].as_array().unwrap().iter().find(|m| m["id"] == "m-a").unwrap().clone();
+    assert_eq!((a["kindLabel"].as_str(), a["source"].as_str()), (Some("事实"), Some("你")));
+    assert_eq!(a["briefLine"].as_str().map(|l| l.ends_with("：正文")), Some(true));
+    assert_eq!(h.app.memories("ws", Lang::En).unwrap()["status"], "2 notes");
     // It is one turn: it does not go on as a conversation.
     assert!(h.app.resume_run(&dream).await.is_err());
     let _ = std::fs::remove_dir_all(&h.dir);
@@ -255,7 +262,7 @@ async fn enough_delivered_runs_start_a_consolidation() {
         h.app.db.set_run_status(&id, RunStatus::Delivered).unwrap();
         id
     };
-    let dreams = |h: &Harness| h.app.memories("ws").unwrap()["consolidation"].clone();
+    let dreams = |h: &Harness| h.app.memories("ws", Lang::Zh).unwrap()["consolidation"].clone();
     for i in 0..4 {
         delivered(i);
     }

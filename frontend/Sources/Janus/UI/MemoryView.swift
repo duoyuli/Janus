@@ -49,7 +49,7 @@ struct MemoryPanel: View {
                         ForEach(rows, id: \.self) { m in
                             Button { leave(); store.editingMemory = m } label: {
                                 HStack(spacing: 6) {
-                                    Pill(MemoryText.kind(m["kind"].str), m["kind"].str == "pitfall" ? .amber : .gray)
+                                    Pill(m["kindLabel"].str, m["kind"].str == "pitfall" ? .amber : .gray)
                                     Text(m["title"].str).font(.callout).lineLimit(1).truncationMode(.tail)
                                     Spacer(minLength: 0)
                                 }
@@ -109,7 +109,7 @@ struct MemoryEditor: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     Picker(L.text("类型"), selection: $kind) {
-                        ForEach(MemoryText.kinds, id: \.self) { Text(MemoryText.kind($0)).tag($0) }
+                        ForEach(store.memories[original["workspace"].str]?["kinds"].array ?? [], id: \.self) { k in Text(k["label"].str).tag(k["id"].str) }
                     }
                     .labelsHidden().fixedSize()
                     TextField(L.text("标题"), text: $title).textFieldStyle(.roundedBorder)
@@ -156,16 +156,19 @@ struct MemoryEditor: View {
         }
     }
 
-    /// Close this sheet, then open the shared material with the note added as a line; it counts as
-    /// unsaved there.
+    /// Close this sheet, then open the shared material with the note added as a line (as the
+    /// server writes it, `briefLine`); it counts as unsaved there. Changes made here are saved first.
     private func addToBrief() {
-        guard let ws = store.workspace(original["workspace"].str) else { return }
-        var note = original
-        note["title"] = JSON(title)
-        note["body"] = JSON(text)
-        let line = MemoryText.briefLine(note)
-        dismiss()
+        let workspace = original["workspace"].str
+        guard let ws = store.workspace(workspace) else { return }
         Task {
+            if dirty {
+                guard valid else { return }
+                let body: JSON = ["kind": JSON(kind), "title": JSON(title), "hook": JSON(hook), "body": JSON(text)]
+                guard await store.saveMemory(original, body) else { return }
+            }
+            let line = store.notes(of: workspace).first { $0["id"] == original["id"] }?["briefLine"].str ?? original["briefLine"].str
+            dismiss()
             try? await Task.sleep(nanoseconds: 400_000_000)
             store.editingBrief = BriefSuggestions.adding([line], to: ws.json)
         }

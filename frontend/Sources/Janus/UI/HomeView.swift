@@ -135,10 +135,7 @@ struct HomeView: View {
     /// What the two tiles say there is: how long the shared material is, how many notes the team
     /// memory holds (or that it is being consolidated).
     static func knowledge(_ ws: Workspace, store: AppStore) -> (brief: String, memory: String) {
-        let notes = store.notes(of: ws.id).count
-        let consolidating = store.memories[ws.id]?["consolidation"]["running"].string != nil
-        return (ws.json["briefStatus"].str,
-                consolidating ? L.text("整理中") : notes == 0 ? L.text("还没有笔记") : L.text("\(notes) 条笔记"))
+        (ws.json["briefStatus"].str, store.memories[ws.id]?["status"].str ?? "")
     }
 
     /// The workspace's shared material, in the popover of its tile. It is edited in its own sheet

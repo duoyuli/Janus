@@ -336,6 +336,15 @@ final class AppStore {
         _ = try? await api.put("/api/language", ["language": .string(L.serverLanguage)])
     }
 
+    /// The interface language changed: tell the server, and read again what it writes in that
+    /// language (the setup, the lists, the inbox, the Loops and the team memory shown).
+    func languageChanged() async {
+        await sendLanguage()
+        await loadSetup()
+        await readAll()
+        for ws in memories.keys { await loadMemories(ws) }
+    }
+
     private func readAll() async {
         await loadLoops()
         await loadRuns()

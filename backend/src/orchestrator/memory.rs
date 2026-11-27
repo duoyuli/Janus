@@ -15,6 +15,45 @@ const HOOK_MAX: usize = 150;
 const BODY_MAX: usize = 4000;
 /// How many notes a workspace keeps; past it a session updates notes or the lead consolidates.
 const NOTES_MAX: usize = 300;
+
+/// The kinds a note can be, in the order the note editor offers them.
+const KINDS: [&str; 4] = ["fact", "decision", "pitfall", "howto"];
+
+/// A note's kind in a word.
+fn kind_label(kind: &str, l: Lang) -> &'static str {
+    match kind {
+        "decision" => l.pick("决定", "Decision"),
+        "pitfall" => l.pick("坑", "Pitfall"),
+        "howto" => l.pick("做法", "How-to"),
+        _ => l.pick("事实", "Fact"),
+    }
+}
+
+/// What the clients say about note `m` (as `memories` lists it), written in `lang`: its kind in a
+/// word (`kindLabel`), who wrote it last and in which run (`source`; the client adds when), and the
+/// line it adds to the shared material (`briefLine`).
+// @project-doc docs/interfaces/20261031-http_api.md#memories
+fn note_words(m: &mut Value, lang: Lang) {
+    let l = lang;
+    let s = |k: &str| m[k].as_str().unwrap_or_default().to_string();
+    let kind = kind_label(&s("kind"), l);
+    let author = s("author");
+    let source = if s("who") == "user" {
+        l.pick("你", "You").to_string()
+    } else if s("runStatus") == "cancelled" {
+        tr!(l, "{author} · 来自已取消的任务", "{author} · from a cancelled run")
+    } else {
+        let run =
+            m["runTitle"].as_str().map(str::to_owned).unwrap_or_else(|| l.pick("已删除的任务", "Deleted run").into());
+        format!("{author} · {run}")
+    };
+    let body: Vec<&str> =
+        m["body"].as_str().unwrap_or_default().lines().map(str::trim).filter(|x| !x.is_empty()).collect();
+    let brief = format!("{}：{}", s("title"), body.join(" "));
+    m["kindLabel"] = json!(kind);
+    m["source"] = json!(source);
+    m["briefLine"] = json!(brief);
+}
 /// How many notes a consolidation's index lists; the rest are found with `recall`.
 const INDEX_MAX: usize = 200;
 /// How many notes a search returns in full, and a listing names.
@@ -61,19 +100,36 @@ impl App {
     /// each came from), the consolidation running now, the last one, and how many delivered runs
     /// came since.
     // @project-doc docs/interfaces/20261031-http_api.md#memories
-    pub fn memories(&self, workspace: &str) -> Result<Value> {
+    pub fn memories(&self, workspace: &str, lang: Lang) -> Result<Value> {
         self.workspace(workspace)?;
         let dreams = self.dreams(workspace)?;
         let running = dreams.iter().find(|d| working(d));
         let last = dreams.iter().find(|d| !working(d));
-        Ok(json!({
-            "memories": self.db.memories(workspace)?.into_iter().map(|m| {
+        let notes: Vec<Value> = self
+            .db
+            .memories(workspace)?
+            .into_iter()
+            .map(|m| {
                 // Where it came from, as the run lists call that run.
                 let title = m.run_goal.as_deref().map(crate::run_view::goal_title);
                 let mut v = json!(m);
                 v["runTitle"] = json!(title);
+                note_words(&mut v, lang);
                 v
-            }).collect::<Vec<_>>(),
+            })
+            .collect();
+        let n = notes.len();
+        let status = if running.is_some() {
+            lang.pick("整理中", "Consolidating").to_string()
+        } else if n == 0 {
+            lang.pick("还没有笔记", "No notes yet").to_string()
+        } else {
+            tr!(lang, "{n} 条笔记", "{n} notes")
+        };
+        Ok(json!({
+            "memories": notes,
+            "status": status,
+            "kinds": KINDS.iter().map(|k| json!({ "id": k, "label": kind_label(k, lang) })).collect::<Vec<_>>(),
             "consolidation": {
                 "running": running.map(|d| d.id.clone()),
                 "last": last.map(|d| json!({ "run": d.id, "at": d.created_at, "status": d.status })),

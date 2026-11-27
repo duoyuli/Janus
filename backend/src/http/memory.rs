@@ -5,13 +5,25 @@
 use super::{ApiError, ApiResult, ok, reply};
 use crate::orchestrator::App;
 use axum::Json;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, Query, State};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+#[derive(Deserialize)]
+pub(super) struct MemoriesQuery {
+    /// `zh` or `en`, for what the service writes about the notes; the app's language without.
+    lang: Option<String>,
+}
+
 /// A workspace's notes, with the consolidation running now, the last one and the runs since.
-pub(super) async fn list(State(app): State<Arc<App>>, UrlPath(workspace): UrlPath<String>) -> ApiResult {
-    reply(app.memories(&workspace)?)
+pub(super) async fn list(
+    State(app): State<Arc<App>>,
+    UrlPath(workspace): UrlPath<String>,
+    Query(q): Query<MemoriesQuery>,
+) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    reply(app.memories(&workspace, lang)?)
 }
 
 /// Consolidate a workspace's notes now; the consolidation's run comes back.

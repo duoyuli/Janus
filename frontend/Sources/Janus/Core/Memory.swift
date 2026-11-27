@@ -7,7 +7,7 @@ import Foundation
 extension AppStore {
     func loadMemories(_ workspace: String) async {
         guard !workspace.isEmpty else { return }
-        if let r = try? await api.get("/api/workspaces/\(API.q(workspace))/memories"), memories[workspace] != r { memories[workspace] = r }
+        if let r = try? await api.get("/api/workspaces/\(API.q(workspace))/memories?lang=\(L.serverLanguage)"), memories[workspace] != r { memories[workspace] = r }
     }
 
     func notes(of workspace: String) -> [JSON] { memories[workspace]?["memories"].array ?? [] }
@@ -47,31 +47,8 @@ extension AppStore {
     }
 }
 
-/// What the app says about team memory.
+/// What the app says about team memory, as the server words it (`GET /api/workspaces/{id}/memories`).
 enum MemoryText {
-    static let kinds = ["fact", "decision", "pitfall", "howto"]
-
-    static func kind(_ k: String) -> String {
-        switch k {
-        case "decision": return L.text("决定")
-        case "pitfall": return L.text("坑")
-        case "howto": return L.text("做法")
-        default: return L.text("事实")
-        }
-    }
-
-    /// Who wrote a note last and where: a member in a run, or the person.
-    static func source(_ m: JSON) -> String {
-        let day = L.dateTime(m["updatedAt"].double ?? 0)
-        if m["who"].str == "user" { return L.text("你 · \(day)") }
-        if m["runStatus"].str == "cancelled" { return L.text("\(m["author"].str) · 来自已取消的任务 · \(day)") }
-        let goal = m["runTitle"].string ?? L.text("已删除的任务")
-        return L.text("\(m["author"].str) · \(goal) · \(day)")
-    }
-
-    /// The line a note adds to the shared material.
-    static func briefLine(_ m: JSON) -> String {
-        let body = m["body"].str.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.joined(separator: " ")
-        return "\(m["title"].str)：\(body)"
-    }
+    /// Who wrote a note last and where (`source`), and when.
+    static func source(_ m: JSON) -> String { "\(m["source"].str) · \(L.dateTime(m["updatedAt"].double ?? 0))" }
 }

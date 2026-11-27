@@ -36,16 +36,10 @@ import Testing
     #expect(two.symbol == "tray.full.fill" && two.tone == .red)
 }
 
-/// Where a note came from, as the workspace page and its sheet say it.
+/// Where a note came from: who and which run as the server says it, then when.
 @Test func aNoteSaysWhoWroteItWhere() {
-    let byLead: JSON = ["who": "lead", "author": "PMO", "runTitle": "修复导出", "runStatus": "delivered", "updatedAt": 0]
-    #expect(MemoryText.source(byLead).hasPrefix("PMO · "))
-    #expect(MemoryText.source(byLead).contains("修复导出"))
-    let cancelled: JSON = ["who": "lead", "author": "PMO", "runGoal": "试试", "runStatus": "cancelled", "updatedAt": 0]
-    #expect(MemoryText.source(cancelled).contains(expectedCopy("来自已取消的任务", "from a cancelled run")))
-    let mine: JSON = ["who": "user", "author": "你", "updatedAt": 0]
-    #expect(MemoryText.source(mine).hasPrefix(expectedCopy("你 · ", "You · ")))
-    #expect(MemoryText.briefLine(["title": "测试命令", "body": "先装依赖\n\n再跑 just test"]) == "测试命令：先装依赖 再跑 just test")
+    let byLead: JSON = ["source": "PMO · 修复导出", "updatedAt": 0]
+    #expect(MemoryText.source(byLead).hasPrefix("PMO · 修复导出 · "))
 }
 
 /// Only what is new since the last look is announced, and nothing on the first look.

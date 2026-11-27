@@ -246,7 +246,7 @@ enum Snapshots {
                 // line under them) and the consolidation, by workspace.
                 "memories": .object(store.memories.mapValues { m in
                     ["notes": JSON.array(m["memories"].array.map {
-                        ["id": $0["id"], "kind": JSON(MemoryText.kind($0["kind"].str)), "title": $0["title"], "hook": $0["hook"], "source": JSON(MemoryText.source($0))]
+                        ["id": $0["id"], "kind": $0["kindLabel"], "title": $0["title"], "hook": $0["hook"], "source": JSON(MemoryText.source($0))]
                      }),
                      "running": m["consolidation"]["running"], "last": m["consolidation"]["last"]["run"]]
                 }),
