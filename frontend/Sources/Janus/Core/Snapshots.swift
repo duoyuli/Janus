@@ -199,6 +199,8 @@ enum Snapshots {
                 "editingWorkspace": store.editingWorkspace?["id"] ?? .null, "editingBrief": store.editingBrief?["id"] ?? .null,
                 // 本机环境 as the settings page shows it: tools found, others found, what is shared.
                 "hostEnv": store.hostEnv.map { ["hidden": JSON.array(store.hostHidden.map(JSON.init)), "defaults": $0["defaults"], "janusHome": $0["janusHome"]] } ?? .null,
+                // 手机访问 as the settings page shows it: the switch and the paired devices.
+                "lanAccess": store.lanAccess ?? .null, "devices": JSON.array(store.devices),
                 "hostTry": store.hostTry ?? .null, "permissionsReview": JSON(model.permissions.reviewPresented),
                 "open": entries(store.inbox.open), "later": entries(store.inbox.later),
                 "dock": JSON(NSApp.activationPolicy() == .regular),

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The settings panel (⌘,): a floating card in the middle of the window, a pane each for general preferences (language,
 /// appearance, updates and macOS permissions), digital workers (the Agents they run on, with their ACP adapters, and
-/// the workers), the resource library and the usage bill. Clicking the dimmed area or pressing Esc closes it and shows the screen underneath unchanged;
+/// the workers), the resource library, the usage bill and phone access (pairing browsers and phones). Clicking the dimmed area or pressing Esc closes it and shows the screen underneath unchanged;
 /// the last pane opened comes back next time. Language and appearance are local preferences.
 // @project-doc docs/architecture/20261031-frontend.md#screens
 struct SettingsView: View {
@@ -48,6 +48,7 @@ struct SettingsView: View {
                 nav(.agents, L.text("数字员工"), "person.2")
                 nav(.library, L.text("资源库"), "books.vertical", updates: store.sourceUpdates.count)
                 nav(.usage, L.text("用量账单"), "list.bullet.rectangle")
+                nav(.devices, L.text("手机访问"), "iphone")
             }
             .padding(.horizontal, 8)
             Spacer(minLength: 0)
@@ -85,6 +86,7 @@ struct SettingsView: View {
         case .library: LibraryView(store: store)
         case .usage: UsageBillView(store: store)
         case .general: GeneralSettingsView(store: store)
+        case .devices: MobileAccessView(store: store)
         }
     }
 }

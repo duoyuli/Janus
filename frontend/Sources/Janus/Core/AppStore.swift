@@ -84,6 +84,10 @@ final class AppStore {
     var editingMemory: JSON?
     /// What of the person's home agents do not see, as the settings page last read it.
     var hostEnv: JSON?
+    /// The phone access switch and the paired devices, while the settings page shows them
+    /// (`AppStore+Devices.swift`).
+    var lanAccess: JSON?
+    var devices: [JSON] = []
     /// The last command tried as the person and as an agent (`tryOnHost`).
     var hostTry: JSON?
     /// The sheet that creates the digital employees a chat proposed, while it is open.
@@ -285,6 +289,7 @@ final class AppStore {
                         case .named("adapters", _): if self.adapters != .null { await self.loadAdapters(quiet: true) }
                         // Another client put an inbox entry off, brought it back or ignored it.
                         case .named("inbox", _): await self.inbox.refresh(self)
+                        case .named("devices", _): if self.lanAccess != nil { _ = await self.loadDevices() }
                         case .named("event", let n): self.note(lists: Self.listChanges(EventKind(wire: n["type"].str), run: n["run"].str, store: self))
                         default: break
                         }
@@ -365,7 +370,7 @@ final class AppStore {
 
     /// The settings panel's panes.
     enum SettingsTab: String, CaseIterable {
-        case general, agents, library, usage
+        case general, agents, library, usage, devices
     }
 
     /// The settings page's pane. The last one opened comes back.
