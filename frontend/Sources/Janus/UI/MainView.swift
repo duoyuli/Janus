@@ -158,7 +158,7 @@ struct Sidebar: View {
         ForEach(store.chats, id: \.self) { c in
             let member = c["config"]["team"][0]
             let waiting = store.inbox.open.filter { $0.run == c["id"].str }.count
-            let open = RunStatus(c["status"].str).isActive
+            let open = c["active"].truthy
             let (label, _) = runLabel(c)
             SidebarItem(title: c["title"].str, selected: shown(c["id"].str), waiting: waiting, live: open,
                         help: "\(member["name"].str) · \(label) · \(L.dateTime(c["createdAt"].double ?? 0))",

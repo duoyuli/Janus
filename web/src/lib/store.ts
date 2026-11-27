@@ -10,7 +10,6 @@ import { api, type Json } from "./api.ts";
 import { confirm, confirmDeleteRun } from "./confirm.ts";
 import { serverLang, tr } from "./i18n.ts";
 import { RunPager } from "./pager.ts";
-import { ACTIVE } from "./status.ts";
 
 export const meta = signal<Json>(null);
 export const connections = signal<Json[]>([]);
@@ -51,7 +50,7 @@ export function show(text: string) {
 /** Workspaces deleted since, whose runs stay. */
 export const pastWorkspaces = computed(() => runWorkspaces.value.filter((w) => w.deleted));
 /** Runs at work now, across kinds. */
-export const working = computed(() => [...attention.value, ...chatAttention.value, ...loopAttention.value].filter((r) => ACTIVE.has(r.status)));
+export const working = computed(() => [...attention.value, ...chatAttention.value, ...loopAttention.value].filter((r) => r.active));
 
 export function workspace(id: string): Json | undefined {
   return workspaces.value.find((w) => w.id === id);

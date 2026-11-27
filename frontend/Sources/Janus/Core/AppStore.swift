@@ -131,7 +131,7 @@ final class AppStore {
         followEvents()
         if screen == nil {
             // Start from what needs the person, not from watching a run work.
-            if !inbox.open.isEmpty || attention.contains(where: { RunStatus($0["status"].str).isActive }) { open(.inbox) }
+            if !inbox.open.isEmpty || attention.contains(where: { $0["active"].truthy }) { open(.inbox) }
             else if let ws = currentWorkspace { open(.home(ws.id)) }
             else { open(.newWorkspace) }
         }
@@ -179,7 +179,7 @@ final class AppStore {
     }
 
     /// Goals and chats still at work: quitting the server Janus started would interrupt them.
-    var working: [JSON] { (attention + chatAttention + loopAttention).filter { RunStatus($0["status"].str).isActive } }
+    var working: [JSON] { (attention + chatAttention + loopAttention).filter { $0["active"].truthy } }
 
     /// The team a new workspace starts with, and each group's (`team` of `GET /api/setup`).
     var defaultTeam: JSON = .null

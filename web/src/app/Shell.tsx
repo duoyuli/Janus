@@ -9,7 +9,6 @@ import { link, route } from "../lib/router.ts";
 import { chats, inbox, loopOfRun, pastWorkspaces, runs, toast, workingWorkspaces, workspaces } from "../lib/store.ts";
 import { connected } from "../lib/stream.ts";
 import { backTo, pageActions, pageTitle } from "../lib/title.ts";
-import { ACTIVE } from "../lib/status.ts";
 import { ConfirmDialog } from "../ui/ConfirmDialog.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { waitingIn } from "../pages/workspace.tsx";
@@ -62,7 +61,7 @@ function Sidebar() {
               title={c.title}
               help={[member, c.label?.text].filter(Boolean).join(" · ")}
               waiting={waiting}
-              live={ACTIVE.has(c.status)}
+              live={!!c.active}
               mark={<InitialMark text={member} />}
             />
           );

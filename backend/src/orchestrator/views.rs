@@ -57,6 +57,9 @@ pub struct ListedRun {
     /// Its state in a word or two.
     pub label: Pill,
     pub delete: run_ops::OpAnswer,
+    /// At work now (`RunStatus::is_active`: its lead starting, or running): the lists mark it live
+    /// and the inbox counts it among those at work.
+    pub active: bool,
     /// The workspace it is one of (`workspace_of`), by id; `None` for a chat, a deleted
     /// workspace's run, or one whose folder no workspace has.
     pub workspace: Option<String>,
@@ -86,7 +89,8 @@ impl App {
                 };
                 let delete = run_ops::answer(&facts, RunOp::Delete, lang);
                 let workspace = workspace_of(&row, &workspaces);
-                ListedRun { title: row_title(&row, lang), label: row_label(&row, lang), row, delete, workspace }
+                let active = row.status.is_active();
+                ListedRun { title: row_title(&row, lang), label: row_label(&row, lang), row, delete, active, workspace }
             })
             .collect()
     }

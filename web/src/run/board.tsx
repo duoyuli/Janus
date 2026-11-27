@@ -36,7 +36,7 @@ export async function cancelRun(run: RunModel) {
 
 export function BoardView({ run }: { run: RunModel }) {
   const st = run.shown.value;
-  const ticking = run.canAct.value && ["planning", "running"].includes(st?.run?.status);
+  const ticking = run.canAct.value && !!st?.active;
   const now = useTicking(ticking);
   const live = !!st && !st.run?.status?.match(/delivered|accepted|cancelled|failed|interrupted/) && !!st.run?.goal && !run.replaying.value;
   const cards: Json[] = run.view.value?.cards ?? [];

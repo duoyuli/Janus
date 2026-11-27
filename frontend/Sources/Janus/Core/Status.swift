@@ -13,8 +13,6 @@ enum RunStatus: String {
 
     init(_ raw: String) { self = RunStatus(rawValue: raw) ?? .unknown }
 
-    /// The run is live on the server: work can still start.
-    var isActive: Bool { self == .planning || self == .running }
     /// Nothing more happens unless the person acts.
     var isFinished: Bool { [.delivered, .accepted, .cancelled, .failed, .interrupted].contains(self) }
     /// The goal is done; the lead's session reopens as a conversation.

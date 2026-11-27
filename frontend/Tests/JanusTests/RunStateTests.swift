@@ -82,9 +82,10 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(v.checks.first?.method.text == "命令" && v.checks.first?.mark == .failed, "a verifier's checks are the lines the server wrote")
 }
 
-/// A run's row shows the label the server wrote; a queued run is neither at work nor finished.
+/// A run's row shows the label the server wrote; a queued run is not finished (whether it is at
+/// work is the server's `active`).
 @Test func aRunRowShowsTheServedLabel() {
-    #expect(!RunStatus.queued.isActive && !RunStatus.queued.isFinished)
+    #expect(!RunStatus.queued.isFinished)
     #expect(runLabel(["label": ["text": "排队中 · 第 2 位", "tone": "gray"]]) == ("排队中 · 第 2 位", .gray))
     #expect(runLabel([:]).1 == .gray)
 }
@@ -160,7 +161,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     let runs = ["queued", "planning", "running", "delivered", "accepted", "cancelled", "failed", "interrupted"]
     for s in runs { #expect(RunStatus(s) != .unknown, "\(s)") }
     #expect(RunStatus("idle") == .unknown)
-    #expect(Set(runs.map(RunStatus.init).filter(\.isActive)) == [.planning, .running])
 }
 
 @Test func suggestedLinesAreAppendedToTheSharedMaterial() {

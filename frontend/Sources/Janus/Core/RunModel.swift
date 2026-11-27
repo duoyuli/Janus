@@ -61,7 +61,7 @@ final class RunModel {
     /// Whether the run card's wall-clock time must advance every second: the server says this run
     /// is live, it is not a replayed position, and the run is still going. A finished, replayed or
     /// read-only run shows the ledger's recorded value and does not redraw every second.
-    var elapsedTicks: Bool { canAct && shown.run.status.isActive && shown.run.start > 0 }
+    var elapsedTicks: Bool { canAct && shown.atWork && shown.run.start > 0 }
 
     /// The ledger the run card's summary line shows at `now`
     /// (docs/architecture/20261031-frontend.md#usage_ledger): the card and the snapshot's
@@ -69,12 +69,12 @@ final class RunModel {
     /// The expanded usage detail keeps the recorded ledger and does not follow the clock.
     // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
     func usageCard(at now: Double) -> (line: String, voice: String) {
-        usage.cardLine(progress: shown.page.progress, at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
+        usage.cardLine(progress: shown.page.progress, at: now, since: shown.run.start, ticking: canAct && shown.atWork)
     }
 
     /// The run card's wall-clock time at `now`, as `usageCard` counts it.
     func elapsedMs(at now: Double) -> Int? {
-        usage.elapsedMs(at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
+        usage.elapsedMs(at: now, since: shown.run.start, ticking: canAct && shown.atWork)
     }
 
     /// The seq of the last event at the replayed position; nil while live.

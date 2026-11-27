@@ -1216,6 +1216,7 @@ impl Fold {
             evidence: evidence::tasks(&self.state, words),
             delivery: evidence::delivery(&self.state, words),
             live,
+            active: status.is_some_and(RunStatus::is_active),
             actions: BTreeMap::new(),
             title: String::new(),
             read_only,
@@ -1297,6 +1298,9 @@ pub struct RunView {
     pub delivery: Option<evidence::DeliveryEvidence>,
     /// The run is in the service's memory.
     pub live: bool,
+    /// At work at this position (`RunStatus::is_active`: its lead starting, or running): its
+    /// elapsed time ticks and the lists mark it live.
+    pub active: bool,
     /// What can be done to the whole run now, by `RunOp` (`run_ops::answers`); filled in by the
     /// service, which knows its memory of the run.
     pub actions: BTreeMap<&'static str, crate::run_ops::OpAnswer>,
