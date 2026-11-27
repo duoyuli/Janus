@@ -84,7 +84,7 @@ use board_tools::*;
 use conversation::*;
 use lead::*;
 use lead_tools::WAIT_MAX_SECS;
-pub use loops::{LoopDef, WakeReason};
+pub use loops::{LoopDef, WakeReason, words as loop_words};
 use mcp_server::*;
 use messages::Delivery;
 use prompts::*;

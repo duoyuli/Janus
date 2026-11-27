@@ -6,7 +6,8 @@ import Foundation
 extension AppStore {
     static func blankLoop(_ workspace: String) -> JSON {
         ["id": "", "workspace": JSON(workspace), "name": "", "prompt": "",
-         "schedule": ["cron": JSON(LoopSchedule.daily(hour: 9, minute: 0).cron), "tz": JSON(TimeZone.current.identifier)]]
+         "schedule": ["cron": JSON(LoopSchedule.daily(hour: 9, minute: 0).cron), "tz": JSON(TimeZone.current.identifier)],
+         "scheduleShape": ["kind": "daily", "hour": 9, "minute": 0]]
     }
 
     /// When a schedule comes round next (`times`, ms), as the server reads it in this Mac's time
@@ -26,7 +27,7 @@ extension AppStore {
     /// whenever the global stream names one: a change of what it is doing can move it in that
     /// order, and a Loop gone from the server goes here too.
     func loadLoops() async {
-        if let r = try? await api.get("/api/loops"), r["loops"].array != loops { loops = r["loops"].array }
+        if let r = try? await api.get("/api/loops?lang=\(L.serverLanguage)"), r["loops"].array != loops { loops = r["loops"].array }
     }
 
     func loops(of workspace: String) -> [JSON] { loops.filter { $0["workspace"].str == workspace } }
@@ -81,8 +82,9 @@ extension AppStore {
     }
 }
 
-/// A Loop's schedule as the app reads and writes it: one of the common shapes the form offers, or
-/// any other five-field cron expression. The server checks it and says when it comes round.
+/// A Loop's schedule as the form writes it: one of the common shapes it offers, or any other
+/// five-field cron expression. The server reads an expression back into its shape and words
+/// (`scheduleShape`, `scheduleText`), checks it and says when it comes round.
 enum LoopSchedule: Equatable {
     /// Every `m` minutes, on the clock.
     case minutes(Int)
@@ -104,27 +106,6 @@ enum LoopSchedule: Equatable {
         Set(stride(from: 0, to: 60, by: 5)).union([minute]).sorted()
     }
 
-    /// The shape a cron expression has, `.cron` when it is none of the common ones.
-    init(cron: String) {
-        let f = cron.split(separator: " ").map(String.init)
-        self = .cron(f.joined(separator: " "))
-        guard f.count == 5, f[3] == "*" else { return }
-        let (mi, h, d, w) = (f[0], f[1], f[2], f[4])
-        let every = { (s: String) in s.hasPrefix("*/") ? Int(s.dropFirst(2)) : nil }
-        if let m = every(mi), h == "*", d == "*", w == "*", Self.minuteChoices.contains(m) { self = .minutes(m); return }
-        guard let m = Int(mi), (0..<60).contains(m) else { return }
-        if m == 0, h == "*", d == "*", w == "*" { self = .hours(1); return }
-        if m == 0, let x = every(h), d == "*", w == "*", Self.hourChoices.contains(x) { self = .hours(x); return }
-        guard let hh = Int(h), (0..<24).contains(hh) else { return }
-        switch (d, w) {
-        case ("*", "*"): self = .daily(hour: hh, minute: m)
-        case ("*", "1-5"): self = .weekdays(hour: hh, minute: m)
-        case ("*", _): if let x = Int(w), (0...6).contains(x) { self = .weekly(day: x, hour: hh, minute: m) }
-        case (_, "*"): if let x = Int(d), (1...31).contains(x) { self = .monthly(day: x, hour: hh, minute: m) }
-        default: break
-        }
-    }
-
     var cron: String {
         switch self {
         case .minutes(let m): "*/\(m) * * * *"
@@ -137,22 +118,6 @@ enum LoopSchedule: Equatable {
         case .cron(let c): c
         }
     }
-
-    /// The schedule in words: every 30 minutes, weekdays at 09:00, …
-    var words: String {
-        switch self {
-        case .minutes(let m): L.text("每 \(m) 分钟")
-        case .hours(1): L.text("每小时")
-        case .hours(let h): L.text("每 \(h) 小时")
-        case .daily(let h, let m): L.text("每天 \(Self.time(h, m))")
-        case .weekdays(let h, let m): L.text("工作日 \(Self.time(h, m))")
-        case .weekly(let d, let h, let m): L.text("每\(Self.weekday(d)) \(Self.time(h, m))")
-        case .monthly(let d, let h, let m): L.text("每月 \(d) 日 \(Self.time(h, m))")
-        case .cron(let c): L.text("cron：\(c)")
-        }
-    }
-
-    static func time(_ h: Int, _ m: Int) -> String { String(format: "%02d:%02d", h, m) }
 
     /// A day of the week, 0 Sunday.
     static func weekday(_ d: Int) -> String {

@@ -11,6 +11,8 @@ use super::*;
 use crate::lang::{Lang, tr};
 use crate::schedule::Schedule;
 
+pub mod words;
+
 /// What `next_wake` may ask for, in seconds.
 const NEXT_WAKE_RANGE: std::ops::RangeInclusive<i64> = 60..=24 * 60 * 60;
 

@@ -3,7 +3,7 @@
 // @project-doc docs/interfaces/20261031-http_api.md#loops
 
 use super::{ApiResult, ok, reply};
-use crate::orchestrator::{App, WakeReason};
+use crate::orchestrator::{App, WakeReason, loop_words};
 use crate::schedule::Schedule;
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
@@ -14,25 +14,41 @@ use std::sync::Arc;
 #[derive(Deserialize)]
 pub(super) struct LoopsQuery {
     workspace: Option<String>,
+    /// `zh` or `en`, for what the service writes about each Loop; the app's language without.
+    lang: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct LangQuery {
+    lang: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub(super) struct ScheduleQuery {
     cron: String,
     tz: Option<String>,
+    lang: Option<String>,
 }
 
 /// A schedule checked as a Loop would take it (`?cron=&tz=`), with the next three times it comes
-/// round, so the app shows them without reading cron itself; 400 with the reason when it is wrong.
-pub(super) async fn schedule(Query(q): Query<ScheduleQuery>) -> ApiResult {
+/// round, its shape and its words, so the clients show them without reading cron themselves; 400
+/// with the reason when it is wrong.
+pub(super) async fn schedule(State(app): State<Arc<App>>, Query(q): Query<ScheduleQuery>) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
     let s = Schedule::new(&q.cron, q.tz.as_deref())?;
     let next = s.upcoming(crate::util::now_ms(), 3);
-    reply(json!({ "cron": s.cron, "tz": s.tz, "next": next }))
+    let shape = loop_words::shape(&s.cron);
+    let words = loop_words::words(&shape, lang);
+    reply(json!({ "cron": s.cron, "tz": s.tz, "next": next, "shape": shape, "words": words }))
 }
 
-/// Every Loop (of one workspace with `?workspace=`), with what each is doing now.
+/// Every Loop (of one workspace with `?workspace=`), with what each is doing now and what the
+/// clients show of it (`loop_words::shown`).
 pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<LoopsQuery>) -> ApiResult {
-    reply(json!({ "loops": app.loops(q.workspace.as_deref())? }))
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let loops: Vec<Value> =
+        app.loops(q.workspace.as_deref())?.into_iter().map(|l| loop_words::shown(l, lang)).collect();
+    reply(json!({ "loops": loops }))
 }
 
 /// A new Loop in a workspace, run by its lead: `prompt`, `schedule` (`{cron, tz}`, or null for
@@ -45,8 +61,13 @@ pub(super) async fn create(
     reply(app.create_loop(&workspace, &body).await?)
 }
 
-pub(super) async fn get(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    reply(app.loop_view(&app.loop_def(&id)?)?)
+pub(super) async fn get(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<LangQuery>,
+) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    reply(loop_words::shown(app.loop_view(&app.loop_def(&id)?)?, lang))
 }
 
 /// Change a Loop's `name`, `prompt` and `schedule`.

@@ -82,20 +82,19 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(runLabel([:]).1 == .gray)
 }
 
-/// A Loop's schedule and phase read as the app shows them.
+/// A Loop's schedule and phase read as the server words them, with times in this Mac's words.
 @Test func aLoopsScheduleAndPhaseReadAsShown() {
-    let loop: JSON = ["schedule": ["cron": "0 */2 * * *", "tz": "UTC"], "status": ["phase": "paused"]]
-    #expect(LoopText.schedule(loop) == expectedCopy("每 2 小时", "Every 2 hours"))
-    #expect(LoopText.schedule(["schedule": .null]) == expectedCopy("只在你叫它时", "Only when you call it"))
-    #expect(LoopText.phase(loop).0 == expectedCopy("已暂停", "Paused"))
+    let loop: JSON = ["scheduleText": "每 2 小时", "pill": ["text": "已暂停", "tone": "gray"]]
+    #expect(LoopText.schedule(loop) == "每 2 小时")
+    #expect(LoopText.phase(loop) == ("已暂停", .gray))
     // A time it asked for says so, with why.
-    let asked: JSON = ["status": ["phase": "sleeping", "nextWakeAt": JSON(floatLiteral: L.nowMs() + 600_000), "nextWakeReason": "self", "nextWakeWhy": "等 CI"]]
+    let at = JSON(floatLiteral: L.nowMs() + 600_000)
+    let asked: JSON = ["pill": ["text": "摸鱼中", "tone": "gray"], "wakesAt": at, "asked": ["at": at, "why": "等 CI"]]
     #expect(LoopText.asked(asked)?.hasSuffix(expectedCopy("再看一次：等 CI", ": 等 CI")) == true)
     #expect(LoopText.asked(loop) == nil)
     // The narrow column's pill keeps to the state; when it wakes goes on the line below.
     #expect(LoopText.phase(asked).0.hasPrefix(expectedCopy("摸鱼中 · ", "Idle · ")))
-    #expect(LoopText.phase(asked, short: true).0 == expectedCopy("摸鱼中", "Idle"))
-    #expect(LoopText.phase(["status": ["phase": "awake"]]).0 == expectedCopy("干活中", "Working"))
+    #expect(LoopText.phase(asked, short: true).0 == "摸鱼中")
 }
 
 /// A Loop's session marks each wake: which one, when and why; then when it ended, how long it took
@@ -241,22 +240,16 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(!Backend.isStale(server: "0.1.0", app: "0"), "the app from source")
 }
 
-/// The form's common schedules are cron expressions and read back as the same shape; anything else
-/// is an expression of its own.
-@Test func aLoopsScheduleReadsBackAsTheShapeTheFormMadeIt() {
-    let shapes: [LoopSchedule] = [.minutes(15), .hours(1), .hours(6), .daily(hour: 9, minute: 0), .weekdays(hour: 18, minute: 30),
-                                  .weekly(day: 1, hour: 9, minute: 5), .weekly(day: 0, hour: 20, minute: 0), .monthly(day: 1, hour: 8, minute: 0)]
-    for s in shapes { #expect(LoopSchedule(cron: s.cron) == s, "\(s.cron)") }
+/// The form writes its common schedules as cron expressions (the server reads them back into the
+/// same shape, `loops/words.rs`).
+@Test func aLoopsFormWritesItsScheduleAsCron() {
+    #expect(LoopSchedule.minutes(15).cron == "*/15 * * * *")
+    #expect(LoopSchedule.hours(1).cron == "0 * * * *" && LoopSchedule.hours(6).cron == "0 */6 * * *")
     #expect(LoopSchedule.daily(hour: 9, minute: 0).cron == "0 9 * * *")
     #expect(LoopSchedule.weekdays(hour: 9, minute: 0).cron == "0 9 * * 1-5")
-    #expect(LoopSchedule(cron: "0  9-18 * *  1-5") == .cron("0 9-18 * * 1-5"))
-    #expect(LoopSchedule(cron: "*/7 * * * *") == .cron("*/7 * * * *"))
-    #expect(LoopSchedule(cron: "0 9 * 1 *") == .cron("0 9 * 1 *"))
-    #expect(LoopSchedule.weekdays(hour: 9, minute: 0).words == expectedCopy("工作日 09:00", "Weekdays at 09:00"))
-    #expect(LoopSchedule.weekly(day: 1, hour: 9, minute: 0).words == expectedCopy("每周一 09:00", "Every Monday at 09:00"))
-    #expect(LoopSchedule.minutes(30).words == expectedCopy("每 30 分钟", "Every 30 minutes"))
+    #expect(LoopSchedule.weekly(day: 0, hour: 20, minute: 5).cron == "5 20 * * 0")
+    #expect(LoopSchedule.monthly(day: 1, hour: 8, minute: 0).cron == "0 8 1 * *")
     // The time menu offers every five minutes and keeps a minute a Loop already has.
     #expect(LoopSchedule.minuteMarks(keeping: 0) == Array(stride(from: 0, to: 60, by: 5)))
     #expect(LoopSchedule.minuteMarks(keeping: 7) == [0, 5, 7, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55])
-    #expect(LoopSchedule.cron("0 9-18 * * 1-5").words == expectedCopy("cron：0 9-18 * * 1-5", "cron: 0 9-18 * * 1-5"))
 }

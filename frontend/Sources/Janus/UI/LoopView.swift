@@ -4,21 +4,18 @@ import SwiftUI
 /// and its page (its session and what it dispatched).
 // @project-doc docs/architecture/20261031-frontend.md#loops
 
-/// What the app says about a Loop: its schedule and what it is doing now.
+/// What the app says about a Loop: its schedule and what it is doing now, as the server words it
+/// (`GET /api/loops`, `backend/src/orchestrator/loops/words.rs`); times in this Mac's words.
 enum LoopText {
-    static func schedule(_ l: JSON) -> String {
-        guard let cron = l["schedule"]["cron"].string else { return L.text("只在你叫它时") }
-        return LoopSchedule(cron: cron).words
-    }
+    static func schedule(_ l: JSON) -> String { l["scheduleText"].str }
 
     /// When it wakes next, to the minute: today, tomorrow or the day.
     static func when(_ at: Double) -> String { L.dateTime(at) }
 
     /// The time it asked for itself (`next_wake`) and why, when that is what wakes it next.
     static func asked(_ l: JSON) -> String? {
-        let s = l["status"]
-        guard s["phase"].str == "sleeping", s["nextWakeReason"].str == "self", let at = s["nextWakeAt"].double else { return nil }
-        let why = s["nextWakeWhy"].str
+        guard let at = l["asked"]["at"].double else { return nil }
+        let why = l["asked"]["why"].str
         return why.isEmpty ? L.text("它约了 \(when(at)) 再看一次") : L.text("它约了 \(when(at)) 再看一次：\(why)")
     }
 
@@ -51,20 +48,14 @@ enum LoopText {
         return L.text("\(L.dateTime(e.ts)) 收工（\(L.dur(e.ts - woke.ts))）· \(next)")
     }
 
-    /// How many runs it dispatched, from the server's counts by status.
-    static func dispatchedCount(_ l: JSON) -> Int { l["status"]["dispatched"].object.values.reduce(0) { $0 + ($1.int ?? 0) } }
+    /// How many runs it dispatched.
+    static func dispatchedCount(_ l: JSON) -> Int { l["dispatchedCount"].int ?? 0 }
 
-    /// The phase as a pill: sleeping (with when it wakes, unless `short`), awake, paused, failed.
+    /// The phase as a pill: idle (with when it wakes, unless `short`), working, paused, error.
     static func phase(_ l: JSON, short: Bool = false) -> (String, Tone) {
-        let s = l["status"]
-        switch s["phase"].str {
-        case "awake": return (L.text("干活中"), .blue)
-        case "paused": return (L.text("已暂停"), .gray)
-        case "failed": return (L.text("出错了"), .red)
-        default:
-            if !short, let at = s["nextWakeAt"].double { return (L.text("摸鱼中 · \(when(at)) 开工"), .gray) }
-            return (L.text("摸鱼中"), .gray)
-        }
+        let tone = Tone(rawValue: l["pill"]["tone"].str) ?? .gray
+        if !short, let at = l["wakesAt"].double { return (L.text("摸鱼中 · \(when(at)) 开工"), tone) }
+        return (l["pill"]["text"].str, tone)
     }
 }
 
@@ -112,7 +103,7 @@ struct LoopSection: View {
     /// said last; one line each. The column is narrow, so the pill keeps to the state alone.
     private func row(_ l: JSON) -> some View {
         let (label, tone) = LoopText.phase(l, short: true)
-        let wakes = l["status"]["phase"].str == "sleeping" ? l["status"]["nextWakeAt"].double.map { L.text("\(LoopText.when($0)) 开工") } : nil
+        let wakes = l["wakesAt"].double.map { L.text("\(LoopText.when($0)) 开工") }
         let schedule = [LoopText.schedule(l), wakes].compactMap { $0 }.joined(separator: " · ")
         let last = l["status"]["lastSummary"].str
         return Button { store.open(.run(l["run"].str)) } label: {
@@ -317,12 +308,12 @@ struct LoopEditor: View {
         switch shape {
         case "minutes":
             Picker(L.text("分钟"), selection: $minutes) {
-                ForEach(LoopSchedule.minuteChoices, id: \.self) { m in Text(LoopSchedule.minutes(m).words).tag(m) }
+                ForEach(LoopSchedule.minuteChoices, id: \.self) { m in Text(L.text("每 \(m) 分钟")).tag(m) }
             }
             .labelsHidden().fixedSize()
         case "hours":
             Picker(L.text("小时"), selection: $hours) {
-                ForEach(LoopSchedule.hourChoices, id: \.self) { h in Text(LoopSchedule.hours(h).words).tag(h) }
+                ForEach(LoopSchedule.hourChoices, id: \.self) { h in Text(h == 1 ? L.text("每小时") : L.text("每 \(h) 小时")).tag(h) }
             }
             .labelsHidden().fixedSize()
         case "weekly":
@@ -367,18 +358,16 @@ struct LoopEditor: View {
         name = original["name"].str
         prompt = original["prompt"].str
         guard let cron = original["schedule"]["cron"].string else { scheduled = false; return }
-        let parsed = LoopSchedule(cron: cron)
-        cronText = parsed.cron
-        let at = { (h: Int, m: Int) in (hour, minute) = (h, m) }
-        switch parsed {
-        case .minutes(let m): (shape, minutes) = ("minutes", m)
-        case .hours(let h): (shape, hours) = ("hours", h)
-        case .daily(let h, let m): shape = "daily"; at(h, m)
-        case .weekdays(let h, let m): shape = "weekdays"; at(h, m)
-        case .weekly(let d, let h, let m): (shape, weekday) = ("weekly", d); at(h, m)
-        case .monthly(let d, let h, let m): (shape, monthDay) = ("monthly", d); at(h, m)
-        case .cron: shape = "cron"
-        }
+        // The shape the server reads the expression as (`scheduleShape`).
+        let s = original["scheduleShape"]
+        cronText = cron.split(separator: " ").joined(separator: " ")
+        shape = s["kind"].string ?? "cron"
+        minutes = s["minutes"].int ?? minutes
+        hours = s["hours"].int ?? hours
+        hour = s["hour"].int ?? hour
+        minute = s["minute"].int ?? minute
+        if shape == "weekly" { weekday = s["day"].int ?? weekday }
+        if shape == "monthly" { monthDay = s["day"].int ?? monthDay }
     }
 
     /// Ask the server when the schedule comes round, a moment after the person stops changing it.
