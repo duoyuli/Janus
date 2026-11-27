@@ -310,6 +310,10 @@ button.row {
   background: none;
 }
 
+.btn-danger {
+  color: var(--tone-red);
+}
+
 .btn-small {
   min-height: 24px;
   padding: 2px 9px;

@@ -29,14 +29,16 @@ export function Pill({ text, tone = "gray" }: { text: string; tone?: Tone }) {
 type ButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "class"> & {
   kind?: "primary" | "bordered" | "plain";
   small?: boolean;
+  /** Stops something (a turn, a run): its text in red. */
+  danger?: boolean;
   disabled?: boolean;
   children: ComponentChildren;
 };
 
 /** `primary` is the one way forward on a screen (ink); `bordered` the quieter choices. */
-export function Button({ kind = "bordered", small, children, ...rest }: ButtonProps) {
+export function Button({ kind = "bordered", small, danger, children, ...rest }: ButtonProps) {
   return (
-    <button type="button" class={`btn btn-${kind}${small ? " btn-small" : ""}`} {...rest}>
+    <button type="button" class={`btn btn-${kind}${small ? " btn-small" : ""}${danger ? " btn-danger" : ""}`} {...rest}>
       {children}
     </button>
   );

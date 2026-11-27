@@ -78,7 +78,8 @@ test("the interface and what the service words follow the language", async ({ pa
   const server = await service(request, "/api/inbox?lang=en");
   await expect.poll(async () => (await drawn(page)).pages.inbox?.open.map((e: any) => e.title)).toEqual(server.open.map((e: any) => e.title));
   if (!phone(info)) await expect(page.locator(".section-header h1")).toHaveText(english["待处理"]!);
-  await expect(page.locator(".inbox-entry").first().locator(".btn").last()).toHaveText(new RegExp(`${english["去处理"]}|${english["详情"]}`));
+  const delivered = server.open.find((e: any) => e.run === data.delivered);
+  await expect(page.locator(`[data-key="${delivered.key}"] .btn`).last()).toHaveText(new RegExp(`${english["去处理"]}|${english["详情"]}`));
   await shot(page, info, "inbox-en");
 });
 

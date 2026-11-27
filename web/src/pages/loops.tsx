@@ -242,7 +242,7 @@ export function LoopEditor({ ws, loopId }: { ws?: string; loopId?: string }) {
 
 /** A Loop's page: what it is and does now, its session, and what it dispatched. `session` is the
  * conversation card of the run page, given by the page that shows this one. */
-export function LoopPage({ run, session }: { run: Json; session?: preact.ComponentChildren }) {
+export function LoopPage({ run, session, asks }: { run: Json; session?: preact.ComponentChildren; asks?: preact.ComponentChildren }) {
   const loop = loopOfRun(run.id);
   usePageTitle(loop?.title ?? run.title ?? "", loop ? `/workspaces/${encodeURIComponent(loop.workspace)}` : "/inbox");
   const dispatched = useSignal<Json[]>([]);
@@ -334,6 +334,7 @@ export function LoopPage({ run, session }: { run: Json; session?: preact.Compone
       <div class="loop-body">
         <div class="loop-session">{session}</div>
         <aside class="loop-side">
+          {asks}
           <span class="h2">{t`派出的任务`}</span>
           {dispatched.value.length === 0 ? (
             <div class="secondary">{t`还没有派出过任务`}</div>

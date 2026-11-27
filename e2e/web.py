@@ -82,10 +82,29 @@ def prepare(ctx):
         ctx.api("POST", f"/api/connections/{c}/test")
     wait(lambda: all(x.get("phase") == "ok" for x in ctx.api("GET", "/api/setup")["connections"] if x["id"] in checked),
          "web-new 的 Agent 通过配置检查", timeout=90)
+    # Conversations: a chat with a reply, and a goal whose tasks show a whole session (thinking,
+    # plan, calls with a diff), ask for a permission and ask for a form.
+    s = ctx.team("web-session", members=("m1", "m2", "m3"), files={"README.md": "e2e\n"},
+                 script={"T1": ["rich"], "T2": ["permission"], "T3": ["elicit"]})
+    chat = ctx.api("POST", "/api/chats", {"role": s.member("m1")})["id"]
+
+    def chat_events():
+        return ctx.api("GET", f"/api/runs/{chat}")["events"]
+
+    wait(lambda: [e for e in chat_events() if e["type"] == "agent.status" and e["data"].get("turn") == "idle"], "对话打开，等用户先说", 60)
+    ctx.api("POST", f"/api/runs/{chat}/actions", {"type": "message", "agent": "lead", "text": "你好"})
+    wait(lambda: [e for e in chat_events() if e["type"] == "agent.message" and "回复：你好" in e["data"].get("text", "")], "数字员工回复", 60)
+    goal = s.run("看得见的会话")
+    goal.lead()
+    goal.orchestrate(scenarios.task("T1", s.member("m1")), scenarios.task("T2", s.member("m2")), scenarios.task("T3", s.member("m3")))
+    goal.wait_event("task.succeeded", task="T1")
+    goal.wait_event("approval.requested", task="T2")
+    goal.wait_event("input.requested", task="T3")
     # A folder to make a workspace of from the browser.
     folder = ctx.path("web-folder")
     return {"workspace": "web", "asked": asked.id, "later": later.id, "delivered": delivered.id,
-            "newWorkspace": "web-new", "loop": loop["id"], "loopRun": loop["run"], "folder": folder}
+            "newWorkspace": "web-new", "loop": loop["id"], "loopRun": loop["run"], "folder": folder,
+            "chat": chat, "goal": goal.id}
 
 
 def main():

@@ -64,7 +64,8 @@ def conversation_in_turns(ctx, c, run):
     edited = {d["path"] for e in evs if e["type"] == "tool.call" for d in e["data"].get("diffs") or []}
 
     def conv(st):
-        return st["run"]["conversations"]["task:T1"]
+        # Right after the run opens, before its view is read, it has no conversations yet.
+        return ((st.get("run") or {}).get("conversations") or {}).get("task:T1") or {"rows": [], "suggestions": []}
 
     # The server lays the rows out at the level chosen and offers the commands for the draft: both
     # come back a moment after the commands.

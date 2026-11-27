@@ -1,0 +1,166 @@
+/* A conversation's page: who it is with, a proposal, then the conversation filling the rest of the
+   window (the Mac app's ChatsView). On a phone the conversation takes the screen below the top bar. */
+
+.conversation-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 980px;
+  height: calc(100dvh - 40px);
+  box-sizing: border-box;
+}
+
+.conversation-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.conversation-who .title3 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conversation-cwd {
+  max-width: 40%;
+}
+
+.title2 {
+  font-size: 22px;
+}
+
+.title3 {
+  font-size: 19px;
+}
+
+.conversation-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.proposal-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  flex-wrap: wrap;
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 16px;
+}
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  width: min(700px, 100%);
+  max-height: min(640px, 100%);
+  background: var(--card);
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.sheet-head,
+.sheet-body,
+.sheet-foot {
+  padding: 16px 20px;
+}
+
+.sheet-head {
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-body {
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sheet-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+
+.proposed {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.proposed-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.proposed-prompt {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--tint);
+  font: inherit;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .conversation-page {
+    height: calc(100dvh - 56px - 64px - env(safe-area-inset-bottom));
+    padding-left: 0;
+    padding-right: 0;
+    gap: 8px;
+  }
+
+  .conversation-who,
+  .proposal-banner {
+    margin: 0 16px;
+  }
+
+  .conversation-cwd {
+    display: none;
+  }
+
+  .sheet-backdrop {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .sheet {
+    max-height: 100%;
+    border-radius: 0;
+  }
+}
+
+/* A Loop's and a consolidation's pages put the conversation in a column of their own: it keeps
+   to the window's height, the composer in view. */
+.loop-session > .session,
+.dream-session > .session {
+  height: min(760px, calc(100dvh - 180px));
+}
+
+.request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.request-list-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

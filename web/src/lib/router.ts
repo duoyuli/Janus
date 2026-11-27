@@ -5,17 +5,21 @@
 import { computed, signal } from "@preact/signals";
 
 export const path = signal(location.pathname);
+/** The query of the page's path (`?session=…`), which picks what a page shows. */
+export const search = signal(location.search);
 
 export function go(to: string, replace = false) {
   if (to === location.pathname + location.search) return;
   if (replace) history.replaceState(null, "", to);
   else history.pushState(null, "", to);
   path.value = location.pathname;
+  search.value = location.search;
   window.scrollTo(0, 0);
 }
 
 addEventListener("popstate", () => {
   path.value = location.pathname;
+  search.value = location.search;
 });
 
 export type Route =

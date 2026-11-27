@@ -5,10 +5,8 @@
 // an editor fills the screen. Updates and macOS permissions belong to the Mac app.
 
 import type { ComponentChildren } from "preact";
-import { signal } from "@preact/signals";
 import { appearance, chooseAppearance, type Appearance } from "../../lib/appearance.ts";
 import { choice, choose, t, type Choice } from "../../lib/i18n.ts";
-import { load, save } from "../../lib/prefs.ts";
 import { link } from "../../lib/router.ts";
 import { connections, meta, roleGroups, roles } from "../../lib/store.ts";
 import { useDrawn } from "../../lib/testing.ts";
@@ -22,11 +20,9 @@ import { adapters, library, loadAdapters, loadLibrary, loadRoleStats, useFollow 
 import { LibraryPane, McpEditor, SkillEditor, type LibraryKind } from "./library.tsx";
 import { RoleEditor, RolesSection } from "./roles.tsx";
 import { UsagePane } from "./usage.tsx";
+import { chooseSendKey, type SendKey, sendKey } from "../../lib/sendkey.ts";
 import "./settings.css";
 
-export type SendKey = "commandReturn" | "return";
-/** How the composer sends a message on this browser (Mac: `SendKeySetting`). */
-export const sendKey = signal<SendKey>(load<SendKey>("sendKey", "commandReturn"));
 
 const TABS = ["general", "agents", "library", "usage", "devices"] as const;
 type Tab = (typeof TABS)[number];
@@ -165,10 +161,7 @@ function General() {
             label={t`发送消息`}
             value={sendKey.value}
             options={keys}
-            onChange={(k) => {
-              sendKey.value = k;
-              save("sendKey", k);
-            }}
+            onChange={chooseSendKey}
           />
         </Setting>
       </Card>
