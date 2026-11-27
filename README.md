@@ -136,7 +136,7 @@ Janus is developed by agents. Its own changes are written, reviewed and merged b
 
 ## Scope
 
-Janus is built for one machine and one person. Runs change the directory you choose (or a worktree that is merged back into your branch when the run is delivered). Agents can read and write everything in your home directory except the paths you hide, the service has no authentication, and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.
+Janus is built for one machine and one person. Runs change the directory you choose (or a worktree that is merged back into your branch when the run is delivered). Agents can read and write everything in your home directory except the paths you hide, the service lets in only the Janus app on this Mac and the browsers and phones you paired from it (plain HTTP on the local network), and there is no OS-level sandbox. Read the [security boundaries](docs/operations/20261031-security.md) before pointing it at a real project.
 
 ## Quick start
 
