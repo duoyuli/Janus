@@ -103,6 +103,14 @@ pub(super) async fn setup(State(app): State<Arc<App>>, Query(q): Query<SetupQuer
     let team = readiness::default_team(&roles, &connections);
     let onboarding = readiness::onboarding(&connections, &roles, workspaces.len(), lang);
     let role_groups = readiness::role_groups(&roles, lang);
+    for r in roles.iter_mut() {
+        crate::setup_view::dress_role(r, &connections, lang);
+    }
+    let kinds = agents::kinds();
+    let mut connections = connections;
+    for c in connections.iter_mut() {
+        crate::setup_view::dress_connection(c, &kinds, lang);
+    }
     reply(json!({
         "connections": connections, "roles": roles, "workspaces": workspaces, "team": team,
         "onboarding": onboarding, "roleGroups": role_groups,
@@ -185,7 +193,9 @@ pub(super) async fn login_connection(State(app): State<Arc<App>>, UrlPath(id): U
 /// values, it goes to the app on this Mac and to paired devices only (`devices::guard`).
 // @project-doc docs/operations/20261031-security.md#secrets
 pub(super) async fn connection_env(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    reply(app.connection_env(&id)?)
+    let mut env = app.connection_env(&id)?;
+    env["envText"] = json!(crate::setup_view::env_text(&env["env"]));
+    reply(env)
 }
 
 /// A digital employee's picture, PNG; 404 when it shows its initials.
@@ -326,6 +336,27 @@ pub(super) async fn inspect(State(app): State<Arc<App>>, Query(q): Query<Inspect
     )
 }
 
-pub(super) async fn role_stats(State(app): State<Arc<App>>) -> ApiResult {
-    reply(app.role_stats()?)
+/// How each role's subtasks went in recent runs, with the line its editor shows (`line`).
+pub(super) async fn role_stats(State(app): State<Arc<App>>, Query(q): Query<SetupQuery>) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let mut stats = app.role_stats()?;
+    let runs = stats["runs"].as_i64().unwrap_or(0);
+    for x in stats["roles"].as_object_mut().into_iter().flatten().map(|(_, x)| x) {
+        x["line"] = json!(crate::setup_view::stat_line(x, runs, lang));
+    }
+    reply(stats)
+}
+
+/// An agent's environment text with its auth's template brought in (`{text, kind, auth}`): the
+/// template's lines for variables the text does not set yet, after what is there.
+pub(super) async fn env_template(Json(body): Json<Value>) -> ApiResult {
+    let kinds = agents::kinds();
+    let template = kinds
+        .as_array()
+        .and_then(|k| k.iter().find(|k| k["id"] == body["kind"]))
+        .and_then(|k| k["auths"].as_array()?.iter().find(|a| a["id"] == body["auth"]))
+        .and_then(|a| a["template"].as_str())
+        .ok_or_else(|| ApiError::bad_request("这种认证方式没有模板"))?;
+    let text = body["text"].as_str().unwrap_or("");
+    reply(json!({ "text": crate::setup_view::with_template(text, template) }))
 }

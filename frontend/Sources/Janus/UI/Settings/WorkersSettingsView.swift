@@ -86,14 +86,12 @@ struct AgentsSection: View {
     private func newDraft(_ kind: String, auth: String? = nil, template: Bool = false) -> JSON {
         let k = store.kind(kind)
         let auth = auth ?? k?["auths"][0]["id"].str ?? ""
-        let env = template ? Setup.withTemplate("", store.auth(kind, auth)?["template"].str ?? "") : ""
+        let env = template ? store.auth(kind, auth)?["template"].str ?? "" : ""
         return ["kind": JSON(kind), "auth": JSON(auth), "name": k?["name"] ?? "", "api": "openai-completions", "prompt": "", "envText": JSON(env)]
     }
 
     private func editDraft(_ c: JSON) -> JSON {
-        var d = c
-        d["envText"] = JSON(Setup.envText(c["env"]))
-        return d
+        c
     }
 }
 
@@ -107,7 +105,7 @@ struct ConnectionRow: View {
         let k = store.kind(c["kind"].str)
         let (label, tone) = status
         let roles = store.roles.filter { $0.connection == c["id"].str }
-        let login = loginAuth
+        let login = c["loginLabel"].string
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Button(action: edit) {
@@ -118,7 +116,7 @@ struct ConnectionRow: View {
                                 Text(c["name"].str).fontWeight(.semibold)
                                 Text(c["id"].str).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
                             }
-                            Text(sub(k)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            Text(c["summary"].str).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                     }
                     .contentShape(Rectangle())
@@ -134,7 +132,7 @@ struct ConnectionRow: View {
                 }
                 Dot(tone: tone, text: label).frame(width: 90, alignment: .leading).accessibilityElement(children: .combine)
                 Menu {
-                    if let login { Button(String("\(c["loggedIn"].truthy ? L.text("重新登录") : L.text("登录")) \(login["label"].str)")) { Task { await store.login(c["id"].str) } } }
+                    if let login { Button(String("\(c["loggedIn"].truthy ? L.text("重新登录") : L.text("登录")) \(login)")) { Task { await store.login(c["id"].str) } } }
                     Button(L.text("检查配置")) { Task { await store.testConnection(c["id"].str) } }
                     Button(L.text("编辑…"), action: edit)
                     Button(L.text("在这个 Agent 上新建数字员工…"), action: newRole)
@@ -151,18 +149,17 @@ struct ConnectionRow: View {
         .padding(12)
     }
 
-    @ViewBuilder private func extra(_ login: JSON?) -> some View {
-        if login != nil && c["login"]["state"].str == "running" {
+    @ViewBuilder private func extra(_ login: String?) -> some View {
+        if let login, c["login"]["state"].str == "running" {
             VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: L.text("按提示完成 \(login!["label"].str) 登录，完成后自动检查。")).font(.callout)
+                Text(verbatim: L.text("按提示完成 \(login) 登录，完成后自动检查。")).font(.callout)
                 if c["loginLog"].truthy {
-                    let log = c["loginLog"].str.replacingOccurrences(of: "\u{1b}\\[[0-9;]*m", with: "", options: .regularExpression)
-                    CodeBlock(text: log, maxHeight: 160)
-                    ForEach(urls(log), id: \.self) { u in Link(u, destination: URL(string: u)!).font(.callout) }
+                    CodeBlock(text: c["loginLog"].str, maxHeight: 160)
+                    ForEach(c["loginUrls"].strings, id: \.self) { u in if let url = URL(string: u) { Link(u, destination: url).font(.callout) } }
                 }
             }
         } else if let login, !c["loggedIn"].truthy {
-            HStack { Note(text: L.text("还没有登录 \(login["label"].str)。"), tone: .amber); Button(L.text("登录")) { Task { await store.login(c["id"].str) } } }
+            HStack { Note(text: L.text("还没有登录 \(login)。"), tone: .amber); Button(L.text("登录")) { Task { await store.login(c["id"].str) } } }
         } else if c["status"].str == "testing" {
             CheckList(c: c)
         } else if c["status"].str == "error" {
@@ -175,14 +172,6 @@ struct ConnectionRow: View {
             HStack { Text(L.text("还没有检查配置，读到模型后才能给数字员工使用。")).font(.callout).foregroundStyle(.secondary); Button(L.text("检查")) { Task { await store.testConnection(c["id"].str) } }.buttonStyle(.link) }
         }
     }
-
-    private func urls(_ s: String) -> [String] {
-        guard let re = try? NSRegularExpression(pattern: #"https?://[^\s<]+"#) else { return [] }
-        return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).compactMap { Range($0.range, in: s).map { String(s[$0]) } }
-    }
-
-    /// The auth method's own `login` flag says whether Janus drives an account login (Codex ChatGPT).
-    private var loginAuth: JSON? { store.kind(c["kind"].str)?["auths"].array.first { $0["id"].str == c["auth"].str && $0["login"].truthy } }
 
     /// The backend's single `phase` combines the check status with the account login, so the
     /// label cannot disagree with the buttons below it.
@@ -197,14 +186,6 @@ struct ConnectionRow: View {
         }
     }
 
-    private func sub(_ k: JSON?) -> String {
-        let auth = k?["auths"].array.first { $0["id"].str == c["auth"].str }?["label"].string.map(L.catalogText)
-        let model = c["options"]["model"]
-        let perms = Setup.controls(c).filter { $0["permission"].truthy }
-        let permText: String? = c["options"].isNull ? nil : !c["options"]["controls"].exists ? L.text("未读取权限模式") : perms.isEmpty ? L.text("无权限模式") : perms.map { $0["type"].str == "boolean" ? $0["name"].str : $0["options"].array.map { $0["name"].str }.joined(separator: " / ") }.joined(separator: L.text("；"))
-        return [k?["name"].string, auth, model.exists ? L.text("\(model["options"].array.count) 个模型") : nil, permText].compactMap { $0 }.joined(separator: L.text("，"))
-    }
-
     private func remove() {
         let used = store.roles.filter { $0.connection == c["id"].str }.map(\.name)
         let msg = used.isEmpty ? "" : L.text("这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：\(used.joined(separator: L.text("、")))")
@@ -215,27 +196,25 @@ struct ConnectionRow: View {
     }
 }
 
+/// The steps of an agent's check as the service lists them (`checks`): each recorded one with how
+/// it went, and while the check runs the ones still to come.
 struct CheckList: View {
     let c: JSON
-    static var steps: [String] { [L.text("运行组件"), L.text("运行时"), L.text("凭据"), L.text("启动 Agent"), L.text("打开会话"), L.text("试运行")] }
 
     var body: some View {
-        let done = c["check"].array
-        let testing = c["status"].str == "testing"
-        let steps = Self.steps
-        if !done.isEmpty {
+        let steps = c["checks"].array
+        if !steps.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(steps, id: \.self) { name in
-                    let st = done.first { $0["step"].str == name }
-                    if st != nil || testing {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            if let st, st["ok"].bool == true { Image(systemName: "checkmark.circle.fill").foregroundStyle(Tone.green.color) }
-                            else if let st, st["ok"].bool == false { Image(systemName: "xmark.circle.fill").foregroundStyle(Tone.red.color) }
-                            else if st != nil { ProgressView().controlSize(.mini) }
-                            else { Image(systemName: "circle").foregroundStyle(.tertiary) }
-                            Text(name).font(.callout.weight(.medium)).frame(width: 80, alignment: .leading)
-                            Text(st?["detail"].str ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                ForEach(Array(steps.enumerated()), id: \.offset) { _, st in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        switch st["state"].str {
+                        case "ok": Image(systemName: "checkmark.circle.fill").foregroundStyle(Tone.green.color)
+                        case "failed": Image(systemName: "xmark.circle.fill").foregroundStyle(Tone.red.color)
+                        case "running": ProgressView().controlSize(.mini)
+                        default: Image(systemName: "circle").foregroundStyle(.tertiary)
                         }
+                        Text(st["step"].str).font(.callout.weight(.medium)).frame(width: 80, alignment: .leading)
+                        Text(st["detail"].str).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                     }
                 }
             }
@@ -256,6 +235,8 @@ struct ConnectionEditor: View {
     @Local private var idTouched = false
     @Local private var showSource = false
     @Local private var advanced = false
+    /// The saved private values could not be read: their lines are names alone, which keep them.
+    @Local private var valuesUnread = false
 
     /// The draft as opened, to tell whether Cancel would throw edits away.
     @Local private var saved: JSON
@@ -394,7 +375,7 @@ struct ConnectionEditor: View {
                     }
                 }
             }
-            if let prev, !prev["check"].array.isEmpty {
+            if let prev, !prev["checks"].array.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack { Text(L.text("配置检查")).font(.headline); Spacer(); if prev["status"].str != "testing" { Button(L.text("重新检查")) { Task { await store.testConnection(prev["id"].str) } }.buttonStyle(.link) } else { Text(L.text("检查中…")).font(.caption).foregroundStyle(.secondary) } }
                     CheckList(c: prev)
@@ -455,16 +436,14 @@ struct ConnectionEditor: View {
     /// API, with its template one click away), else an advanced setting.
     private func envField(template: String) -> some View {
         let primary = store.envAuth(draft["kind"].str, draft["auth"].str)
-        // A line with a name and no value keeps the saved value: shown when the values could not be read.
-        let keepsSaved = draft["envText"].str.components(separatedBy: .newlines).contains { line in
-            Setup.envName(line) != nil && !line.contains("=")
-        }
-        let hint = keepsSaved
+        // A line with a name and no value keeps the saved value: there are such lines when the
+        // values could not be read.
+        let hint = valuesUnread
             ? L.text("只写变量名的行保留原值；删掉整行就移除。")
             : L.text("每行一个 KEY=value，可以直接贴 export 行；写 KEY= 表示清空。")
         return field(L.text("环境变量"), hint: hint, accessory: {
             if !template.isEmpty {
-                Button(L.text("填入模板")) { draft["envText"] = JSON(Setup.withTemplate(draft["envText"].str, template)) }
+                Button(L.text("填入模板")) { Task { await insertTemplate() } }
                     .buttonStyle(.link)
                     .help(L.text("把模板中还没有填写的变量加到末尾，已填写的不变"))
             }
@@ -489,11 +468,20 @@ struct ConnectionEditor: View {
     /// opened with names in place of private values; it changes only if nobody typed meanwhile.
     private func showSavedValues() async {
         let id = draft["id"].str
-        guard !id.isEmpty, draft["env"].object.values.contains(.null),
-              let r = try? await store.api.get("/api/connections/\(API.q(id))/env") else { return }
-        let text = JSON(Setup.envText(r["env"]))
+        guard !id.isEmpty, draft["env"].object.values.contains(.null) else { return }
+        guard let r = try? await store.api.get("/api/connections/\(API.q(id))/env") else { valuesUnread = true; return }
+        let text = r["envText"]
         if draft["envText"] == saved["envText"] { draft["envText"] = text }
         saved["envText"] = text
+    }
+
+    /// The auth's template brought into the environment text by the service: only the variables
+    /// the text does not set yet, after what is there.
+    private func insertTemplate() async {
+        do {
+            let r = try await store.api.post("/api/agent-env/template", ["text": draft["envText"], "kind": draft["kind"], "auth": draft["auth"]])
+            draft["envText"] = r["text"]
+        } catch { store.show(error.localizedDescription) }
     }
 
     /// Keep pasted credentials with the provider and auth form where they were entered.

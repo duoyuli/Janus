@@ -200,7 +200,7 @@ final class AppStore {
         } catch { show(L.text("读取设置失败：\(error.localizedDescription)")) }
         await AvatarImages.shared.sync(roles, api: api)
         // How each role's tasks went in recent runs; the list works without it.
-        roleStats = (try? await api.get("/api/stats/roles")) ?? .null
+        roleStats = (try? await api.get("/api/stats/roles?lang=\(L.serverLanguage)")) ?? .null
     }
 
     // MARK: Resource library

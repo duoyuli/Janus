@@ -208,7 +208,7 @@ enum Snapshots {
                 "connections": ids(store.connections), "roles": ids(store.roles.map(\.json)), "workspaces": ids(store.workspaces.map(\.json)), "runs": ids(store.runs),
                 "claudeEnvironments": .object(Dictionary(uniqueKeysWithValues: store.connections.filter {
                     store.envAuth($0["kind"].str, $0["auth"].str)
-                }.map { ($0["id"].str, JSON(Setup.envText($0["env"]))) })),
+                }.map { ($0["id"].str, $0["envText"]) })),
                 // The open agent editor's environment text, as the person sees it.
                 "agentEditorEnv": store.agentEditorEnv.map(JSON.init) ?? .null,
                 "chats": ids(store.chats),
@@ -228,8 +228,8 @@ enum Snapshots {
                 // The digital employee being edited, and whether its editor offers 招聘顾问 (a new one).
                 "editingRole": store.editingRole.map { ["id": $0["id"], "offersRecruiter": JSON(store.offersRecruiter($0))] } ?? .null,
                 // The new-chat page and the workspace editor list them the same way.
-                "roleGroups": JSON.array(store.roleSections.map { section in
-                    ["group": JSON(section.group), "title": JSON(AppStore.groupTitle(section.group)), "roles": JSON.array(section.roles.map { JSON($0.id) })]
+                "roleGroups": JSON.array(store.servedRoleGroups.map { g in
+                    ["group": g["group"], "title": g["title"], "roles": g["roles"]]
                 }),
                 // The proposal sheet as shown: whose chat, each employee (number, name, group, lead,
                 // whether the name is taken) and which are ticked.

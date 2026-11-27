@@ -165,6 +165,7 @@ pub fn router(app: Arc<App>, via: Via) -> Router {
         .route("/api/library/sources/{id}/import", post(library::import_from_source))
         .route("/api/library/sources/{id}/update", post(library::update_source))
         .route("/api/agent-id", get(setup::suggest_id))
+        .route("/api/agent-env/template", post(setup::env_template))
         .route("/api/host-env", get(setup::host_env).put(setup::save_host_env))
         .route("/api/language", get(setup::language).put(setup::save_language))
         .route("/api/host-env/try", post(setup::try_host_command))

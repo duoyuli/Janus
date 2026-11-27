@@ -28,6 +28,7 @@ mod run_ops;
 mod run_view;
 mod schedule;
 mod seats;
+mod setup_view;
 mod status;
 mod teamwork;
 mod text;

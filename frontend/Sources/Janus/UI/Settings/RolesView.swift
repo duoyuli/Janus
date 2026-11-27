@@ -84,13 +84,12 @@ struct RolesSection: View {
     private func row(_ r: Role) -> some View {
         let c = store.connection(r.connection)
         let k = c.flatMap { store.kind($0["kind"].str) }
-        let facts = [r.json["permLabel"].str, r.prompt.isEmpty ? "" : L.text("提示词")].filter { !$0.isEmpty }
         return Button { store.editRole(r.json) } label: {
             HStack(spacing: 12) {
                 Avatar(initials: r.displayInitials, color: r.color, size: 30, role: r.id)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) { Text(r.name).fontWeight(.semibold); if r.lead { Pill(L.text("负责人"), .violet) } }
-                    Text(([r.desc.isEmpty ? L.text("还没有填写职责") : r.desc] + facts).joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(r.line).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer()
                 if let c {
@@ -98,7 +97,7 @@ struct RolesSection: View {
                         Avatar(initials: k?["init"].str ?? "?", color: k?["color"].str ?? "#64748b", size: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(c["name"].str).font(.callout.weight(.medium))
-                            Text(verbatim: "\(!r.model.isEmpty ? r.model : c["options"]["model"]["current"].truthy ? c["options"]["model"]["current"].str : L.text("默认模型"))\(r.effort.isEmpty ? "" : L.text("，\(r.effort)"))").font(.caption).foregroundStyle(.secondary)
+                            Text(verbatim: r.modelLine ?? "").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 200, alignment: .leading)
@@ -115,13 +114,6 @@ struct RolesSection: View {
         .help(L.text("编辑 \(r.name)"))
     }
 
-    /// "最近 27 个任务：10 个子任务 · 首次通过 70% · 验证失败 2 · 成功平均 5.2 分钟"
-    static func statLine(_ x: JSON, runs: Int) -> String? {
-        guard let tasks = x["tasks"].int, tasks > 0 else { return nil }
-        let pct = { (n: Int) in "\(Int((Double(n) / Double(tasks) * 100).rounded()))%" }
-        let parts = [L.text("\(tasks) 个子任务"), L.text("首次通过 \(pct(x["firstPass"].int ?? 0))"), (x["failed"].int ?? 0) > 0 ? L.text("失败 \(x["failed"].str)") : "", (x["verificationFailed"].int ?? 0) > 0 ? L.text("验证没通过 \(x["verificationFailed"].str)") : "", x["avgMinutes"].truthy ? L.text("成功平均 \(x["avgMinutes"].str) 分钟") : ""].filter { !$0.isEmpty }
-        return L.text("最近 \(runs) 个任务：\(parts.joined(separator: " · "))")
-    }
 }
 
 /// One column, top to bottom, the way the role is read.
@@ -178,7 +170,7 @@ struct RoleEditor: View {
                         if hasPicture { Button(L.text("移除头像")) { picture = .remove } }
                     }
                     .buttonStyle(.link).font(.caption)
-                    if let line = RolesSection.statLine(store.roleStats["roles"][r["id"].str], runs: store.roleStats["runs"].int ?? 0) {
+                    if let line = store.roleStats["roles"][r["id"].str]["line"].string {
                         Text(line).font(.caption).foregroundStyle(.secondary).help(L.text("首次通过：第一次尝试就完成，且验证一次通过"))
                     }
                 }
@@ -383,7 +375,7 @@ struct RoleEditor: View {
                             HStack { Text(x["name"].str).fontWeight(.semibold); if x["desc"].truthy { Text(x["desc"].str).font(.caption).foregroundStyle(.secondary) } }
                             ForEach(x["options"].array, id: \.self) { o in
                                 let on = o["value"] == v
-                                let (icon, risky) = Setup.permIcon(o)
+                                let icon = o["icon"].string ?? "checkmark.shield", risky = o["widens"].truthy
                                 Button { setCtrl(x, o["value"]) } label: {
                                     HStack(alignment: .top, spacing: 10) {
                                         Image(systemName: icon).foregroundStyle(risky ? Tone.red.color : .secondary).frame(width: 18)

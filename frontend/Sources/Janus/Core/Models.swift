@@ -54,8 +54,12 @@ struct Role: Hashable, Identifiable {
         seedUpdates = j["seedUpdates"].object.mapValues(\.str)
     }
 
-    /// What its tile shows without a picture: its own initials, or the first two letters of its name.
-    var displayInitials: String { Role.initials(initials, name: name) }
+    /// What its tile shows without a picture, as the service writes it (`displayInit`).
+    var displayInitials: String { json["displayInit"].string ?? Role.initials(initials, name: name) }
+    /// What it does, its permission choices and whether it has instructions, in one line.
+    var line: String { json["line"].str }
+    /// The model it runs, and its effort; nil until it is bound to an Agent.
+    var modelLine: String? { json["modelLine"].string }
 
     /// A digital employee's initials, or (none given) the first two letters of its name, without
     /// spaces and in capitals. Every avatar of a role, a member or a proposed employee uses it.
