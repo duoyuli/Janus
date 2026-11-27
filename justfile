@@ -72,6 +72,10 @@ web-dev:
 test-web:
     cd web && { [ -d node_modules ] || npm ci --ignore-scripts --no-audit --no-fund; } && npm run check && npm test
 
+# Web 版的端到端测试：在嵌着 Web 版的真实服务上，用本机的 Chrome 按桌面和手机宽度核对每个页面（--keep 留下临时目录）
+e2e-web *args:
+    python3 -I e2e/web.py {{args}}
+
 # macOS 应用的测试（Swift Testing）
 # 只装了命令行工具、没有 Xcode 时，Swift Testing 的宏插件要显式加载：参数由 swift-test-flags.sh 给出，CI 也用它
 test-mac:
