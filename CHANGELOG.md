@@ -4,6 +4,46 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.27.3
+
+- 修复：手机经局域网或 Tailscale 地址打开 Web 版时，点「发送」、快捷回答、继续等操作没有任何反应。这些地址走明文 HTTP，浏览器不提供 `crypto.randomUUID`，每个操作在发出请求前就出错了；复制到剪贴板在这些地址上也会失败。现在都改用明文 HTTP 下也有的接口。
+
+- 修复：开着几个 Web 页面时，发消息、打开页面要等几十秒。每个页面原来占两条实时连接，浏览器对同一地址最多保持 6 个连接；现在一个页面只占一条，打开的任务的事件也走这一条。
+
+- 手机上的 Web 版：
+  - 对话和会话占满屏幕，输入框贴在底部页签上方；发出消息、回复到了以后停在最新一行，不再跳回最上面。
+  - 收件箱的标题不再被按钮挤成一行两三个字。
+  - 顶栏和底部页签不再透出下面的内容。
+  - 值班页、Agent 编辑器、菜单和 diff 不再超出屏幕。
+  - 输入框不再让 Safari 自动放大，会话的控制项菜单加大到能用手指点。
+
+- 一轮结束后，会话头部不再挂着「N 秒没有新输出」，Mac 应用也一样。
+
+- 事件很多的任务，审计页分批显示，打开不再白屏十几秒。
+
+- 修复：Web 版不同页面的样式互相影响（同名的样式类），例如设置里的输入框带上了任务页的边框、diff 每行多了灰底。
+
+- 内部：`GET /api/stream` 可以带 `run` 同时推送一个任务的事件。Web 端到端测试新增明文 HTTP 下的手机项目和手机布局检查（页面不超出屏幕、会话跟随最新一行、一个页面只有一条流）。数据升级测试修了一处只在一边去掉服务端字段的比较。合并前检查第 12 条要求改 Web 时按手机视口和明文 HTTP 测（`LESSONS.md` 的 L-49）。
+
+- Fixed: on a phone that opens the web version at a local network or Tailscale address, Send, quick answers, Resume and other actions did nothing. Those addresses are plain HTTP, where browsers leave out `crypto.randomUUID`, so each action failed before its request went out; copying to the clipboard failed there too. Both now use what plain HTTP pages have.
+
+- Fixed: with a few web pages open, sending a message or opening a page waited tens of seconds. Each page held two live connections and a browser keeps at most six to one address; a page now holds one, and the open run's events come on it.
+
+- The web version on a phone:
+  - Conversations fill the screen with the composer just above the tabs, and stay at the newest line after you send and when replies come, instead of jumping to the top.
+  - Inbox titles are no longer squeezed to two or three characters a line by the buttons.
+  - The top bar and the tabs no longer show what is behind them.
+  - The Loop page, the agent editor, menus and diffs stay inside the screen.
+  - Fields no longer make Safari zoom in, and a session's control menus are big enough for a finger.
+
+- After a turn ends, a conversation's header no longer keeps saying "No new output for N s", on the Mac app too.
+
+- Runs with many events draw the audit log in pages, so it no longer stays blank for many seconds.
+
+- Fixed: styles of different web pages affected each other through shared class names, for example settings fields took the run page's border and every diff line got a grey box.
+
+- Internal: `GET /api/stream` can also carry one run's events (`run`). The web end-to-end tests gain a phone project over plain HTTP and phone layout checks (nothing wider than the screen, conversations following the newest line, one stream per page). The upgrade test no longer drops served fields on one side only. Merge check 12 asks for the phone and plain-HTTP projects when the web client changes (`LESSONS.md` L-49).
+
 ## 2026.11.27.2
 
 - 新增 Web 版：在浏览器里用 Janus，功能和 Mac 应用对齐，包括收件箱、工作区、新建任务和对话、任务页（交付审阅、会话、时间线、子任务、审计与回放、团队、diff 审阅、文档）、对话、值班、团队记忆和设置（数字员工、Agent、资源库、用量账单）。页面由 Janus 服务直接提供，不用另装；手机宽度下用底部页签，编辑器占满整屏，删除、停止等操作前从底部弹出确认。只能在 Mac 上做的事（手机访问的开关和配对、更新、macOS 权限、本机环境）在 Web 上写明去 Mac 操作；Web 上新建工作区时手动填写目录路径。
