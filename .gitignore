@@ -6,3 +6,4 @@ web/node_modules/
 
 # Locally installed design skill (Apple HIG pages), not part of the repo
 .agents/skills/apple-design-skill/
+__pycache__/
