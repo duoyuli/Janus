@@ -108,7 +108,10 @@ private var screenLocked: Bool {
     #expect(gapBelow() > 100)
 
     // Back down to the end, and the next replies are followed.
-    for _ in 0..<60 where gapBelow() > 1 { try await swipe(-400) }
+    // Unmeasured rows below are estimates: each swipe down measures some and the content grows
+    // while the person scrolls, more on a slow machine (GitHub's macOS 15 runner once needed more
+    // than 60 swipes), so swipe until the end, with a cap far above what the content needs.
+    for _ in 0..<300 where gapBelow() > 1 { try await swipe(-400) }
     #expect(gapBelow() < 2)
     for n in 205...208 { events.append(reply(n)); host.rootView = view(); await settle() }
     await settleAtEnd()
