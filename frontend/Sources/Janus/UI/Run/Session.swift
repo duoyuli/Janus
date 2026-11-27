@@ -45,6 +45,8 @@ struct SessionInfo {
     var git: String?
     /// What each section's opening event says about its session, by seq.
     var notes: [Int: Conversation.Note]
+    /// What its composer shows and offers.
+    var mode: Conversation.Mode
     var pending: [Conversation.Pending]
     /// Keys of its approvals and forms waiting on the person, oldest first.
     var requests: [String]
@@ -67,6 +69,7 @@ struct SessionInfo {
         notes = Dictionary(j["notes"].object.compactMap { k, v in Int(k).map { ($0, Conversation.Note(note: v["note"].str, git: v["git"].string)) } }, uniquingKeysWith: { a, _ in a })
         pending = j["pending"].array.map { Conversation.Pending(id: $0["id"].str, text: $0["text"].str, delivery: MessageDelivery($0["delivery"].str) ?? .pending, label: $0["label"].str) }
         requests = j["requests"].strings
+        mode = Conversation.Mode(j["mode"])
     }
 }
 
@@ -125,8 +128,8 @@ struct ChatCard: View {
     @Local private var picker = SuggestionPicker()
 
     /// Requests of this session still waiting for the person, oldest first.
-    private var requests: [InboxItem] {
-        info.requests.compactMap { k in st.inbox.first { $0.key == k } }
+    private var requests: [ServedCard] {
+        info.requests.compactMap { k in st.cards.first { $0.key == k } }
     }
 
     /// Requests sit above the composer while the person can act on them here.
@@ -151,7 +154,7 @@ struct ChatCard: View {
             .padding(12)
             Divider()
             PlanStrip(steps: info.plan)
-            ChatScroll(run: run, st: st, rows: Self.rows(run: run, st: st, info: info, target: target), notes: info.notes, target: target, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent, density: density, docked: docked) { id, open in
+            ChatScroll(run: run, st: st, rows: Self.rows(run: run, st: st, info: info, target: target), target: target, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent, density: density, docked: docked) { id, open in
                 run.chatOpen[target, default: [:]][id] = open
             }
                 // Each conversation keeps its own place; another task's session opens at its newest.
@@ -164,7 +167,7 @@ struct ChatCard: View {
                 if docked, let first = requests.first {
                     VStack(alignment: .leading, spacing: 4) {
                         if requests.count > 1 { Text(verbatim: L.text("1 / \(requests.count) 个请求")).font(.caption).foregroundStyle(.secondary) }
-                        RequestCard(run: run, st: st, item: first)
+                        RequestCard(run: run, st: st, card: first)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -191,61 +194,20 @@ struct ChatCard: View {
         }
     }
 
+    /// The composer as the server works it out: the state's pill, the buttons, the placeholder (with
+    /// how to paste and send on this Mac when the server says so), and whether it takes a message.
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
-        let ph = L.text("发消息给 Agent · ⌘V 贴截图 · \(sendKey.symbol) 发送")
-        let composer = info.composer
-        // A consolidation is one turn: once it ends there is nothing to send it.
-        if run.isDream && !(info.open && live) && composer != .replay {
-            return (L.text("整理结束"), .gray, AnyView(EmptyView()), L.text("整理只有一轮；要再整理，在工作区页点「现在整理」"), false)
-        }
-        switch composer {
-        case .replay:
-            return (L.text("回放中"), .gray, AnyView(EmptyView()), L.text("回放中只能看，回到实时再发消息"), false)
-        case .human(idle: true):
-            return (L.text("人工接管 · 等你回话"), .amber, AnyView(HStack { btn(.finish, L.text("以当前结果完成")); btn(.release, L.text("交还托管")); btn(.message, L.text("发送"), true) }), ph, true)
-        case .human(idle: false):
-            return (L.text("人工接管 · 正在处理"), .blue, AnyView(HStack { btn(.interrupt, L.text("打断这一轮"), danger: true); btn(.release, L.text("交还托管")); btn(.message, L.text("发送"), true) }), ph, true)
-        case .managed where info.chat:
-            // A chat at work: say so (a model may think for minutes before it writes anything),
-            // and offer only to stop the turn or add to it.
-            return (L.text("正在处理"), .blue, AnyView(HStack { btn(.interrupt, L.text("停止这一轮"), danger: true); btn(.message, L.text("插话"), true) }), L.text("补充或更正，会插入正在进行的这一轮"), true)
-        case .managed:
-            return (L.text("托管中 · Agent 自主推进"), .blue, AnyView(HStack { btn(.interrupt, L.text("打断并接管"), danger: true); btn(.takeover, L.text("接管")); btn(.message, L.text("插话"), true) }), ph, true)
-        case .interrupted:
-            return (L.text("已中断"), .gray, AnyView(HStack { Button(L.text("从中断处继续")) { Task { await run.act(.resumeRun) } }; btn(.message, L.text("发送并继续"), true) }), L.text("补充信息或直接写「继续」，发送后从中断处继续"), true)
-        case .converse where info.chat:
-            // A chat waits for the next message; a chat whose session is gone reopens with it.
-            return (
-                run.isLoop ? (info.open && live ? L.text("摸鱼中，等下次开工或你的消息") : L.text("会话已结束，下次开工时再接上"))
-                    : info.open && live ? L.text("等你回话") : L.text("会话已结束"),
-                .gray,
-                AnyView(btn(.message, L.text("发送"), true)),
-                info.open && live ? L.text("发消息给 \(title) · ⌘V 贴截图 · \(sendKey.symbol) 发送") : L.text("发送后重新打开和 \(title) 的会话"),
-                true
-            )
-        case .converse:
-            // The first goal is done; the same session now takes ordinary prompts. A slash command
-            // starts a new goal and Janus follows it again. A historical run has no session yet,
-            // so sending the first message reopens it.
-            return (
-                live ? L.text("可以继续对话") : L.text("可以继续对话"),
-                .gray,
-                AnyView(btn(.message, L.text("发送"), true)),
-                live ? L.text("接下来做什么？也可以用 /goal 换个目标") : L.text("写下任务，发送后恢复负责人会话"),
-                true
-            )
-        case .leave:
-            return (L.text("当前没有会话"), .gray, AnyView(btn(.message, L.text("留言"), true)), L.text("留言 · 下次会话带给它"), true)
-        case .ended:
-            return (L.text("会话已结束"), .gray, AnyView(EmptyView()), live ? L.text("会话已结束") : L.text("只读查看"), false)
-        }
+        let m = info.mode
+        let placeholder = m.keys ? L.text("\(m.placeholder) · ⌘V 贴截图 · \(sendKey.symbol) 发送") : m.placeholder
+        let buttons = AnyView(HStack {
+            ForEach(Array(m.buttons.enumerated()), id: \.offset) { _, b in btn(b) }
+        })
+        return (m.state, m.tone, buttons, placeholder, m.enabled)
     }
 
-    /// What a composer button does to its session: send the draft, or one of the session actions.
-    enum Verb { case message, interrupt, takeover, release, finish }
-
-    private func btn(_ act: Verb, _ label: String, _ primary: Bool = false, danger: Bool = false) -> some View {
-        Group {
+    private func btn(_ b: Conversation.Mode.Button) -> some View {
+        let (act, label, primary, danger) = (b.act, b.label, b.primary, b.danger)
+        return Group {
             if primary {
                 Button(label) { send(act) }.buttonStyle(.primary)
                     .disabled(draft.isEmpty && images.isEmpty).help(draft.isEmpty && images.isEmpty ? L.text("写点什么，或者贴张图") : sendKey.symbol)
@@ -259,8 +221,9 @@ struct ChatCard: View {
     private var draft: String { (run.sessionDrafts[target] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
     private var images: [PastedImage] { run.sessionImages[target] ?? [] }
 
-    private func send(_ verb: Verb) {
+    private func send(_ verb: Conversation.Mode.Act) {
         switch verb {
+        case .resumeRun: Task { await run.act(.resumeRun) }
         case .interrupt: Task { await run.act(.interrupt(target)) }
         case .takeover: Task { await run.act(.takeover(target)) }
         case .release: Task { await run.act(.release(target)) }

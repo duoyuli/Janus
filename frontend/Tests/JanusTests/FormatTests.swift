@@ -76,14 +76,14 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(L.text("收件箱", bundle: en) == "Inbox")
     #expect(L.text("收件箱", bundle: zh) == "收件箱")
     let name = "实现者"
-    #expect(L.text("「\(name)」等你拍板", bundle: en) == "实现者 needs your call")
-    #expect(L.text("「\(name)」等你拍板", bundle: zh) == "「实现者」等你拍板")
+    #expect(L.text("还有必填项：\(name)", bundle: en) == "Required fields remaining: 实现者")
+    #expect(L.text("还有必填项：\(name)", bundle: zh) == "还有必填项：实现者")
     let first = "/tmp/x", second = "codex", percent = 25
     #expect(L.text("在 \(first) 没有找到 \(second) 的配置。", bundle: en) == "Could not find settings for codex at /tmp/x.")
-    #expect(L.text("本会话 上下文 \(percent)%", bundle: en) == "Session context: 25%")
+    #expect(L.text("上下文 \(percent)%", bundle: en) == "Context 25%")
     let key = SendKey.returnKey.symbol
-    #expect(L.text("发消息给 \(name) · ⌘V 贴截图 · \(key) 发送", bundle: en) == "Message 实现者 · ⌘V to paste a screenshot · ↩ to send")
-    #expect(L.text("发消息给 \(name) · ⌘V 贴截图 · \(key) 发送", bundle: zh) == "发消息给 实现者 · ⌘V 贴截图 · ↩ 发送")
+    #expect(L.text("\(name) · ⌘V 贴截图 · \(key) 发送", bundle: en) == "实现者 · ⌘V to paste a screenshot · ↩ to send")
+    #expect(L.text("\(name) · ⌘V 贴截图 · \(key) 发送", bundle: zh) == "实现者 · ⌘V 贴截图 · ↩ 发送")
 }
 
 /// Usage numbers keep their state: a reported 0 is written as 0, a missing number as words, and

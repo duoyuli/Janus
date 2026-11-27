@@ -96,9 +96,9 @@ final class API: Sendable {
     /// as `.lagged`, after which the caller reads again what it follows.
     enum StreamItem { case event(JSON), named(String, JSON), lagged }
 
-    /// A run's events (`GET /api/runs/{id}/stream?after=`).
+    /// A run's events (`GET /api/runs/{id}/stream?after=`), its running calls worded in the app's language.
     func stream(run: String, after: Int) -> AsyncThrowingStream<StreamItem, Error> {
-        stream(path: "/api/runs/\(run)/stream?after=\(after)")
+        stream(path: "/api/runs/\(run)/stream?after=\(after)&lang=\(L.serverLanguage)")
     }
 
     /// News of every run (`GET /api/stream`): a notice per new event and per status change.

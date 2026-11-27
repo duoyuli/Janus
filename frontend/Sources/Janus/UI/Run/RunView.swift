@@ -103,7 +103,7 @@ struct RunView: View {
         }
     }
 
-    private var inboxCount: Int { run.state.inbox.filter { RequestCard.kinds.contains($0.kind) }.count }
+    private var inboxCount: Int { run.state.cards.count }
 
     private var tab: String {
         switch run.page {
@@ -456,11 +456,11 @@ struct InboxSection: View {
     let st: RunState
 
     var body: some View {
-        let open = st.inbox.filter { RequestCard.kinds.contains($0.kind) }
+        let open = st.cards
         // Nothing to do shows nothing; the toolbar's 工作台 count says the same.
         if !open.isEmpty {
             SectionHeader(title: L.text("待处理"), count: open.count)
-            ForEach(open) { item in RequestCard(run: run, st: st, item: item) }
+            ForEach(open, id: \.seq) { card in RequestCard(run: run, st: st, card: card) }
         }
     }
 }

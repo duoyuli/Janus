@@ -5,12 +5,13 @@
 // @project-doc docs/architecture/20261031-frontend.md#session_view
 
 use super::aside::{self, Command, Control, Pending, SectionNote, Step, Usage};
+use super::card::Tone;
 use super::turns::{self, Row};
 use super::{RunState, SessionTurn, text};
 use crate::db::Event;
 use crate::events::EventKind;
-use crate::lang::Lang;
-use crate::status::RunStatus;
+use crate::lang::{Lang, tr};
+use crate::status::{RunKind, RunStatus};
 use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -170,6 +171,8 @@ pub struct SessionView {
     pub git: Option<String>,
     /// What each section's opening event says about its session, by seq.
     pub notes: BTreeMap<i64, SectionNote>,
+    /// What the composer shows and offers: its state, its buttons and its placeholder.
+    pub mode: Mode,
     /// Messages on their way to it, and the keys of its requests waiting on the person.
     pub pending: Vec<Pending>,
     pub requests: Vec<String>,
@@ -184,6 +187,8 @@ pub(super) struct Drawn<'a> {
     pub counts: &'a dyn Fn(i64, usize) -> (usize, usize),
     pub lang: Lang,
     pub detail: bool,
+    /// What a chat's or a Loop's composer calls the one it talks to: the employee, the Loop.
+    pub name: &'a str,
 }
 
 /// What each session's facts come to, before the composer is chosen.
@@ -237,6 +242,7 @@ pub(super) fn sessions(st: &RunState, live: bool, replaying: bool, drawn: &Drawn
         let shown = turns::shown(&evs, st, &conflicts);
         let options = turns::Options { detail: drawn.detail, busy, cwd: &st.run.cwd, lang: l, counts: drawn.counts };
         let notes = evs.iter().filter_map(|e| aside::section_note(e, l).map(|n| (e.seq, n))).collect();
+        let mode = mode(&f, composer, live, st.run.kind, drawn.name, l);
         out.insert(
             key,
             SessionView {
@@ -253,6 +259,7 @@ pub(super) fn sessions(st: &RunState, live: bool, replaying: bool, drawn: &Drawn
                 usage: aside::usage(&evs, l),
                 git: task.and_then(|t| aside::task_git(&evs, t, l)),
                 notes,
+                mode,
                 pending: aside::pending(st, task, agent, l),
                 requests: aside::requests(&evs, st),
                 rows: turns::rows(&shown, &options),
@@ -311,4 +318,187 @@ pub(super) fn sessions(st: &RunState, live: bool, replaying: bool, drawn: &Drawn
         put(key, events, f, None, Some(a));
     }
     out
+}
+
+crate::wire::wire_enum! {
+    /// What a composer button does to its session: send the draft, or one of the session actions.
+    pub enum Act {
+        Message = "message",
+        Interrupt = "interrupt",
+        Takeover = "takeover",
+        Release = "release",
+        Finish = "finish",
+        ResumeRun = "resumeRun",
+    }
+}
+
+/// A composer button.
+#[derive(Clone, Debug, Serialize)]
+pub struct Button {
+    pub act: Act,
+    pub label: String,
+    /// Sends the draft: the main button, off while the draft is empty.
+    pub primary: bool,
+    /// Stops the turn.
+    pub danger: bool,
+}
+
+/// What a conversation's composer shows: the session's state in a pill, its buttons, its
+/// placeholder (`keys`: the client adds how to paste and send), and whether it takes a message.
+#[derive(Clone, Debug, Serialize)]
+pub struct Mode {
+    pub state: String,
+    pub tone: Tone,
+    pub buttons: Vec<Button>,
+    pub placeholder: String,
+    pub keys: bool,
+    pub enabled: bool,
+}
+
+/// The composer of a session with facts `f`, whose composer is `c`; `name` is who a chat or a
+/// Loop talks to.
+fn mode(f: &Facts, c: Composer, live: bool, kind: RunKind, name: &str, l: Lang) -> Mode {
+    let b = |act, zh: &str, en: &str, primary: bool, danger: bool| Button {
+        act,
+        label: l.pick(zh, en).into(),
+        primary,
+        danger,
+    };
+    let send = |zh: &str, en: &str| b(Act::Message, zh, en, true, false);
+    let agent = || l.pick("发消息给 Agent", "Message the Agent").to_string();
+    let m = |state: &str, tone, buttons, placeholder: String, keys, enabled| Mode {
+        state: state.into(),
+        tone,
+        buttons,
+        placeholder,
+        keys,
+        enabled,
+    };
+    let here = f.open && live;
+    // A consolidation is one turn: once it ends there is nothing to send it.
+    if kind == RunKind::Dream && !here && c != Composer::Replay {
+        let ph = l.pick(
+            "整理只有一轮；要再整理，在工作区页点「现在整理」",
+            "A consolidation is one turn; to consolidate again, click Consolidate Now on the workspace page",
+        );
+        return m(l.pick("整理结束", "Consolidation finished"), Tone::Gray, vec![], ph.into(), false, false);
+    }
+    match c {
+        Composer::Replay => m(
+            l.pick("回放中", "Replaying"),
+            Tone::Gray,
+            vec![],
+            l.pick("回放中只能看，回到实时再发消息", "Replay is read-only. Go live to send messages.").into(),
+            false,
+            false,
+        ),
+        Composer::Human if f.idle => m(
+            l.pick("人工接管 · 等你回话", "Manual control · Waiting for you"),
+            Tone::Amber,
+            vec![
+                b(Act::Finish, "以当前结果完成", "Finish with Current Result", false, false),
+                b(Act::Release, "交还托管", "Return Control", false, false),
+                send("发送", "Send"),
+            ],
+            agent(),
+            true,
+            true,
+        ),
+        Composer::Human => m(
+            l.pick("人工接管 · 正在处理", "Manual control · Working"),
+            Tone::Blue,
+            vec![
+                b(Act::Interrupt, "打断这一轮", "Interrupt Turn", false, true),
+                b(Act::Release, "交还托管", "Return Control", false, false),
+                send("发送", "Send"),
+            ],
+            agent(),
+            true,
+            true,
+        ),
+        // A chat at work: a model may think for minutes before it writes anything; it can only
+        // be stopped or added to.
+        Composer::Managed if f.chat => m(
+            l.pick("正在处理", "Working"),
+            Tone::Blue,
+            vec![b(Act::Interrupt, "停止这一轮", "Stop This Turn", false, true), send("插话", "Steer")],
+            l.pick("补充或更正，会插入正在进行的这一轮", "Add or correct something; it joins the turn in progress")
+                .into(),
+            false,
+            true,
+        ),
+        Composer::Managed => m(
+            l.pick("托管中 · Agent 自主推进", "Autopilot · Agent driving"),
+            Tone::Blue,
+            vec![
+                b(Act::Interrupt, "打断并接管", "Interrupt and Take Over", false, true),
+                b(Act::Takeover, "接管", "Take Over", false, false),
+                send("插话", "Steer"),
+            ],
+            agent(),
+            true,
+            true,
+        ),
+        Composer::Interrupted => m(
+            l.pick("已中断", "Interrupted"),
+            Tone::Gray,
+            vec![
+                b(Act::ResumeRun, "从中断处继续", "Resume Interrupted Run", false, false),
+                send("发送并继续", "Send and Resume"),
+            ],
+            l.pick(
+                "补充信息或直接写「继续」，发送后从中断处继续",
+                "Add details or just say “continue” to pick up where it stopped",
+            )
+            .into(),
+            false,
+            true,
+        ),
+        // A chat waits for the next message; one whose session is gone reopens with it.
+        Composer::Converse if f.chat => {
+            let state = match (kind == RunKind::Loop, here) {
+                (true, true) => l.pick("摸鱼中，等下次开工或你的消息", "Waiting for its next wake, or your message"),
+                (true, false) => l.pick("会话已结束，下次开工时再接上", "Session ended · picks up at the next wake"),
+                (false, true) => l.pick("等你回话", "Waiting for You"),
+                (false, false) => l.pick("会话已结束", "Session Ended"),
+            };
+            let (ph, keys) = if here {
+                (tr!(l, "发消息给 {name}", "Message {name}"), true)
+            } else {
+                (tr!(l, "发送后重新打开和 {name} 的会话", "Sending reopens the session with {name}"), false)
+            };
+            m(state, Tone::Gray, vec![send("发送", "Send")], ph, keys, true)
+        }
+        // The first goal is done; the same session now takes ordinary prompts, and a slash
+        // command starts a new goal. A run no longer held reopens its session with the message.
+        Composer::Converse => m(
+            l.pick("可以继续对话", "Conversation can continue"),
+            Tone::Gray,
+            vec![send("发送", "Send")],
+            if live {
+                l.pick("接下来做什么？也可以用 /goal 换个目标", "What's next? Or use /goal to set a new goal")
+            } else {
+                l.pick("写下任务，发送后恢复负责人会话", "Send a task to reopen the lead’s session")
+            }
+            .into(),
+            false,
+            true,
+        ),
+        Composer::Leave => m(
+            l.pick("当前没有会话", "No Active Session"),
+            Tone::Gray,
+            vec![send("留言", "Leave Message")],
+            l.pick("留言 · 下次会话带给它", "Note · Delivered at its next session").into(),
+            false,
+            true,
+        ),
+        Composer::Ended => m(
+            l.pick("会话已结束", "Session Ended"),
+            Tone::Gray,
+            vec![],
+            if live { l.pick("会话已结束", "Session Ended") } else { l.pick("只读查看", "Read-only") }.into(),
+            false,
+            false,
+        ),
+    }
 }

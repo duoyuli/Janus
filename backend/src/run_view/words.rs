@@ -17,6 +17,8 @@ pub struct Words {
     names: HashMap<String, String>,
     /// The run's members in the snapshot's order, each with whether it leads.
     pub team: Vec<(String, bool)>,
+    /// What the run is called in the lists (`row_title`), when the service knows its record.
+    pub title: String,
 }
 
 impl Words {
@@ -25,7 +27,7 @@ impl Words {
         let members = super::list(&config["team"]);
         let names = members.iter().map(|m| (text(&m["id"]), text(&m["name"]))).collect();
         let team = members.iter().map(|m| (text(&m["id"]), super::truthy(&m["lead"]))).collect();
-        Words { lang, names, team }
+        Words { lang, names, team, title: String::new() }
     }
 
     /// Who an id is: the person, Janus, or a member by its name.

@@ -348,10 +348,12 @@ enum Snapshots {
                                 "dispatched": JSON.array(r.loopDispatched.map { ["id": $0["id"], "key": $0["dispatchKey"], "status": $0["status"]] }),
                                 // Where each wake starts and ends in its session, with the lines drawn there.
                                 "marks": JSON.array(s.session(.agent("lead")).evs.filter { [.loopWoke, .loopSlept].contains($0.type) }.map { e in
-                                    let woke = LoopText.wake(before: e, in: s.events)
-                                    return ["seq": JSON(e.seq), "type": JSON(e.type.rawValue),
-                                            "text": JSON(e.type == .loopWoke ? LoopText.woke(e) : LoopText.slept(e, woke: woke)),
-                                            "tookMs": e.type == .loopSlept ? woke.map { JSON(floatLiteral: e.ts - $0.ts) } ?? .null : .null]
+                                    let text: String = switch s.lines[e.seq] {
+                                    case .divider(let t, _, _, _)?: t
+                                    case .note(let t, _)?: t
+                                    default: ""
+                                    }
+                                    return ["seq": JSON(e.seq), "type": JSON(e.type.rawValue), "text": JSON(text)]
                                 })]
                     }() : .null,
                     // What each session's composer holds, by session (`task:T1`, `agent:lead`).

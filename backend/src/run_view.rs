@@ -14,9 +14,11 @@ mod aside;
 mod audit;
 mod board;
 mod card;
+mod cards;
 pub mod docs;
 mod evidence;
 mod inbox;
+pub mod lines;
 pub mod preview;
 mod review;
 mod sessions;
@@ -1171,7 +1173,8 @@ impl Fold {
         }
         let counts =
             |seq: i64, i: usize| self.diffs.get(&seq).and_then(|c| c.get(i)).map_or((0, 0), |c| (c.added, c.removed));
-        let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail };
+        let name = if self.state.run.kind == RunKind::Loop { words.title.clone() } else { words.name("lead") };
+        let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail, name: &name };
         let sessions = sessions::sessions(&self.state, live, replaying, &drawn);
         let timeline = timeline::timeline(&self.state, &board, &self.stamps, replaying, words);
         let capsule = card::capsule(&self.state, review.as_ref(), words);
@@ -1183,8 +1186,13 @@ impl Fold {
             Some(RunStatus::Failed) => Some(words.resume_note(false)),
             _ => None,
         };
+        let now = jiff::Timestamp::now().as_millisecond();
+        let lines = lines::lines(&lines::Ctx { st: &self.state, words, events: &self.shown, now });
+        let cards = cards::cards(&self.state, &board.open, words);
         RunView {
             state: self.state.clone(),
+            lines,
+            cards,
             board,
             review,
             sessions,
@@ -1243,6 +1251,10 @@ pub fn fold(events: &[Event]) -> Fold {
 pub struct RunView {
     #[serde(flatten)]
     pub state: RunState,
+    /// Each event of the conversations in one line, by seq (`lines`).
+    pub lines: BTreeMap<i64, lines::Line>,
+    /// The card each request waiting on the person is answered with, in the order they wait.
+    pub cards: Vec<cards::RequestCard>,
     pub board: BoardFacts,
     pub review: Option<Review>,
     /// Each conversation's events and what its composer offers, by `task:<id>` or `agent:<id>`.

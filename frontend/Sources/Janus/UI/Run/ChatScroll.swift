@@ -18,8 +18,6 @@ struct ChatScroll: View {
     let run: RunModel
     let st: RunState
     let rows: [Conversation.Row]
-    /// What the server says about each section's opening event, by seq (`SessionInfo.notes`).
-    let notes: [Int: Conversation.Note]
     let target: SessionTarget
     let empty: Bool
     /// The session's last event: it changes whenever anything arrives.
@@ -150,19 +148,16 @@ struct ChatScroll: View {
         switch r {
         case .section(let e, let injected, _):
             VStack(alignment: .leading, spacing: 6) {
-                ChatItem(run: run, st: st, e: e, docked: docked, note: note(e))
+                ChatItem(run: run, st: st, e: e, docked: docked)
                 ForEach(injected) { ChatItem(run: run, st: st, e: $0, docked: docked) }
             }
-        case .item(let e, _): ChatItem(run: run, st: st, e: e, docked: docked, note: note(e))
+        case .item(let e, _): ChatItem(run: run, st: st, e: e, docked: docked)
         case .head(_, let t, let open, _): TurnHead(run: run, turn: t, open: open) { toggle(r.id, !(open ?? false)) }
-        case .activity(_, let es, let open, let summary, _): ActivityRow(run: run, events: es, open: open, summary: summary, cwd: cwd) { toggle(r.id, !(open ?? true)) }
+        case .activity(_, let es, let open, let summary, _): ActivityRow(run: run, events: es, open: open, summary: summary, st: st) { toggle(r.id, !(open ?? true)) }
         case .text(_, let es, let reply, _): TextRow(events: es, reply: reply)
         case .edits(_, let files, _): EditsCard(files: files, diffs: st.diffs, cwd: cwd)
         }
     }
-
-    /// What the server says about a section's opening event (an attempt's note, its Git facts).
-    private func note(_ e: Event) -> Conversation.Note? { notes[e.seq] }
 
     /// Back to the newest item, following again.
     private var back: some View {

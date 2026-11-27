@@ -137,21 +137,6 @@ enum AgentPhase: String, CaseIterable {
     }
 }
 
-/// Why Janus put something into a session (`session.prompt`, `data.channel`): one of the system
-/// layer's parts (`backend/src/orchestrator/lead.rs`, `SystemPart` and the digital employee's
-/// instructions), or a prompt it sent (`PromptChannel`).
-enum PromptChannel: String, CaseIterable {
-    /// The system layer: how to work with Janus and the team, the digital employee's own
-    /// instructions, and a reopened chat's recent exchanges.
-    case system, instructions, history
-    case goal, followup, board
-    case goalCheck = "goal_check"
-    case resume, fix
-
-    /// Part of the session's system layer rather than a prompt of a turn.
-    var injected: Bool { [.system, .instructions, .history].contains(self) }
-}
-
 /// How a sent message went into a session (`message.routed` / `user.message`, `data.delivery`;
 /// `backend/src/orchestrator/messages.rs`, `Delivery`), and `pending` before the server said.
 enum MessageDelivery: String, CaseIterable {
@@ -167,25 +152,5 @@ enum MessageDelivery: String, CaseIterable {
         case .queued: return .amber
         case .next, .steer, .prompt: return .gray
         }
-    }
-}
-
-/// One of the tools Janus's own `janus` server gives a session (`backend/src/orchestrator`: the
-/// lead's `LeadTool`, a collaborator's `MemberTool`, a Loop's `LoopTool`, the team memory's
-/// `MemoryTool` and a chat's `ChatTool`). Its calls are recorded as `janus.<name>`.
-enum JanusTool: String, CaseIterable {
-    case board, orchestrate, wait, reply, retry, amend, cancel
-    case askUser = "ask_user"
-    case boardPost = "board_post"
-    case submit, ask
-    case dispatch
-    case nextWake = "next_wake"
-    case recall, remember, forget
-    case proposeEmployees = "propose_employees"
-
-    /// The tool a recorded call names (`data.tool`), when it is one of Janus's own.
-    init?(call: String) {
-        guard call.hasPrefix("janus.") else { return nil }
-        self.init(rawValue: String(call.dropFirst("janus.".count)))
     }
 }

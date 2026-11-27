@@ -1,53 +1,43 @@
 import SwiftUI
 
 /// Every request an agent puts in front of the person shares one card: who asks and where, what it
-/// is about, then the agent's own options or a form built from its JSON Schema.
+/// is about, then the agent's own options or a form, as the server words them (`ServedCard`).
 // @project-doc docs/architecture/20261031-frontend.md#request_cards
 struct RequestCard: View {
     let run: RunModel
     let st: RunState
-    let item: InboxItem
+    let card: ServedCard
 
     var body: some View {
-        switch item.kind {
-        case "question": if item.task == nil { LeadAsk(run: run, st: st, item: item) } else { QuestionAsk(run: run, st: st, item: item) }
-        case "approval": ApprovalAsk(run: run, st: st, item: item)
-        case "input": InputAsk(run: run, st: st, item: item)
-        case "session": SessionAsk(run: run, st: st, item: item)
-        default: EmptyView()
+        switch card.kind {
+        case .question, .decision: QuestionAsk(run: run, st: st, card: card)
+        case .approval: ApprovalAsk(run: run, st: st, card: card)
+        case .link, .form: InputAsk(run: run, st: st, card: card)
+        case .session: SessionAsk(run: run, st: st, card: card)
         }
     }
-
-    /// Kinds that have a card.
-    static let kinds: Set<String> = ["question", "approval", "input", "session"]
 }
 
 struct AskShell<Body: View, Controls: View>: View {
     let run: RunModel
-    let st: RunState
-    let item: InboxItem
-    let pill: String
-    var tone: Tone = .amber
-    let agent: String
-    let title: String
-    var foot: [(String, String)] = []
+    let card: ServedCard
     @ViewBuilder var content: Body
     @ViewBuilder var controls: Controls
 
     var body: some View {
-        let w = run.who(agent)
-        let whereText = item.task.map { "\($0) · \(st.tasks[$0]?.title ?? "")" } ?? L.text("负责人会话")
+        let w = run.who(card.agent)
+        let tone = card.pill.1
         Card(tint: tone.color) {
             HStack(spacing: 8) {
-                Pill(pill, tone)
+                Pill(card.pill.0, tone)
                 Avatar(initials: w.initials, color: w.color, size: 20, role: w.role)
-                Text(title).font(.headline).lineLimit(3)
+                Text(card.title).font(.headline).lineLimit(3)
                 Spacer()
-                if let e = st.event(item.seq) { Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary) }
-                SeqButton(seq: item.seq, run: run)
+                Text(L.clock(card.ts)).font(.caption).foregroundStyle(.secondary)
+                SeqButton(seq: card.seq, run: run)
             }
             content
-            KV(rows: [(L.text("来自"), "\(w.name) · \(whereText)")] + foot)
+            KV(rows: card.facts)
             controls
         }
     }
@@ -100,70 +90,45 @@ struct ChoiceLabel: View {
     }
 }
 
+/// A collaborator's question to the person, or a decision the lead handed to them
+/// (`janus.ask_user`): pick an option, add a note, or for a decision with no options write the
+/// answer.
 struct QuestionAsk: View {
     let run: RunModel
     let st: RunState
-    let item: InboxItem
+    let card: ServedCard
 
     var body: some View {
-        let t = st.tasks[item.task ?? ""]
-        let q = t?.question
-        let from = q?.from ?? t?.agent ?? ""
-        let downstream = st.order.filter { st.tasks[$0]?.deps.contains(item.task ?? "") == true }
-        let question = L.text("「\(run.who(from).name)」在 \(item.task ?? "") 问你一个问题")
-        let title = question + (q?.blocking == true ? L.text(" · 阻塞中") : "")
-        AskShell(run: run, st: st, item: item, pill: L.text("问题"), agent: from, title: title) {
-            Text(q?.question ?? "").font(.body).textSelection(.enabled)
-            if item.d["reason"].truthy { Text(verbatim: L.text("↳ 负责人 Agent 转交给你：\(item.d["reason"].str)")).font(.callout).foregroundStyle(.secondary) }
-        } controls: {
-            OptionButtons(options: q?.options ?? [], recommend: item.d["recommend"].str, picked: pick, disabled: !run.canAct)
-            TextField(L.text("补充说明（可选），会和回答一起发给 Agent"), text: note, axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(2...6).disabled(!run.canAct)
-            Button(L.text("提交回答")) { answer(task: item.task ?? "") }.buttonStyle(.primary).disabled(!run.canAct || run.picks[item.key] == nil)
-                .help(run.picks[item.key] == nil ? L.text("先选择一个选项") : "")
-            // Notes go under the buttons, so a narrow card does not squeeze them into a strip.
-            Text(verbatim: L.text("回答会记入日志，并发回给 Agent。\(downstream.isEmpty ? "" : L.text("受影响的下游子任务：\(downstream.joined(separator: L.text("、")))。"))")).font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    var pick: Binding<String?> { Binding(get: { run.picks[item.key] }, set: { run.picks[item.key] = $0 }) }
-    var note: Binding<String> { Binding(get: { run.notes[item.key] ?? "" }, set: { run.notes[item.key] = $0 }) }
-
-    func answer(task: String) {
-        guard let a = run.picks[item.key] else { return }
-        Task { await run.act(.answer(key: item.key, task: task, answer: a, note: (run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines))) }
-    }
-}
-
-/// A decision the lead handed to the person (janus.ask_user): it shapes the whole run.
-struct LeadAsk: View {
-    let run: RunModel
-    let st: RunState
-    let item: InboxItem
-
-    var body: some View {
-        let options = item.d["options"].strings
-        AskShell(run: run, st: st, item: item, pill: L.text("等你拍板"), agent: "lead", title: L.text("负责人等你拍板：\(item.d["question"].str)")) {
-            if item.d["reason"].truthy { Text(verbatim: L.text("为什么要你决定：\(item.d["reason"].str)")).font(.callout).foregroundStyle(.secondary) }
+        let decision = card.kind == .decision
+        let options = card.options
+        let empty = run.picks[card.key] == nil && (decision ? note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : true)
+        AskShell(run: run, card: card) {
+            if !card.text.isEmpty { Text(card.text).font(.body).textSelection(.enabled) }
+            if !card.reason.isEmpty { Text(verbatim: card.reason).font(.callout).foregroundStyle(.secondary) }
         } controls: {
             if !options.isEmpty {
-                OptionButtons(options: options, recommend: item.d["recommend"].str, picked: Binding(get: { run.picks[item.key] }, set: { run.picks[item.key] = $0 }), disabled: !run.canAct)
+                OptionButtons(options: options, recommend: card.recommend, picked: Binding(get: { run.picks[card.key] }, set: { run.picks[card.key] = $0 }), disabled: !run.canAct)
             }
-            TextField(options.isEmpty ? L.text("你的回答") : L.text("补充说明（可选）"), text: Binding(get: { run.notes[item.key] ?? "" }, set: { run.notes[item.key] = $0 }), axis: .vertical)
+            let placeholder = decision ? (options.isEmpty ? L.text("你的回答") : L.text("补充说明（可选）")) : L.text("补充说明（可选），会和回答一起发给 Agent")
+            TextField(placeholder, text: Binding(get: { run.notes[card.key] ?? "" }, set: { run.notes[card.key] = $0 }), axis: .vertical)
                 .textFieldStyle(.roundedBorder).lineLimit(2...6).disabled(!run.canAct)
-            let empty = run.picks[item.key] == nil && (run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            Button(L.text("提交")) { submit() }.buttonStyle(.primary).disabled(!run.canAct || empty)
-                .help(empty ? (options.isEmpty ? L.text("先写下你的回答") : L.text("先选择一个选项，或写下你的回答")) : "")
-            Text(L.text("负责人在等这个决定期间，会继续做不依赖它的工作。")).font(.caption).foregroundStyle(.secondary)
+            Button(decision ? L.text("提交") : L.text("提交回答")) { submit() }.buttonStyle(.primary).disabled(!run.canAct || empty)
+                .help(empty ? (!decision ? L.text("先选择一个选项") : options.isEmpty ? L.text("先写下你的回答") : L.text("先选择一个选项，或写下你的回答")) : "")
+            // Notes go under the buttons, so a narrow card does not squeeze them into a strip.
+            if !card.footnote.isEmpty { Text(verbatim: card.footnote).font(.caption).foregroundStyle(.secondary) }
         }
     }
 
+    private var note: String { run.notes[card.key] ?? "" }
+
     func submit() {
-        var note = (run.notes[item.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        var answer = run.picks[item.key] ?? ""
+        var note = self.note.trimmingCharacters(in: .whitespacesAndNewlines)
+        var answer = run.picks[card.key] ?? ""
         // A free-form decision (no options) is answered with the text itself.
-        if answer.isEmpty && !note.isEmpty { answer = note; note = "" }
+        if card.kind == .decision && answer.isEmpty && !note.isEmpty { answer = note; note = "" }
         guard !answer.isEmpty else { return }
-        Task { await run.act(.answer(key: item.key, task: "", answer: answer, note: note)) }
+        let task = st.inbox.first { $0.seq == card.seq }?.task ?? ""
+        Task { await run.act(.answer(key: card.key, task: task, answer: answer, note: note)) }
     }
 }
 
@@ -171,24 +136,19 @@ struct LeadAsk: View {
 struct ApprovalAsk: View {
     let run: RunModel
     let st: RunState
-    let item: InboxItem
+    let card: ServedCard
 
     var body: some View {
-        let agent = item.agent ?? st.tasks[item.task ?? ""]?.agent ?? ""
-        let d = item.d
-        let opts = st.actions(of: item)
-        let diffs = st.diffs[item.seq] ?? []
-        let operation = d["title"].truthy ? d["title"].str : L.text("执行操作")
-        let title = L.text("「\(run.who(agent).name)」等你拍板：\(operation)")
-        return AskShell(run: run, st: st, item: item, pill: L.text("审批"), tone: .red, agent: agent, title: title, foot: d["policy"].truthy ? [(L.text("原因"), d["policy"].str)] : []) {
-            if d["command"].truthy && d["command"] != d["title"] { CodeBlock(text: "$ \(L.inWorkspace(d["command"].str, st.run.cwd))") }
+        let diffs = st.diffs[card.seq] ?? []
+        AskShell(run: run, card: card) {
+            if !card.command.isEmpty { CodeBlock(text: card.command) }
             ForEach(diffs.indices, id: \.self) { i in
                 InlineDiff(path: L.inWorkspace(diffs[i].path, st.run.cwd), lines: diffs[i].lines)
             }
         } controls: {
             HStack {
-                ForEach(opts.indices, id: \.self) { i in
-                    let o = opts[i]
+                ForEach(card.actions.indices, id: \.self) { i in
+                    let o = card.actions[i]
                     let button = Button(o.label) {
                         Task { await run.act(.served(o.body)) }
                     }
@@ -197,27 +157,23 @@ struct ApprovalAsk: View {
                     if o.prominent { button.buttonStyle(.primary) } else { button.buttonStyle(.bordered) }
                 }
             }
-            if d["impact"].truthy { Text(d["impact"].str).font(.caption).foregroundStyle(.secondary) }
-            if let always = opts.first(where: { $0.kind == "allow_always" }) {
-                Text(L.text("「\(always.label)」：\(always.help)")).font(.caption).foregroundStyle(.secondary)
-            }
+            if !card.impact.isEmpty { Text(card.impact).font(.caption).foregroundStyle(.secondary) }
+            if !card.always.isEmpty { Text(card.always).font(.caption).foregroundStyle(.secondary) }
         }
     }
 }
 
-/// ACP elicitation: a form (JSON Schema) or a link to finish elsewhere.
+/// ACP elicitation: a form, or a link to finish elsewhere.
 struct InputAsk: View {
     let run: RunModel
     let st: RunState
-    let item: InboxItem
+    let card: ServedCard
 
     var body: some View {
-        let agent = item.agent ?? ""
-        let d = item.d
-        if d["mode"].str == "url" {
-            AskShell(run: run, st: st, item: item, pill: L.text("打开链接"), agent: agent, title: L.text("「\(run.who(agent).name)」需要你打开一个链接")) {
-                Text(d["message"].str)
-                if d["url"].truthy { Link(d["url"].str, destination: URL(string: d["url"].str) ?? URL(string: "about:blank")!).font(.system(.callout, design: .monospaced)) }
+        if card.kind == .link {
+            AskShell(run: run, card: card) {
+                Text(card.text)
+                if !card.url.isEmpty { Link(card.url, destination: URL(string: card.url) ?? URL(string: "about:blank")!).font(.system(.callout, design: .monospaced)) }
             } controls: {
                 HStack {
                     Button(L.text("拒绝")) { send("decline") }.disabled(!run.canAct)
@@ -225,9 +181,9 @@ struct InputAsk: View {
                 }
             }
         } else {
-            AskShell(run: run, st: st, item: item, pill: L.text("需要填写"), agent: agent, title: L.text("「\(run.who(agent).name)」需要你填一张表")) {
-                Text(d["message"].str)
-                SchemaForm(run: run, key: item.key, schema: d["schema"])
+            AskShell(run: run, card: card) {
+                Text(card.text)
+                SchemaForm(run: run, key: card.key, fields: card.fields)
             } controls: {
                 let missing = missingRequired
                 HStack {
@@ -235,14 +191,15 @@ struct InputAsk: View {
                     Button(L.text("跳过")) { send("decline") }.disabled(!run.canAct).help(L.text("跳过，让 Agent 接着干"))
                     Button(L.text("提交")) { send("accept") }.buttonStyle(.primary).disabled(!run.canAct || !missing.isEmpty)
                 }
-                Text(missing.isEmpty ? L.text("内容原样交回 Agent。") : L.text("还有必填项：\(missing.joined(separator: L.text("、")))"))
+                Text(missing.isEmpty ? card.footnote : L.text("还有必填项：\(missing.joined(separator: L.text("、")))"))
                     .font(.caption).foregroundStyle(missing.isEmpty ? Color.secondary : Tone.amber.color)
             }
         }
     }
 
+    /// What the person filled in, without the fields left empty.
     private var content: [String: JSON] {
-        (run.forms[item.key]?.object ?? [:]).filter { _, v in
+        (run.forms[card.key]?.object ?? [:]).filter { _, v in
             if v.isNull { return false }
             if v.string == "" { return false }
             if case .array(let a) = v, a.isEmpty { return false }
@@ -252,42 +209,32 @@ struct InputAsk: View {
 
     /// Titles of required fields still empty.
     private var missingRequired: [String] {
-        let props = item.d["schema"]["properties"]
-        return item.d["schema"]["required"].strings.filter { content[$0] == nil }.map { props[$0]["title"].truthy ? props[$0]["title"].str : $0 }
+        card.fields.filter { $0.required && content[$0.key] == nil }.map(\.title)
     }
 
     func send(_ action: String) {
         let content = content
         if action == "accept" && !missingRequired.isEmpty { return }
-        Task { await run.act(.input(key: item.key, task: item.task ?? "", agent: item.agent ?? "", action: action, content: content)) }
+        let item = st.inbox.first { $0.seq == card.seq }
+        Task { await run.act(.input(key: card.key, task: item?.task ?? "", agent: item?.agent ?? "", action: action, content: content)) }
     }
 }
 
-/// The subset of JSON Schema ACP forms use: single and multi select (oneOf/anyOf/enum), text,
-/// number, boolean, and per-question "custom answer" fields.
+/// A form's fields as the server read them from its JSON Schema (`ServedCard.Field`).
 struct SchemaForm: View {
     let run: RunModel
     let key: String
-    let schema: JSON
-
-    struct Choice: Hashable { let value: JSON; let label: String; let desc: String }
+    let fields: [ServedCard.Field]
 
     var body: some View {
-        let props = schema["properties"].object.sorted { $0.key < $1.key }
-        let names = props.map(\.key)
-        let required = Set(schema["required"].strings)
-        let customs: [String: String] = Dictionary(uniqueKeysWithValues: names.compactMap { k in customFor(k, schema["properties"][k], names).map { ($0, k) } })
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(names, id: \.self) { k in
-                let p = schema["properties"][k]
-                if customFor(k, p, names) == nil {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(p["title"].truthy ? p["title"].str : k).font(.callout.weight(.semibold)) + Text(required.contains(k) ? " *" : "").foregroundStyle(.secondary)
-                        if p["description"].truthy { Text(p["description"].str).font(.caption).foregroundStyle(.secondary) }
-                        field(k, p)
-                        if let c = customs[k] {
-                            TextField(schema["properties"][c]["description"].truthy ? schema["properties"][c]["description"].str : L.text("或者写下你自己的回答"), text: textBinding(c)).textFieldStyle(.roundedBorder)
-                        }
+            ForEach(fields, id: \.key) { f in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(f.title).font(.callout.weight(.semibold)) + Text(f.required ? " *" : "").foregroundStyle(.secondary)
+                    if !f.description.isEmpty { Text(f.description).font(.caption).foregroundStyle(.secondary) }
+                    field(f)
+                    if let c = f.custom {
+                        TextField(c.placeholder, text: textBinding(c.key)).textFieldStyle(.roundedBorder)
                     }
                 }
             }
@@ -295,48 +242,14 @@ struct SchemaForm: View {
         .disabled(!run.canAct)
     }
 
-    private func customFor(_ k: String, _ p: JSON, _ names: [String]) -> String? {
-        let custom = p["_meta"]["jetbrains"]["air"]["customAnswer"]
-        if custom.truthy {
-            let marked = custom["questionId"].str
-            if !marked.isEmpty { return marked }
-            let codex = p["_meta"]["codex"]["questionId"].str
-            if !codex.isEmpty { return codex }
-        }
-        for suffix in ["_custom", "_note"] {
-            if k.hasSuffix(suffix) {
-                let base = String(k.dropLast(suffix.count))
-                if names.contains(base) { return base }
-            }
-        }
-        return nil
-    }
-
-    private func choices(_ p: JSON) -> [Choice] {
-        var list = p["oneOf"].array
-        if list.isEmpty { list = p["anyOf"].array }
-        if list.isEmpty { list = p["items"]["anyOf"].array }
-        if list.isEmpty { list = p["items"]["oneOf"].array }
-        if list.isEmpty {
-            let en = p["enum"].array.isEmpty ? p["items"]["enum"].array : p["enum"].array
-            list = en.map { ["const": $0, "title": JSON($0.str)] }
-        }
-        return list.map { o in
-            let title = o["title"].truthy ? o["title"].str : o["const"].str
-            let parts = title.components(separatedBy: " — ")
-            let label = o["_meta"]["label"].truthy ? o["_meta"]["label"].str : parts[0]
-            let desc = o["description"].truthy ? o["description"].str : o["_meta"]["description"].truthy ? o["_meta"]["description"].str : parts.dropFirst().joined(separator: " — ")
-            return Choice(value: o["const"], label: label, desc: desc)
-        }
-    }
-
-    @ViewBuilder private func field(_ k: String, _ p: JSON) -> some View {
-        let opts = choices(p)
-        let multi = p["type"].str == "array"
+    @ViewBuilder private func field(_ f: ServedCard.Field) -> some View {
+        let k = f.key
         let cur = run.forms[key]?[k] ?? .null
-        if !opts.isEmpty {
+        switch f.kind {
+        case .choice, .multi:
+            let multi = f.kind == .multi
             FlowLayout(spacing: 8) {
-                ForEach(opts, id: \.self) { o in
+                ForEach(f.choices, id: \.self) { o in
                     let on = multi ? cur.array.contains(o.value) : cur == o.value
                     Button {
                         var d = run.forms[key] ?? [:]
@@ -353,15 +266,15 @@ struct SchemaForm: View {
                     .accessibilityAddTraits(on ? .isSelected : [])
                 }
             }
-        } else if p["type"].str == "boolean" {
-            Toggle(p["title"].truthy ? p["title"].str : k, isOn: Binding(get: { run.forms[key]?[k].bool ?? false }, set: { var d = run.forms[key] ?? [:]; d[k] = JSON($0); run.forms[key] = d })).labelsHidden().toggleStyle(.switch)
-        } else if ["number", "integer"].contains(p["type"].str) {
-            TextField(p["title"].truthy ? p["title"].str : k, text: Binding(get: { run.forms[key]?[k].str ?? "" }, set: { v in var d = run.forms[key] ?? [:]; d[k] = Double(v).map { .number($0) } ?? .null; run.forms[key] = d }))
+        case .bool:
+            Toggle(f.title, isOn: Binding(get: { run.forms[key]?[k].bool ?? false }, set: { var d = run.forms[key] ?? [:]; d[k] = JSON($0); run.forms[key] = d })).labelsHidden().toggleStyle(.switch)
+        case .number:
+            TextField(f.title, text: Binding(get: { run.forms[key]?[k].str ?? "" }, set: { v in var d = run.forms[key] ?? [:]; d[k] = Double(v).map { .number($0) } ?? .null; run.forms[key] = d }))
                 .textFieldStyle(.roundedBorder).labelsHidden().frame(maxWidth: 200)
-        } else if let max = p["maxLength"].int, max <= 120 {
-            TextField(p["title"].truthy ? p["title"].str : k, text: textBinding(k)).textFieldStyle(.roundedBorder).labelsHidden()
-        } else {
-            TextField(p["title"].truthy ? p["title"].str : k, text: textBinding(k), axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(3...8).labelsHidden()
+        case .line:
+            TextField(f.title, text: textBinding(k)).textFieldStyle(.roundedBorder).labelsHidden()
+        case .text:
+            TextField(f.title, text: textBinding(k), axis: .vertical).textFieldStyle(.roundedBorder).lineLimit(3...8).labelsHidden()
         }
     }
 
@@ -373,25 +286,27 @@ struct SchemaForm: View {
 struct SessionAsk: View {
     let run: RunModel
     let st: RunState
-    let item: InboxItem
+    let card: ServedCard
 
     var body: some View {
-        let agent = item.agent ?? st.tasks[item.task ?? ""]?.agent ?? ""
-        let w = run.who(agent)
+        let w = run.who(card.agent)
         Card(tint: Tone.amber.color) {
             HStack(spacing: 8) {
-                Pill(L.text("会话"), .amber)
+                Pill(card.pill.0, .amber)
                 Avatar(initials: w.initials, color: w.color, size: 20, role: w.role)
-                Text(item.task.map { L.text("「\(w.name)」在 \($0) 等你回话") } ?? L.text("「\(w.name)」在等你回话")).font(.headline)
+                Text(card.title).font(.headline)
                 Spacer()
-                if let e = st.event(item.seq) { Text(L.clock(e.ts)).font(.caption).foregroundStyle(.secondary) }
+                Text(L.clock(card.ts)).font(.caption).foregroundStyle(.secondary)
             }
-            if item.task != nil { Text(L.text("你已接管。Agent 会一直等你：发消息、交还托管或结束子任务。")).font(.callout).foregroundStyle(.secondary) }
-            Button(item.task != nil ? L.text("打开会话") : L.text("打开对话")) { run.show(item.task.map { .task($0) } ?? .agent(agent)) }.buttonStyle(.primary)
+            if !card.text.isEmpty { Text(card.text).font(.callout).foregroundStyle(.secondary) }
+            switch card.session {
+            case .task(let t)?: Button(L.text("打开会话")) { run.show(.task(t)) }.buttonStyle(.primary)
+            case .agent(let a)?: Button(L.text("打开对话")) { run.show(.agent(a)) }.buttonStyle(.primary)
+            case nil: EmptyView()
+            }
         }
     }
 }
-
 
 @MainActor
 func cancelRun(_ run: RunModel) {

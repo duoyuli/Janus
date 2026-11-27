@@ -32,12 +32,8 @@ private func backendEnum(_ name: String) throws -> Set<String> {
     #expect(Set(AgentPhase.allCases.map(\.rawValue)) == (try backendEnum("AgentPhase")))
 }
 
-/// What a session was given: the system layer's parts (the digital employee's instructions are
-/// recorded as `instructions`) and the prompts Janus sends; and how a message went in, which the
-/// app also knows as `pending` before the server said.
-@Test func sessionChannelsAndDeliveriesMatchTheBackend() throws {
-    let channels = try backendEnum("PromptChannel").union(backendEnum("SystemPart")).union(["instructions"])
-    #expect(Set(PromptChannel.allCases.map(\.rawValue)) == channels)
+/// How a message went into a session, which the app also knows as `pending` before the server said.
+@Test func deliveriesMatchTheBackend() throws {
     #expect(Set(MessageDelivery.allCases.map(\.rawValue)) == (try backendEnum("Delivery")).union(["pending"]))
 }
 
@@ -56,12 +52,4 @@ private func backendEnum(_ name: String) throws -> Set<String> {
     #expect(Set(all.map(\.name)) == names)
     #expect(RunAction.message(.task("T1"), text: "hi", images: []).body == ["type": "message", "task": "T1", "agent": "", "text": "hi"])
     #expect(RunAction.release(lead).body == ["type": "release", "task": "", "agent": "lead"])
-}
-
-@Test func janusToolsMatchTheBackend() throws {
-    var tools: Set<String> = []
-    for name in ["LeadTool", "MemberTool", "LoopTool", "MemoryTool", "ChatTool"] { tools.formUnion(try backendEnum(name)) }
-    #expect(Set(JanusTool.allCases.map(\.rawValue)) == tools)
-    #expect(JanusTool(call: "janus.ask_user") == .askUser)
-    #expect(JanusTool(call: "ask_user") == nil && JanusTool(call: "janus.nope") == nil)
 }

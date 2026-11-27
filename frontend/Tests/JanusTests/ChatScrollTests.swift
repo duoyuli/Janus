@@ -27,7 +27,11 @@ private var screenLocked: Bool {
         run.events = events
         run.replay = events.count
         // The view the server serves at the replayed position: everything is the lead's conversation.
-        let st = RunState(["run": ["status": "running", "goal": "长对话"],
+        // The server words each message in a bubble (`lines`); a reply is the agent's own text.
+        let lines = JSON.object(Dictionary(uniqueKeysWithValues: events.filter { $0.type == .userMessage }.map { e in
+            (String(e.seq), ["kind": "bubbles", "items": [["text": e.data["text"], "images": [], "via": "作为新一轮发送", "insert": false]]] as JSON)
+        }))
+        let st = RunState(["run": ["status": "running", "goal": "长对话"], "lines": lines,
                            "sessions": ["agent:lead": ["events": .array(events.map { JSON($0.seq) }), "open": true, "composer": "replay"]]], events: events)
         return AnyView(ChatCard(run: run, st: st, title: "负责人", info: st.session(.agent("lead")), target: .agent("lead")).frame(width: 700, height: 600))
     }

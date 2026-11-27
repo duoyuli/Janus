@@ -121,12 +121,13 @@ def loops(ctx, c):
         page = ctx.app.until(marked, "值班页的会话标出每次开工和收工", f"open run:{run}")
         server, got = marked(page)
         woke, slept = server[0], server[1]
+        lines = ctx.api("GET", f"/api/runs/{run}/view")["lines"]
         c(got[0]["text"].startswith((f"第 {woke['data']['n']} 次开工 · ", f"Wake {woke['data']['n']} · "))
           and got[0]["text"].endswith(("· 你让它开工", "· you woke it")),
           f"应用：开工的分隔线写第几次、几点、为什么开工（{got[0]['text']}）")
-        c(got[1]["tookMs"] == slept["ts"] - woke["ts"] and ("收工（" in got[1]["text"] or got[1]["text"].startswith("Ended "))
-          and ("下次开工：" in got[1]["text"] or "next wake: " in got[1]["text"]),
-          f"应用：收工一行写几点收工、用了多久（与服务端 ts 之差相同）和下次开工（{got[1]['text']}）")
+        c(("收工（" in got[1]["text"] or "Ended " in got[1]["text"]) and ("下次开工：" in got[1]["text"] or "next wake: " in got[1]["text"])
+          and [m["text"] for m in got] == [lines[str(m["seq"])]["text"] for m in got],
+          f"应用：收工一行写几点收工、用了多久和下次开工，两行都是服务端写好的（{got[1]['text']}）")
         drawn_rows = {r["id"] for r in page["run"]["conversation"]["rows"]}
         c(any(m["seq"] in drawn_rows for m in got), "应用：开工和收工的行画在会话里")
         ctx.app.do("shot loop-session")

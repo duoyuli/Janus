@@ -8,7 +8,12 @@ use std::collections::{BTreeMap, HashMap};
 fn sessions(st: &RunState, live: bool, replaying: bool) -> BTreeMap<String, SessionView> {
     let none = HashMap::new();
     let counts = |_: i64, _: usize| (0, 0);
-    sessions::sessions(st, live, replaying, &Drawn { events: &none, counts: &counts, lang: Lang::Zh, detail: false })
+    sessions::sessions(
+        st,
+        live,
+        replaying,
+        &Drawn { events: &none, counts: &counts, lang: Lang::Zh, detail: false, name: "研究员" },
+    )
 }
 use super::*;
 

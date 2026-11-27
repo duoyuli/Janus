@@ -97,30 +97,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(LoopText.phase(asked, short: true).0 == "摸鱼中")
 }
 
-/// A Loop's session marks each wake: which one, when and why; then when it ended, how long it took
-/// and when the next one is. It has no goal: the session opens with its first wake.
-@Test func aLoopsSessionMarksWhenEachWakeStartsAndEnds() {
-    var log = Log()
-    log.add("run.created", actor: "user", data: ["kind": "loop", "cwd": "/tmp/ws", "git": false])
-    log.add("loop.woke", data: ["reason": "timer", "n": 3])
-    log.add("agent.message", actor: "lead", data: ["text": "看过了"])
-    log.add("loop.slept", data: ["until": JSON(floatLiteral: 9_000_000), "reason": "self", "summary": "看过了"])
-    log.add("loop.woke", data: ["reason": "manual", "n": 4])
-    log.add("loop.slept", data: ["until": .null, "reason": .null, "summary": ""])
-    var st = RunState()
-    st.events = log.events
-    let (woke, slept) = (log.events[1], log.events[3])
-    #expect(LoopText.woke(woke).hasPrefix(expectedCopy("第 3 次开工 · ", "Wake 3 · ")))
-    #expect(LoopText.woke(woke).hasSuffix(expectedCopy(" · 按时间表", " · on schedule")))
-    #expect(LoopText.wake(before: slept, in: st.events)?.seq == woke.seq)
-    #expect(LoopText.slept(slept, woke: woke).contains(expectedCopy("收工（2 秒）· 下次开工：", " (2 sec) · next wake: ")))
-    #expect(LoopText.slept(slept, woke: woke).hasSuffix(expectedCopy("（它约的）", " (it asked)")))
-    // No time ahead: it waits to be called.
-    let last = log.events[5]
-    #expect(LoopText.wake(before: last, in: st.events)?.seq == log.events[4].seq)
-    #expect(LoopText.slept(last, woke: log.events[4]).hasSuffix(expectedCopy("收工（1 秒）· 下次等你叫它", " (1 sec) · next when you call it")))
-}
-
 @testable import Janus
 
 @Test func jsonParsesBooleansAndNumbersApart() throws {

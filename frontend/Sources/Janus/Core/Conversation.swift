@@ -256,6 +256,10 @@ struct LivePreview: Equatable {
         let input: String
         let output: String
         let status: String
+        /// The call in one line as it stands now, as the server words it.
+        let verb: String
+        let what: String
+        let mono: Bool
     }
 
     var text = ""
@@ -265,6 +269,156 @@ struct LivePreview: Equatable {
     init(_ j: JSON) {
         text = j["text"].str
         thought = j["thought"].str
-        tools = j["tools"].object.mapValues { Tool(title: $0["title"].str, tool: $0["tool"].str, input: $0["input"].str, output: $0["output"].str, status: $0["status"].str) }
+        tools = j["tools"].object.mapValues {
+            Tool(title: $0["title"].str, tool: $0["tool"].str, input: $0["input"].str, output: $0["output"].str, status: $0["status"].str,
+                 verb: $0["verb"].str, what: $0["what"].str, mono: $0["mono"].bool ?? false)
+        }
+    }
+}
+
+/// One event of a conversation in one line, as the server words it (`backend/src/run_view/lines.rs`).
+/// A reply or a thought has none: it is the agent's own text.
+// @project-doc docs/architecture/20261031-frontend.md#session_turns
+enum ServedLine {
+    struct Bubble { let text: String; let images: [String]; let via: String; let insert: Bool }
+    struct Tool {
+        let board: Bool
+        let tag: String
+        let verb: String
+        let what: String
+        let mono: Bool
+        let running: Bool
+        let failed: Bool
+        let waiting: Bool
+        let summary: String
+        let files: String
+    }
+
+    case divider(text: String, sub: String?, git: String?, images: [String])
+    case attempt(title: String, git: String?, brief: String)
+    case note(String, Tone?)
+    case prompt(label: String, hint: String)
+    case bubbles([Bubble])
+    case result(title: String, pills: [(String, Tone)], evidence: String?, risks: String?)
+    case request(key: String, open: Bool, text: String, tone: Tone?, docked: String)
+    case tool(Tool)
+
+    init?(_ j: JSON) {
+        let tone = Tone(rawValue: j["tone"].str)
+        switch j["kind"].str {
+        case "divider": self = .divider(text: j["text"].str, sub: j["sub"].string, git: j["git"].string, images: j["images"].strings)
+        case "attempt": self = .attempt(title: j["title"].str, git: j["git"].string, brief: j["brief"].str)
+        case "note": self = .note(j["text"].str, tone)
+        case "prompt": self = .prompt(label: j["label"].str, hint: j["hint"].str)
+        case "bubbles": self = .bubbles(j["items"].array.map { Bubble(text: $0["text"].str, images: $0["images"].strings, via: $0["via"].str, insert: $0["insert"].bool ?? false) })
+        case "result":
+            self = .result(title: j["title"].str, pills: j["pills"].array.map { ($0["text"].str, Tone(rawValue: $0["tone"].str) ?? .gray) },
+                           evidence: j["evidence"].string, risks: j["risks"].string)
+        case "request": self = .request(key: j["key"].str, open: j["open"].bool ?? false, text: j["text"].str, tone: tone, docked: j["docked"].str)
+        case "tool":
+            self = .tool(Tool(board: j["board"].bool ?? false, tag: j["tag"].str, verb: j["verb"].str, what: j["what"].str, mono: j["mono"].bool ?? false,
+                              running: j["running"].bool ?? false, failed: j["failed"].bool ?? false, waiting: j["waiting"].bool ?? false,
+                              summary: j["summary"].str, files: j["files"].str))
+        default: return nil
+        }
+    }
+}
+
+/// The card a request waiting on the person is answered with, as the server words it
+/// (`backend/src/run_view/cards.rs`), its form already read into fields.
+// @project-doc docs/architecture/20261031-frontend.md#request_cards
+struct ServedCard {
+    enum Kind: String { case question, decision, approval, link, form, session }
+    struct Field {
+        enum Kind: String { case choice, multi, bool, number, line, text }
+        struct Choice: Hashable { let value: JSON; let label: String; let desc: String }
+        let key: String
+        let title: String
+        let description: String
+        let required: Bool
+        let kind: Kind
+        let choices: [Choice]
+        /// The field for the person's own answer beside the choices, and its placeholder.
+        let custom: (key: String, placeholder: String)?
+
+        init(_ j: JSON) {
+            key = j["key"].str; title = j["title"].str; description = j["description"].str
+            required = j["required"].bool ?? false
+            kind = Kind(rawValue: j["kind"].str) ?? .text
+            choices = j["choices"].array.map { Choice(value: $0["value"], label: $0["label"].str, desc: $0["desc"].str) }
+            custom = j["custom"].isNull ? nil : (key: j["custom"]["key"].str, placeholder: j["custom"]["placeholder"].str)
+        }
+    }
+
+    let kind: Kind
+    let key: String
+    let seq: Int
+    let ts: Double
+    let pill: (String, Tone)
+    let agent: String
+    let title: String
+    let text: String
+    let reason: String
+    let command: String
+    let url: String
+    let facts: [(String, String)]
+    let options: [String]
+    let recommend: String
+    let actions: [QuickAction]
+    let impact: String
+    let always: String
+    let fields: [Field]
+    let footnote: String
+    /// The conversation a session's card opens.
+    let session: SessionTarget?
+
+    init(_ j: JSON) {
+        kind = Kind(rawValue: j["kind"].str) ?? .session
+        key = j["key"].str
+        seq = j["seq"].int ?? 0
+        ts = j["ts"].double ?? 0
+        pill = (j["pill"]["text"].str, Tone(rawValue: j["pill"]["tone"].str) ?? .amber)
+        agent = j["agent"].str
+        title = j["title"].str
+        text = j["text"].str
+        reason = j["reason"].str
+        command = j["command"].str
+        url = j["url"].str
+        facts = j["facts"].array.map { ($0[0].str, $0[1].str) }
+        options = j["options"].strings
+        recommend = j["recommend"].str
+        actions = j["actions"].array.map(QuickAction.init)
+        impact = j["impact"].str
+        always = j["always"].str
+        fields = j["fields"].array.map(Field.init)
+        footnote = j["footnote"].str
+        session = SessionTarget(label: j["session"].str)
+    }
+}
+
+extension Conversation {
+    /// What a composer shows and offers, as the server works it out from its session: the state
+    /// in a pill, the buttons, the placeholder (`keys`: add how to paste and send) and whether it
+    /// takes a message.
+    struct Mode {
+        enum Act: String { case message, interrupt, takeover, release, finish, resumeRun }
+        struct Button { let act: Act; let label: String; let primary: Bool; let danger: Bool }
+        let state: String
+        let tone: Tone
+        let buttons: [Button]
+        let placeholder: String
+        let keys: Bool
+        let enabled: Bool
+
+        init(_ j: JSON) {
+            state = j["state"].str
+            tone = Tone(rawValue: j["tone"].str) ?? .gray
+            buttons = j["buttons"].array.compactMap { b in
+                Act(rawValue: b["act"].str).map { Button(act: $0, label: b["label"].str, primary: b["primary"].bool ?? false, danger: b["danger"].bool ?? false) }
+            }
+            placeholder = j["placeholder"].str
+            keys = j["keys"].bool ?? false
+            enabled = j["enabled"].bool ?? false
+        }
     }
 }

@@ -106,6 +106,8 @@ pub(super) async fn remove(State(app): State<Arc<App>>, UrlPath(id): UrlPath<Str
 #[derive(Deserialize)]
 pub(super) struct After {
     pub(super) after: Option<i64>,
+    /// The language a run's stream words its running calls in.
+    pub(super) lang: Option<String>,
 }
 
 /// The stored record of run `id`, or 404.

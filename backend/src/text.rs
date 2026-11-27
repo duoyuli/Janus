@@ -77,6 +77,33 @@ pub fn duration(ms: i64, lang: Lang) -> String {
     }
 }
 
+/// A moment as the person reads it, in this machine's time zone: 「今天 20:16」, 「昨天 …」,
+/// 「明天 …」, else the day (with the year when it is not `now`'s), as the app wrote it (`L.dateTime`).
+pub fn date_time(ms: i64, now: i64, lang: Lang) -> String {
+    use jiff::{Timestamp, tz::TimeZone};
+    let zone = TimeZone::system();
+    let (Ok(at), Ok(now)) = (Timestamp::from_millisecond(ms), Timestamp::from_millisecond(now)) else {
+        return String::new();
+    };
+    let (at, now) = (at.to_zoned(zone.clone()), now.to_zoned(zone));
+    let time = format!("{:02}:{:02}", at.hour(), at.minute());
+    let days = (at.date() - now.date()).get_days();
+    match days {
+        0 => return tr!(lang, "今天 {time}", "Today at {time}"),
+        -1 => return tr!(lang, "昨天 {time}", "Yesterday at {time}"),
+        1 => return tr!(lang, "明天 {time}", "Tomorrow at {time}"),
+        _ => {}
+    }
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let (y, m, d) = (at.year(), at.month(), at.day());
+    let mon = MONTHS[(m - 1) as usize];
+    if at.year() == now.year() {
+        tr!(lang, "{m}月{d}日 {time}", "{mon} {d}, {time}")
+    } else {
+        tr!(lang, "{y}年{m}月{d}日 {time}", "{mon} {d}, {y}, {time}")
+    }
+}
+
 /// A name made for a file or an id: lowercase ASCII letters, digits and single `-`, at most `max`
 /// characters. None when nothing usable is left (a name in another script).
 pub fn slug(raw: &str, max: usize) -> Option<String> {
@@ -118,6 +145,9 @@ mod tests {
         assert_eq!(duration(192_000, Lang::Zh), "3 分 12 秒");
         assert_eq!(duration(65_000, Lang::Zh), "1 分 05 秒");
         assert_eq!(duration(44_600, Lang::Zh), "45 秒");
+        let now = jiff::Timestamp::now().as_millisecond();
+        assert!(date_time(now, now, Lang::Zh).starts_with("今天 "));
+        assert!(date_time(now - 86_400_000, now, Lang::En).starts_with("Yesterday at "));
         assert_eq!(duration(3_840_000, Lang::Zh), "1 小时 4 分");
         assert_eq!(duration(400, Lang::Zh), "不到 1 秒");
         assert_eq!(duration(65_000, Lang::En), "1 min 05 s");

@@ -121,7 +121,8 @@ impl App {
     /// its conversations at the display level `detail`. `None` when there is no such run.
     pub fn run_view(&self, id: &str, until: Option<i64>, lang: Lang, detail: bool) -> Result<Option<RunView>> {
         let Some(row) = self.db.run(id)? else { return Ok(None) };
-        let words = Words::of(lang, &row.config);
+        let mut words = Words::of(lang, &row.config);
+        words.title = row_title(&row, lang);
         let held = self.run(id);
         // A replayed position has no live session to work or to be held.
         let live = until.is_none() && held.is_some();
@@ -140,7 +141,7 @@ impl App {
             None => self.views.current(id, |after| self.db.events(id, after), |f| show(f, false))?,
         };
         view.actions = run_ops::answers(&facts, until.is_some(), lang);
-        view.title = row_title(&row, lang);
+        view.title = words.title.clone();
         Ok(Some(view))
     }
 

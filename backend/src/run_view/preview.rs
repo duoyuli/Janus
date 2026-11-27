@@ -21,6 +21,10 @@ pub struct Tool {
     pub input: String,
     pub output: String,
     pub status: String,
+    /// The call in one line as it stands now (`lines::label`): `正在运行` and the command.
+    pub verb: String,
+    pub what: String,
+    pub mono: bool,
 }
 
 /// One session's preview: its text and thought not yet recorded, its running calls by call id.
@@ -43,9 +47,12 @@ impl Preview {
 /// A session: the agent speaking and the task it works on (none for the lead's own).
 type Session = (String, Option<String>);
 
-/// Every session's preview of one run, and what the records already cover.
+/// Every session's preview of one run, and what the records already cover; running calls are
+/// worded in `lang`, paths relative to the run's directory `cwd`.
 #[derive(Default)]
 pub struct Previews {
+    lang: crate::lang::Lang,
+    cwd: String,
     sessions: BTreeMap<Session, Preview>,
     /// The newest recorded text or thought of each session, by seq.
     said: BTreeMap<Session, i64>,
@@ -54,6 +61,10 @@ pub struct Previews {
 }
 
 impl Previews {
+    pub fn new(lang: crate::lang::Lang, cwd: String) -> Previews {
+        Previews { lang, cwd, ..Previews::default() }
+    }
+
     /// A new event: the text, thought or call it records is no longer a preview. The
     /// conversations whose preview changed.
     pub fn recorded(&mut self, e: &Event) -> Vec<String> {
@@ -104,12 +115,18 @@ impl Previews {
                 if id.is_empty() || self.done.contains(&(k.clone(), id.clone())) {
                     return vec![];
                 }
+                let (title, kind, input) = (text(&f["title"]), text(&f["tool"]), text(&f["input"]));
+                let shown = if input.is_empty() { title.clone() } else { input.clone() };
+                let (verb, what, mono) = super::lines::label(&kind, &shown, &title, true, &self.cwd, self.lang);
                 let tool = Tool {
-                    title: text(&f["title"]),
-                    tool: text(&f["tool"]),
-                    input: text(&f["input"]),
+                    title,
+                    tool: kind,
+                    input,
                     output: text(&f["output"]),
                     status: text(&f["status"]),
+                    verb,
+                    what,
+                    mono,
                 };
                 self.sessions.entry(k.clone()).or_default().tools.insert(id, tool);
             }

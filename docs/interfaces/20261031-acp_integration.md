@@ -189,7 +189,7 @@ Janus 仍然声明不提供文件读写和终端（`clientCapabilities.fs`、`te
 
 - 每帧都带 `actor`、`task`、`attempt`，说明是哪个会话的；还带 `seq`，即发出这一帧时这个 Run 最新事件的序号。
 - 事件流为它自己发出的东西维护每个会话的预览（`run_view/preview.rs` 的 `Previews`），只把比客户端已经收到的同一会话记录更新的内容放进去：`say` 帧的 `seq` 小于这个会话最新一条 `agent.message` 或 `agent.thought` 时丢弃，发出更新的这两种事件时清掉预览；`tool` 帧在同一 `callId` 的 `tool.call` 发出后丢弃；`end` 帧清掉这个会话的预览。事件和帧走两路广播，到达顺序不固定，靠 `seq` 判断而不靠先后。
-- 预览变了时，事件流发一条 `event: live`，`data` 是 `{"previews": {"<会话>": <预览> | null}}`：会话按 `task:<id>`、`agent:<id>` 命名（一个子任务会话的帧同时改变它的子任务会话和它的 Agent 会话），预览是 `{text, thought, tools}`，`tools` 按 `callId` 给出每个运行中的调用 `{title, tool, input, output, status}`；`null` 表示这个会话没有要预览的了。客户端原样放进去，不自己合并或丢弃。一个 Agent 的会话优先显示它任务之外的预览。
+- 预览变了时，事件流发一条 `event: live`，`data` 是 `{"previews": {"<会话>": <预览> | null}}`：会话按 `task:<id>`、`agent:<id>` 命名（一个子任务会话的帧同时改变它的子任务会话和它的 Agent 会话），预览是 `{text, thought, tools}`，`tools` 按 `callId` 给出每个运行中的调用 `{title, tool, input, output, status, verb, what, mono}`（后三项是这次调用写成一行的动词和对象，按事件流的 `lang` 写好，`mono` 表示对象是命令或文件名）；`null` 表示这个会话没有要预览的了。客户端原样放进去，不自己合并或丢弃。一个 Agent 的会话优先显示它任务之外的预览。
 - 同一会话最多每 100 毫秒一帧：回复或思考有新片段、或某个运行中的调用有更新时才发，第一帧不等。写入事件的时机和内容不变，所以回放、用量账本、看板和收件箱都和没有实时帧时完全一样；实时帧只是预览，Run 不在内存中时没有，回放时应用也不显示。
 - 没有应用订阅时不发帧。
 

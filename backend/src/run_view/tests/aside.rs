@@ -2,6 +2,8 @@
 //! way), what its composer suggests, the live previews, and the run's documents, as the app's
 //! tests had them (`SessionViewTests`, `ChatTurnsTests`, `MarkdownDocTests`, `ChatTests`).
 
+use super::super::lines::Line;
+
 use super::super::aside::{self, compact};
 use super::super::docs::{DocsFold, Moved, Source, paths_in};
 use super::super::preview::Previews;
@@ -158,6 +160,7 @@ fn a_conversation_carries_what_sits_beside_it() {
         [("先别改", "排队 · 这一轮结束后发送")]
     );
     assert!(!s.rows.is_empty() && s.notes.contains_key(&4), "the attempt's section has its note");
+    assert!(matches!(v.lines.get(&4), Some(Line::Attempt { .. })), "and its header");
 }
 
 /// Typing `/` at the start asks for a command, `@` as the last word for a file; picking one

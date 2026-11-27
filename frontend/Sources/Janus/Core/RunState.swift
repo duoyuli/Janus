@@ -350,6 +350,10 @@ struct RunState {
     var sessions: [String: JSON] = [:]
     /// The file changes the conversations' events carry, by event seq, in their order there.
     var diffs: [Int: [ServedDiff]] = [:]
+    /// Each event of the conversations in one line, by seq, as the server words it.
+    var lines: [Int: ServedLine] = [:]
+    /// The card of each request waiting on the person, in the order they wait.
+    var cards: [ServedCard] = []
     /// The run's Markdown documents that exist.
     var docs: [RunDoc] = []
     /// The progress timeline's rows and marks, as the server lays out what is on it.
@@ -397,6 +401,8 @@ struct RunState {
         sessions = j["sessions"].object
         diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
         docs = j["docs"].array.map(RunDoc.init)
+        lines = Dictionary(j["lines"].object.compactMap { k, v in Int(k).flatMap { s in ServedLine(v).map { (s, $0) } } }, uniquingKeysWith: { a, _ in a })
+        cards = j["cards"].array.map(ServedCard.init)
         timeline = j["timeline"]
         capsule = (j["capsule"]["text"].str, Tone(rawValue: j["capsule"]["tone"].str) ?? .gray)
         members = j["members"].array.map(MemberLine.init)

@@ -99,7 +99,7 @@ struct ActivityRow: View {
     let open: Bool?
     /// `运行 2 条命令 · 读 1 个文件 · 思考`, as the server wrote it.
     let summary: String
-    let cwd: String
+    let st: RunState
     let toggle: () -> Void
 
     var body: some View {
@@ -133,7 +133,7 @@ struct ActivityRow: View {
     }
 
     @ViewBuilder private func line(_ e: Event) -> some View {
-        if e.type == .agentThought { ThoughtLine(text: e.data["text"].str) } else { ToolRow(run: run, e: e, cwd: cwd) }
+        if e.type == .agentThought { ThoughtLine(text: e.data["text"].str) } else { ToolRow(run: run, st: st, e: e) }
     }
 
 }

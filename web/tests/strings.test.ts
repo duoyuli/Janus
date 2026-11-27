@@ -18,7 +18,7 @@ test("the strings file parses whole, escapes and all", () => {
   const keys = new Set(text.split("\n").flatMap((l) => (l.match(/^"((?:[^"\\]|\\.)*)" = /) ? [l.match(/^"((?:[^"\\]|\\.)*)" = /)![1]] : [])));
   assert.equal(Object.keys(english).length, keys.size);
   assert.equal(english["刚刚"], "Just now");
-  assert.ok(english["\n本会话的数字不计入任务累计用量"]?.startsWith("\n"));
+  assert.ok(english["\n点按查看 %@ 的对话"]?.startsWith("\n"));
   assert.deepEqual(parseStrings('/* c */\n"a \\"b\\"" = "x\\ny"; // d\n"k" = "v";'), { 'a "b"': "x\ny", k: "v" });
 });
 

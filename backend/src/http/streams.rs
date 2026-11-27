@@ -37,6 +37,8 @@ pub(super) async fn run(
     let mut events = app.tx.subscribe();
     let mut frames = app.live.subscribe();
     let after = q.after.unwrap_or(0);
+    let lang = super::views::lang_of(&app, q.lang.as_deref()).unwrap_or_else(|_| app.language());
+    let cwd = app.db.run(&id).ok().flatten().map(|r| r.cwd).unwrap_or_default();
     let backlog = app.db.events(&id, after).unwrap_or_default();
     let last = backlog.last().map(|e| e.seq).unwrap_or(after);
     let (out, rx) = tokio::sync::mpsc::channel::<Result<SseEvent, Infallible>>(256);
@@ -44,7 +46,7 @@ pub(super) async fn run(
         use tokio::sync::broadcast::error::RecvError;
         let to_sse = |e: &db::Event| Ok(SseEvent::default().data(serde_json::to_string(e).unwrap()));
         let live = |f: Value| Ok(SseEvent::default().event("live").data(f.to_string()));
-        let mut previews = Previews::default();
+        let mut previews = Previews::new(lang, cwd);
         for e in &backlog {
             previews.recorded(e);
             if out.send(to_sse(e)).await.is_err() {

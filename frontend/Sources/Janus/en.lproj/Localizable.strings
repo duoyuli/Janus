@@ -1,14 +1,11 @@
 /* Swift localization keys. Interpolated values use Foundation format specifiers. */
-"\n本会话的数字不计入任务累计用量" = "\nSession context is excluded from cumulative run usage";
 "\n点按查看 %@ 的对话" = "\nClick to open the conversation with %@";
-" · %@ 检查" = " · Checked %@";
 " · 上下文 %@" = " · Context: %@";
 " · 峰值 %@" = " · Peak: %@";
 " · 有负责人" = " · Lead assigned";
 " · 独立验证：" = " · Independent verification: ";
 " · 负责人" = " · Lead";
 " · 负责人：%@" = " · Lead: %@";
-" · 阻塞中" = " · Blocking";
 " · 验证没通过 %lld" = " · Verification failures: %lld";
 "%@\n选项：%@" = "%@\nOptions: %@";
 "%@ %@\n尝试 %lld · %@ · %@ – %@（%@）\n点按查看子任务" = "%@ %@\nAttempt %lld · %@ · %@–%@ (%@)\nClick to open subtask";
@@ -27,7 +24,6 @@
 "%@ · %lld 个会话" = "%@ · Sessions: %lld";
 "%@ · 尝试 %lld · sha256 %@…" = "%@ · Attempt %lld · SHA-256 %@…";
 "%@ 不是有效的监听地址，检查 JANUS_ADDR 或 config.toml 的 addr。" = "%@ is not a valid listening address. Check JANUS_ADDR or addr in config.toml.";
-"%@ 协作者写回看板：%@" = "%@ Collaborator posted to the board: %@";
 "%@ 失败：%@" = "%@ failed: %@";
 "%@ 担任负责人" = "Make %@ the lead";
 "%@ 提供" = "Provided by %@";
@@ -39,10 +35,8 @@
 "%@ 没有权限模式：工具直接执行，不经审批，能改工作目录里的文件。" = "%@ has no permission modes: tools run without approval and can change files in the working directory.";
 "%@ 的权限模式" = "Permission modes for %@";
 "%@ 的校验和不符，可能下载不完整" = "The checksum for %@ does not match. The download may be incomplete.";
-"%@ 等待 %@" = "%@ is waiting for %@";
 "%@ 轮" = "%@";
 "%@ 通过" = "%@ passed";
-"%@ 问负责人" = "%@ asked the lead";
 "%@尝试 %lld · %@%@%@" = "%@Attempt %lld · %@%@%@";
 "%@未核对，%@" = "%@not checked, %@";
 "%@没有新输出" = "No new output for %@";
@@ -67,7 +61,6 @@
 "%lld 个来源有更新" = "Sources with updates: %lld";
 "%lld 个模型" = "Models: %lld";
 "%lld 个资源来源有更新" = "Resource sources with updates: %lld";
-"%lld 个风险" = "Risks: %lld";
 "%lld 分 %@ 秒" = "%lld min %@ sec";
 "%lld 分钟" = "%lld min";
 "%lld 分钟前" = "%lld min ago";
@@ -85,17 +78,14 @@
 "%lld 秒前" = "%lld sec ago";
 "%lld 轮没有价格（%@），没有计入估算。" = "Turns without pricing were excluded from the estimate: %lld (%@).";
 "%lld 件待处理" = "%lld pending";
-"%lld/%lld 通过" = "%lld/%lld passed";
 "- %@：通过 %lld/%lld · 证据：%@" = "- %@: passed %lld of %lld · Evidence: %@";
 "1 小时后" = "In 1 hour";
 "4 小时后" = "In 4 hours";
-"? 问负责人：%@%@ · 负责人会回答，不需要你处理" = "? Question for the lead: %@%@ · The lead will answer";
 "Agent / 模型" = "Agent / Model";
 "Agent 上报的原值；没上报就写「未上报」，不按 Token 估算" = "As reported by the Agent; shows Not reported when missing, never estimated from tokens";
 "输入、缓存读取、缓存写入和输出；为 0 的不列" = "Input, cache reads, cache writes, and output; zeros are left out";
 "Agent 上报费用 %@" = "Agent-reported cost: %@";
 "Agent 写过或提到的文档" = "Documents Written or Mentioned by Agents";
-"Agent 已读到" = "Seen by the Agent";
 "Agent 未上报费用" = "No cost reported by agents";
 "Agent 没有权限模式" = "The Agent has no permission mode";
 "Agent 在深度思考或写大段内容，暂时没有新输出" = "The Agent is thinking hard or writing at length; no new output yet";
@@ -103,9 +93,7 @@
 "Git 仓库，基线 %@" = "Git repository, baseline %@";
 "GitHub 返回 %lld" = "GitHub returned %lld";
 "Janus %@ 可以更新" = "Janus %@ Available";
-"Janus 发给 Agent" = "Sent by Janus";
 "启动 20 秒后查一次，之后每 5 分钟一次。" = "Checks 20 seconds after launch, then every 5 minutes.";
-"Janus 提示" = "Janus Prompt";
 "Janus 服务 30 秒内没有响应。\n\n%@" = "The Janus service did not respond within 30 seconds.\n\n%@";
 "Janus 服务地址：%@:%@" = "Janus service address: %@:%@";
 "Janus 服务没有启动" = "Janus service did not start";
@@ -123,40 +111,25 @@
 "update.json 不完整" = "update.json is incomplete";
 "yyyy年M月d日" = "MMM d, yyyy";
 "yyyy年M月d日 HH:mm" = "MMM d, yyyy, HH:mm";
-"↳ 负责人 Agent 转交给你：%@" = "↳ The lead forwarded this to you: %@";
-"⇄ 上游子任务 %@ 的结果已带入本次子任务" = "⇄ Results from upstream subtask %@ were included in this subtask";
-"⇪ 提交结果：%@" = "⇪ Result submitted: %@";
 "◆ 决定 · 红色：等你处理 · 橙色：负责人在处理。悬停图标看是什么，点按打开" = "◆ Decision · Red needs your attention. Orange is for the lead. Hover for details or click to open.";
-"⚠ %@ 和 %@ 同时在改 %@。已提醒双方先读最新内容，并告诉负责人" = "⚠ %@ and %@ are both editing %@. Janus asked both to read the latest contents first and notified the lead.";
 "⚠ 有 %lld 个未提交改动（不会带进任务）" = "⚠ Uncommitted changes: %lld. Tasks start without them.";
-"⚠ 越界：%@ 改了 %@ 负责的 %@。已提醒 %@ 不要再改，并告诉负责人" = "⚠ %1$@ edited %3$@, which belongs to %2$@. Janus asked %4$@ to stop editing these files and notified the lead.";
 "✓ Git 仓库 · 当前分支 %@ · %@" = "✓ Git repository · Branch: %@ · %@";
 "、" = ", ";
 "。" = ". ";
 "「%@」" = "“%@”";
-"「%@」在 %@ 问你一个问题" = "%@ has a question for you in %@";
-"「%@」在 %@ 等你回话" = "%@ is waiting for you in %@";
-"「%@」在等你回话" = "%@ is waiting for you";
-"「%@」需要你填一张表" = "%@ needs you to fill in a form";
-"「%@」需要你打开一个链接" = "%@ needs you to open a link";
-"「%@」等你拍板" = "%@ needs your call";
-"「%@」等你拍板：%@" = "%@ needs your call: %@";
 "「%@」：%@" = "“%@”: %@";
 "一键开始授权" = "Start Permission Setup";
 "上一条事件" = "Previous Event";
 "上一条事件（←）" = "Previous Event (←)";
-"上一轮 %@ tokens" = "Last turn: %@ tokens";
 "上下文" = "Context";
 "上下文 %@" = "Context: %@";
 "上下文 %lld%%" = "Context %lld%%";
-"上下文已用 %@" = "Context used: %@";
 "上下文快照只看最近值和峰值，不算进 Token 总量" = "Context snapshots show the latest and peak only, and aren't in total tokens";
 "上月" = "Last Month";
 "上游" = "Upstream";
 "上游交接：%@" = "Upstream handoff: %@";
 "下一条事件" = "Next Event";
 "下一条事件（→）" = "Next Event (→)";
-"留言 · 下次会话带给它" = "Note · Delivered at its next session";
 "下游" = "Downstream";
 "下载 %@ 失败" = "Could not download %@";
 "下载 update.json 失败" = "Could not download update.json";
@@ -168,7 +141,6 @@
 "不是 Git 仓库：直接改这个目录，没有 diff" = "Not a Git repository: work happens right in this folder, with no diff";
 "不认识的证据方法" = "Unknown evidence method";
 "不满足" = "Violated";
-"为什么要你决定：%@" = "Why your decision is needed: %@";
 "为这个产品规划并上线一个新功能：先确认目标用户和成功标准，写 PRD，实现并测试，准备发布说明" = "Plan and launch a feature for this product. Identify the target users and success criteria, write a PRD, implement and test the feature, and prepare release notes.";
 "之后可以在「设置 › 通用 › macOS 权限」接着来。" = "Pick this up later in Settings › General › macOS Permissions.";
 "也没有在干活的任务。" = "Nothing's running either.";
@@ -182,8 +154,6 @@
 "产物" = "Artifacts";
 "产物 %lld" = "Artifacts %lld";
 "产物 %lld 个\n%@\n点按在审计日志中查看" = "Artifacts: %lld\n%@\nClick to view in the audit log";
-"人工接管 · 正在处理" = "Manual control · Working";
-"人工接管 · 等你回话" = "Manual control · Waiting for you";
 "什么时候用，例如：写发布说明时使用" = "When to use the skill, for example when writing release notes";
 "今天 %@" = "Today at %@";
 "从 %@ 复制" = "Copy from %@";
@@ -202,9 +172,7 @@
 "会话选项" = "Session Options";
 "估算 · Token" = "Estimate · Tokens";
 "估算按 models.dev 的 API 价格（不含长上下文加价），不是账单。" = "Estimated at models.dev API rates, excluding long-context surcharges. This is not an invoice.";
-"作为新一轮发送" = "Sent as a new turn";
 "你" = "You";
-"你已接管。Agent 会一直等你：发消息、交还托管或结束子任务。" = "You've taken over. The Agent waits until you send a message, hand back control, or finish the subtask.";
 "你的回答" = "Your Answer";
 "使用这个文件夹" = "Use This Folder";
 "上游出错" = "Upstream failed";
@@ -236,10 +204,6 @@
 "关闭" = "Off";
 "关闭后，这次的修改不会保存。" = "Closing will discard the changes you made.";
 "其中等待你 %@" = "Waiting for you: %@";
-"内容原样交回 Agent。" = "Your answer goes back to the Agent as written.";
-"写下任务，发送后恢复负责人会话" = "Send a task to reopen the lead’s session";
-"接下来做什么？也可以用 /goal 换个目标" = "What's next? Or use /goal to set a new goal";
-"写回看板：%@" = "Post to the board: %@";
 "每行一个 KEY=value，可以直接贴 export 行；写 KEY= 表示清空。" = "One KEY=value per line; export lines paste fine. KEY= clears it.";
 "只写变量名的行保留原值；删掉整行就移除。" = "A name alone keeps the saved value; delete the line to remove it.";
 "由 Claude Code 在试运行时验证环境变量" = "Claude Code verifies these settings during the trial run";
@@ -281,23 +245,18 @@
 "发布前检查" = "Release Readiness";
 "发给%@" = "Send to %@";
 "发送" = "Send";
-"发送中…" = "Sending…";
-"发送并继续" = "Send and Resume";
 "取消" = "Cancel";
 "取消 %@%@" = "Cancel %@%@";
 "取消请求" = "Cancel Request";
-"受影响的下游子任务：%@。" = " Affected downstream subtasks: %@.";
 "变量" = "Variables";
 "另一个 Janus 占着 %@ 但连不上（%@）。先退出它（服务方式运行的执行 just stop），再点重试。" = "Another Janus holds %@ but can't be reached (%@). Quit it (run just stop if it runs as a service), then retry.";
 "绑定 Agent 后才能担任负责人" = "Bind an Agent before this employee can lead";
 "只读 · 当时的状态" = "Read-only · As it was then";
 "只读 · 这个任务已停止" = "Read-only · This run was stopped";
-"只读查看" = "Read-only";
 "可以继续对话" = "Conversation can continue";
 "可以担任负责人" = "Can Be Lead";
 "可用" = "Ready";
 "可能卡住了" = "May Be Stuck";
-"同时改了一个文件" = "Concurrent File Edits";
 "同步价格" = "Sync Prices";
 "同步价格失败：%@" = "Could not sync prices: %@";
 "名称" = "Name";
@@ -314,14 +273,10 @@
 "回到实时" = "Return to Live";
 "回到最新" = "Back to Latest";
 "回到最新的消息，之后的新消息会继续显示在底部" = "Jump to the latest message and follow new messages";
-"回复 %@：%@" = "Reply to %@: %@";
-"回放中" = "Replaying";
-"回放中只能看，回到实时再发消息" = "Replay is read-only. Go live to send messages.";
 "回放位置" = "Replay Position";
 "回放到这里" = "Replay to Here";
 "回放模式" = "Replay Mode";
 "回答 %@ 的提问" = "Answered %@’s question";
-"回答会记入日志，并发回给 Agent。%@" = "Your answer is logged and sent back to the Agent.%@";
 "团队" = "Team";
 "团队与权限" = "Team & Permissions";
 "图片 %@" = "Image %@";
@@ -432,8 +387,6 @@
 "已展开" = "Expanded";
 "已开始登录：按卡片上的提示操作，完成后自动检查。" = "Sign-in started. Follow the steps on the card; it checks itself when you're done.";
 "已授权" = "Authorized";
-"插话 · 已插进这一轮" = "Steered into this turn";
-"插话 · 已插进这一轮，做完手头这步就会读到" = "Steered into this turn · read after the current step";
 "已收起" = "Collapsed";
 "已是最新版本。" = "You’re up to date.";
 "已暂停" = "Paused";
@@ -454,7 +407,6 @@
 "开始使用 Janus" = "Get Started with Janus";
 "开跑后，对话和工具调用会实时出现在这里" = "Once it starts, messages and tool calls show up here live";
 "出错了" = "Error";
-"当前没有会话" = "No Active Session";
 "待发送 %lld" = "Pending Messages: %lld";
 "待处理" = "Pending";
 "最近活动 %@" = "Last active %@";
@@ -462,7 +414,6 @@
 "成功" = "Succeeded";
 "成功平均 %@ 分钟" = "Average successful run: %@ min";
 "我已完成" = "I’ve Finished";
-"或者写下你自己的回答" = "Or Enter Your Own Answer";
 "所有工作区" = "All Workspaces";
 "所有工作区的待处理" = "Pending across all workspaces";
 "所有来源都是最新的" = "All sources are up to date";
@@ -480,11 +431,7 @@
 "打开日志目录" = "Open Logs Folder";
 "打开系统设置" = "Open System Settings";
 "打开这个任务，看完整的请求" = "Open the run to view the full request";
-"打开链接" = "Open Link";
-"插话 · 打断上一轮后立刻送达" = "Interrupted the previous turn and delivered";
-"打断并接管" = "Interrupt and Take Over";
 "打断这一轮" = "Interrupt Turn";
-"托管中 · Agent 自主推进" = "Autopilot · Agent driving";
 "干活中" = "Working";
 "执行操作" = "Perform an operation";
 "协作者" = "Collaborator";
@@ -502,7 +449,6 @@
 "按提示完成 %@ 登录，完成后自动检查。" = "Follow the steps to sign in to %@; it checks itself when you're done.";
 "按时间段汇总各 Agent 上报的 Token。金额按 models.dev API 价估算（不是账单），价格每天同步。" = "Tokens reported by each Agent over a period. Amounts are estimates at models.dev API prices (not a bill), synced daily.";
 "授权后系统要是要求重启，等任务结束再重开 Janus，并开新的 Agent 会话。" = "If macOS asks for a restart after granting, wait for runs to finish, reopen Janus, and start new Agent sessions.";
-"排队 · 这一轮结束后发送" = "Queued · Sends after this turn";
 "接入一个 Agent" = "Connect an Agent";
 "修订 %@：%@" = "Amend %@: %@";
 "接管" = "Take Over";
@@ -510,7 +456,6 @@
 "推理强度" = "Reasoning Effort";
 "提交" = "Submit";
 "提交回答" = "Submit Answer";
-"派出子任务：%@" = "Dispatched subtasks: %@";
 "提示词" = "Prompt";
 "提醒" = "Notice";
 "提醒（不影响是否通过）：\n%@" = "Notes (do not affect acceptance):\n%@";
@@ -594,8 +539,6 @@
 "未说明 %lld 条" = "Unspecified: %lld";
 "未读取权限模式" = "Permission modes not loaded";
 "未选择 Agent" = "No Agent Selected";
-"本会话 上下文 %@" = "Session context: %@";
-"本会话 上下文 %lld%%" = "Session context: %lld%%";
 "本月" = "This Month";
 "本机的仓库副本会删除。还有从它导入的资源时不能删除。" = "The local copy of the repository will be removed. Delete the resources imported from it before removing this source.";
 "本次 %lld/%lld 首次通过%@" = "Passed on first attempt: %lld/%lld%@";
@@ -610,8 +553,6 @@
 "构成" = "Breakdown";
 "查找 Skill" = "Find Skills";
 "查看" = "View";
-"查看团队和子任务状态" = "View team and subtask status";
-"查看 %@ 的全部信息" = "View everything about %@";
 "查看完整目标" = "Show Full Goal";
 "查看这个任务交付、保存或提到的 Markdown 文档" = "View Markdown documents delivered, saved, or mentioned in this run";
 "忽略" = "Ignore";
@@ -645,7 +586,6 @@
 "正在启动 Janus 服务…" = "Starting the Janus service…";
 "干活中的任务默认收起，需要你时会冒出来" = "Working runs stay collapsed and pop up when they need you";
 "正在接上会话" = "Picking up the session";
-"正在打断这一轮，马上送达" = "Interrupting this turn to deliver the message";
 "正在拉取…" = "Fetching…";
 "正在更新…" = "Updating…";
 "正在校验新版本…" = "Verifying the update…";
@@ -704,17 +644,13 @@
 "由谁来做" = "Agent & Model";
 "申请授权" = "Request Access";
 "留言" = "Leave Message";
-"留言 · 这次会话开始时已带上" = "Note · Delivered when this session started";
 "改动核对（结果和工作目录对不上）：\n%@" = "Change check (result doesn't match the workspace):\n%@";
 "登录" = "Sign In";
 "目录不存在" = "Directory does not exist";
-"目标 · %@" = "Goal · %@";
 "目标已完成" = "Goal Completed";
 "目标提示" = "Goal Prompt";
-"目标确认 · 负责人停了，但目标还没完成" = "Goal check · The lead stopped, but the goal isn't done";
 "直接发给做这个子任务的 Agent：在线就插进这一轮，不在线就下次会话带给它" = "Goes straight to the subtask's Agent: into this turn if it's live, otherwise at its next session";
 "看板" = "Board";
-"看板推送 · 插入正在进行的这一轮" = "Board Update · Steered into the Active Turn";
 "移除 %@" = "Remove %@";
 "移除这个变量和它的值" = "Remove this variable and its value";
 "移除这张图片" = "Remove this image";
@@ -733,13 +669,10 @@
 "第 %lld 次尝试" = "Attempt %lld";
 "等你拍板" = "Your Call";
 "等你回答" = "Waiting for your answer";
-"等你填写" = "Form Required";
 "等你审批" = "Waiting for approval";
-"等你回话" = "Waiting for You";
 "等上游" = "Waiting on upstream";
 "等队友" = "Waiting on a teammate";
 "等待登录" = "Waiting for sign-in";
-"等待看板上的进展" = "Wait for board activity";
 "等你输入" = "Waiting for you";
 "等待返回" = "Waiting for result";
 "等待返回…" = "Waiting for result…";
@@ -753,14 +686,13 @@
 "结论" = "Findings";
 "结论 · %@\n%@\n点按在审计日志中查看" = "Findings · %@\n%@\nClick to view in the audit log";
 "结论没有得到确认" = "The findings were not confirmed";
-"发消息给 Agent · ⌘V 贴截图 · %@ 发送" = "Message the Agent · ⌘V to paste a screenshot · %@ to send";
+"%@ · ⌘V 贴截图 · %@ 发送" = "%1$@ · ⌘V to paste a screenshot · %2$@ to send";
 "继续" = "Continue";
 "继续提示" = "Resume Prompt";
 "继续调度子任务（⇧⌘P）" = "Resume scheduling subtasks (⇧⌘P)";
 "缓存写入" = "Cache Write";
 "缓存命中率" = "Cache Hit Rate";
 "缓存读取" = "Cache Read";
-"Janus 发出的子任务说明" = "Subtask brief from Janus";
 "编辑" = "Edit";
 "编辑 %@" = "Edit %@";
 "编辑 Skill" = "Edit Skill";
@@ -772,7 +704,6 @@
 "耗时 %@" = "Elapsed: %@";
 "职责" = "Responsibilities";
 "自定义提示词" = "Custom Prompt";
-"补充信息或直接写「继续」，发送后从中断处继续" = "Add details or just say “continue” to pick up where it stopped";
 "补充说明（可选）" = "Additional Notes (optional)";
 "补充说明（可选），会和回答一起发给 Agent" = "Optional note to send to the Agent with your answer";
 "补充说明：%@" = "Additional notes: %@";
@@ -807,7 +738,6 @@
 "%@ 开工" = "wakes %@";
 "%lld 条笔记" = "%lld notes";
 "从已安装的 Janus.app 打开这页。源码运行时权限可能记在终端名下。" = "Open this page from the installed Janus.app. From source, permissions may belong to the terminal.";
-"等你拍板：%@" = "Your call: %@";
 "用安装包里的 Janus" = "Use the Installed App";
 "先选一个目录" = "Choose a folder first";
 "轮次" = "Turns";
@@ -823,21 +753,15 @@
 "负责 %@" = "Owns %@";
 "负责人" = "Lead";
 "负责人 %@ · 协作者 %@" = "Lead: %@ · Collaborators: %@";
-"负责人 · " = "Lead · ";
-"负责人会话" = "Lead Session";
 "负责人修订 %@ 的结论" = "Lead revised the findings for %@";
 "负责人取消" = "Cancelled by lead";
 "负责人取消 %@" = "Lead cancelled %@";
 "负责人取消了这个子任务" = "The lead cancelled this subtask";
-"负责人可能卡住了" = "The lead may be stuck";
-"负责人在等这个决定期间，会继续做不依赖它的工作。" = "The lead will continue work that does not depend on this decision.";
 "负责人建议" = "Lead’s recommendation";
 "负责人建议写入共享资料" = "Lead’s Suggestions for Shared Context";
 "负责人接受 %@ 的结果" = "Lead accepted the result for %@";
 "负责人派出子任务" = "The lead dispatched subtasks";
-"负责人插话" = "Lead Steering";
 "要不要先问你，由 Agent 自己判断；它发来的审批、表单和链接都进「待处理」。" = "The Agent decides what to ask you first; its approvals, forms, and links land in Pending.";
-"负责人等你拍板：%@" = "The lead needs your call: %@";
 "负责人读完决定：让协作者修改、重做，或者自己处理" = "The lead reads it and decides: have the collaborator revise, redo it, or handle it directly";
 "负责人管规划和协调。" = "The lead plans and coordinates.";
 "负责人还没有派出子任务。" = "The lead has not assigned any subtasks.";
@@ -920,7 +844,6 @@
 "部分上报" = "Partially reported";
 "配置检查" = "Configuration Check";
 "采纳后，这个工作区之后的任务都能看到。" = "Once added, later runs in this workspace will see it.";
-"重新执行 %@%@%@" = "Retry %@%@%@";
 "重新检查" = "Check Again";
 "重新登录" = "Sign In Again";
 "重新读取" = "Reload";
@@ -932,11 +855,9 @@
 "阻塞" = "Blocked";
 "隔离方式" = "Isolation";
 "需要修改" = "Changes Requested";
-"需要填写" = "Form Required";
 "项目目录" = "Project Directory";
 "预览" = "Preview";
 "风险" = "Risks";
-"风险 %lld 条" = "Risks: %lld";
 "风险（协作者自报）" = "Risks (self-reported)";
 "风险：" = "Risks:";
 "风险：%@" = "Risks: %@";
@@ -945,7 +866,6 @@
 "首次通过：第一次尝试就完成，且验证一次通过" = "Passed first time means the first attempt completed and passed verification on its first check";
 "验收标准" = "Acceptance Criteria";
 "验收通过" = "Accept Delivery";
-"提醒交结果 · 这一轮结束了还没交" = "Reminded to hand in · the turn ended without a result";
 "验证没通过" = "Verification failed";
 "验证没通过 %@" = "Verification failures: %@";
 "高级设置" = "Advanced Settings";
@@ -955,8 +875,6 @@
 "（%@）" = " (%@)";
 "（可选）" = "(optional)";
 "（币种或口径不同，未合并）" = " (reported separately due to different currencies or billing methods)";
-"（改了说明）" = " (instructions changed)";
-"（改了验收标准）" = " (acceptance criteria changed)";
 "（没有写明标准）" = "(No criterion specified)";
 "（输出中推理 %@）" = " (reasoning output: %@)";
 "（附 %lld 张图片）" = "(Attached images: %lld)";
@@ -1008,19 +926,8 @@
 "重新打开 Janus" = "Reopen Janus";
 "测不出来" = "Can't Detect";
 "前往授权" = "Grant Access";
-"接上了原会话" = "Picked up the previous session";
-"接上原会话" = "Picks up its own session";
-"接上 %@ 的会话" = "Picks up %@'s session";
-"新开会话（原会话上下文超过 75%）" = "New session (previous one was over 75% of its context)";
-"新开会话（Agent 不支持加载会话）" = "New session (the agent cannot load sessions)";
-"新开会话（原会话加载失败）" = "New session (the previous one failed to load)";
-"按 %@ 的意见返工" = "Rework on %@'s findings";
-"%@ 返工后复审" = "Re-check after %@ was reworked";
 "依据 %@ 的意见" = "On %@'s findings";
 "负责人的说明：%@" = "Lead's note: %@";
-"⇄ 独立验证 %@ 的意见已带入本次子任务" = "⇄ Findings of verification %@ were included in this subtask";
-"新开会话（这个子任务之前没有会话）" = "New session (this subtask had no session before)";
-"⚠ 派出子任务后改了文件：%@ · 交付时会单独列出" = "⚠ Edited files after handing out subtasks: %@ · listed on their own in the delivery";
 "没有独立验证" = "No independent verification";
 " · 没有独立验证" = " · No independent verification";
 "%@的记录、子任务、产物和日志都会删除，找不回来。没提交的改动先存成补丁；你的目录和已合并的结果不受影响。" = "The records, subtasks, artifacts, and logs of %@ are deleted for good. Uncommitted changes are saved as a patch first; your folder and merged results stay as they are.";
@@ -1042,7 +949,6 @@
 "找到 %lld 个 Skill，选择要导入的" = "Found %lld skills. Choose which to import.";
 
 "保存后自动检查：运行时、凭据、启动、会话、一次真实回复，进度看卡片。" = "After saving, it checks the runtime, credentials, startup, session, and one real reply. Progress shows on the card.";
-"⚠ 派出子任务后调用了资源库工具 %@ · 会写进交付风险" = "⚠ Called the library tool %@ after handing out subtasks · Listed as a delivery risk";
 "进行中的任务不受影响；这个服务器会停下，它的值一起删除。" = "Runs in progress aren't affected; this server stops and its values are deleted.";
 "准备中…" = "Preparing…";
 "启动失败" = "Failed to Start";
@@ -1199,10 +1105,6 @@
 "给每位数字员工配 Agent、模型和指令；资源库全员可用。" = "Give each digital employee an Agent, a model, and instructions. The library is available to everyone.";
 
 /* Chats with one digital employee */
-"发消息给 %@ · ⌘V 贴截图 · %@ 发送" = "Message %1$@ · ⌘V to paste a screenshot · %2$@ to send";
-"发送后重新打开和 %@ 的会话" = "Sending reopens the session with %@";
-"对话 · %@ · %@" = "Chat · %1$@ · %2$@";
-"工作目录 %@ · 对话专用，删对话时一起删" = "Working directory %@ · just for this chat, deleted with it";
 "这个对话" = "this chat";
 "删除对话？" = "Delete Chat?";
 "%@的聊天记录、日志和专属工作目录（含%@留下的文件）都会删除，找不回来；进行中的会话会停止。" = "The messages, logs, and working directory of %1$@ (with files %2$@ left there) are deleted for good; a live session stops.";
@@ -1246,9 +1148,6 @@
 "已删除的工作区，留下 %lld 个任务记录" = "Deleted workspace with %lld runs";
 
 "开聊，你先说（↩）" = "Start chatting; you go first (↩)";
-"正在处理" = "Working";
-"停止这一轮" = "Stop This Turn";
-"补充或更正，会插入正在进行的这一轮" = "Add or correct something; it joins the turn in progress";
 
 /* A runtime line under each Agent: Janus keeps it up to date; the person only ever picks an older version. */
 "运行组件" = "Runtime";
@@ -1277,12 +1176,6 @@
 "切到装过的版本。同一类 Agent 共用这个组件，切换后从下个会话开始用。" = "Switch to a version that's installed. Agents of the same kind share this runtime; the next session uses it.";
 "你选了这个版本，它不会被自动更新，直到你恢复自动更新。" = "You picked this version, so it won't auto-update until you resume auto-updates.";
 "第一次检查 Agent 时会自动装。装不上时可以在这里再来一次。" = "It installs the first time you check the Agent. If that doesn't work, try again here.";
-"数字员工的指令 · %@" = "Digital Employee Instructions · %@";
-"团队协作指令 · %@" = "Team Instructions · %@";
-"之前的对话 · %@" = "Earlier Conversation · %@";
-"数字员工的指令 + Agent 的自定义提示词。一对一对话只带这一份。" = "The digital employee's instructions plus the Agent's custom prompt. A one-on-one chat gets only this.";
-"团队任务专属：分工、看板、派工和验证规则。" = "Team runs only: roles, the board, dispatching, and verification rules.";
-"重开对话时带上最近的聊天，接着聊。" = "When a chat reopens, recent messages come along so it picks up where it left off.";
 "选一名数字员工一对一聊。它带着自己的指令和资源库，在专属目录里干活，不带团队和看板。" = "Pick a digital employee for a one-on-one chat. It brings its instructions and the library and works in its own folder, with no team or board.";
 "双击卡片直接开始" = "Double-click a card to start right away";
 "选颜色，或拖张图片当头像" = "Pick a color, or drop in an image as the avatar";
@@ -1332,12 +1225,7 @@
 "它的会话和记录一起删掉，找不回来；派出的任务保留。" = "Its session and records are deleted for good; the runs it dispatched stay.";
 "值班没能开工" = "The Loop could not wake";
 "已删除的值班" = "Deleted Loop";
-"值班改了文件" = "Loop Changed Files";
 "每小时" = "Every hour";
-"值班的工作方式 · %@" = "How a Loop works · %@";
-"值班守则：不亲自改文件，活儿派成任务，拿不准才问你；附带共享资料。" = "Loop rules: never edits files itself, dispatches work as runs, asks you only when unsure; plus shared context.";
-"摸鱼中，等下次开工或你的消息" = "Waiting for its next wake, or your message";
-"会话已结束，下次开工时再接上" = "Session ended · picks up at the next wake";
 
 "每天" = "Every day";
 "分拣 GitHub issue" = "Triage GitHub issues";
@@ -1463,11 +1351,6 @@
 "整理完了：改了 %lld 条，删了 %lld 条。%@" = "Consolidated: %1$lld changed, %2$lld removed. %3$@";
 "这次整理没有完成：%@。已经改的笔记保留，可以在工作区页重新整理。" = "This consolidation did not finish: %@. The notes already changed stay; you can consolidate again from the workspace page.";
 "会话中断了" = "the session broke off";
-"整理团队记忆 · %@" = "Consolidate team memory · %@";
-"怎么整理团队记忆 · %@" = "How to consolidate team memory · %@";
-"只动笔记：合并重复的、改正过时的、删掉没用的；附带全部笔记的索引。" = "Notes only: merge duplicates, correct what is outdated, remove what is of no use; with the index of every note.";
-"整理结束" = "Consolidation finished";
-"整理只有一轮；要再整理，在工作区页点「现在整理」" = "A consolidation is one turn; to consolidate again, click Consolidate Now on the workspace page";
 
 /* Reviewing a delivery */
 "运行 %lld" = "Ran %lld";
@@ -1516,7 +1399,6 @@
 "执行者自述的风险" = "Risks the assignee reported";
 "需要你看的：" = "To look at:";
 "负责人在处理你的消息" = "Lead working on your message";
-"恢复会话 · 从中断处接着推进目标" = "Session Restored · Continuing the Goal Where It Stopped";
 "现在更新 Janus？" = "Update Janus now?";
 "还有任务或对话在跑。更新会重开 Janus 并中断它们，重开后任务自动接着做。" = "Runs or chats are still going. Updating reopens Janus and interrupts them; runs pick up on their own after it reopens.";
 "执行 %@" = "work %@";
@@ -1524,16 +1406,6 @@
 "返工 %@" = "rework %@";
 "每次尝试从开始到结束的时间相加；同时进行的尝试各算各的。验证是独立验证的尝试，返工是失败后或负责人发回后的再次尝试" = "Each attempt's time from start to end, added up; attempts that ran side by side each count. Verification is the independent checks; rework is any attempt after a failure or one the lead sent back.";
 "按时间表" = "on schedule";
-"它约的时间到了" = "at the time it asked for";
-"你让它开工" = "you woke it";
-"你回答了它的问题" = "you answered its question";
-"派出的任务结束了" = "a run it dispatched ended";
-"第 %lld 次开工 · %@ · %@" = "Wake %1$lld · %2$@ · %3$@";
-"下次开工：%@（它约的）" = "next wake: %@ (it asked)";
-"下次开工：%@" = "next wake: %@";
-"下次等你叫它" = "next when you call it";
-"%@ 收工 · %@" = "Ended %1$@ · %2$@";
-"%@ 收工（%@）· %@" = "Ended %1$@ (%2$@) · %3$@";
 "Janus 的界面语言。打开文件夹等系统对话框在重新打开 Janus 后换成这个语言" = "The language Janus uses. System dialogs, such as choosing a folder, switch to it after you reopen Janus";
 
 /* Digital employees by group, role files, 招聘顾问 */
@@ -1579,38 +1451,27 @@
 "Agent 可以用 run_code 写一段调用这些工具的 JavaScript，一步完成多次调用。" = "Agents can use run_code to write JavaScript that calls these tools, making several calls in one step.";
 "运行 %lld 条命令" = "Ran %lld commands";
 "读 %lld 个文件" = "Read %lld files";
-"搜索 %lld 次" = "Searched %lld times";
 "改 %lld 个文件" = "Edited %lld files";
-"其他操作 %lld 次" = "%lld other actions";
 "正在运行" = "Running";
 "运行" = "Ran";
 "正在读" = "Reading";
 "读" = "Read";
 "正在改" = "Editing";
 "改" = "Edited";
-"正在删除" = "Deleting";
-"正在移动" = "Moving";
 "移动" = "Moved";
-"正在搜索" = "Searching";
 "搜索" = "Searched";
-"正在获取" = "Fetching";
 "获取" = "Fetched";
-"正在思考" = "Thinking";
 "思考" = "Thought";
 "收起这一轮的工作过程" = "Collapse this turn's work";
 "展开这一轮的工作过程" = "Expand this turn's work";
 "正在工作 · %@" = "Working · %@";
 "工作了 %@" = "Worked for %@";
-"%lld 个操作" = "%lld actions";
 "收起思考" = "Collapse thinking";
 "展开思考" = "Expand thinking";
 "还有 %lld 个" = "Show %lld more";
 "更早的输出没有显示" = "Earlier output not shown";
-"%@ %@：%@ · 等你处理，在输入框上方" = "%1$@ %2$@: %3$@ · Waiting for you, above the message box";
 "1 / %lld 个请求" = "1 of %lld requests";
 "Skill" = "Skills";
-"Agent 命令" = "Agent commands";
-"用看板 %lld 次" = "Used the board %lld times";
 "稳定版" = "Stable";
 "测试版（RC）" = "Release candidates (RC)";
 "测试版" = "RC";
