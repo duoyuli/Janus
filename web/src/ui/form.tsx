@@ -130,11 +130,6 @@ export function Check({ on, onChange, children }: { on: boolean; onChange: (on: 
   );
 }
 
-/** Ask before something that can't be taken back: the browser's own dialog. */
-export function confirmed(question: string, detail = ""): boolean {
-  return window.confirm(detail ? `${question}\n\n${detail}` : question);
-}
-
 /** A number in a range, with − and + beside it (Mac: `Stepper`). */
 export function Stepper({ value, min, max, onChange, label, children }: { value: number; min: number; max: number; onChange: (v: number) => void; label: string; children: ComponentChildren }) {
   return (

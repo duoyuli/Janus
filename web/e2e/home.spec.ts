@@ -100,8 +100,8 @@ test("team memory lists the notes as the service words them, and changes reach i
   await expect.poll(async () => (await service(request, `/api/workspaces/${extra.workspace}/memories?lang=zh`)).memories.find((n: any) => n.id === howto.id)?.title).toBe("怎么跑测试（改过）");
   const gone = memory.memories.find((n: any) => n.title === "要删的笔记");
   await page.goto(`/workspaces/${extra.workspace}/memory/${gone.id}`);
-  page.once("dialog", (d) => void d.accept());
   await page.getByRole("button", { name: "删除…" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "删除" }).click();
   await expect.poll(async () => (await service(request, `/api/workspaces/${extra.workspace}/memories?lang=zh`)).memories.some((n: any) => n.id === gone.id)).toBe(false);
 });
 

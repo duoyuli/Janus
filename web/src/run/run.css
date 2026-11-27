@@ -222,8 +222,13 @@ a.inspector-row:hover { background: var(--hover); }
 
 @media (max-width: 640px) {
   .run-head-title { display: none; }
-  .run-head { flex-wrap: nowrap; }
-  .run-views { flex: 1; min-width: 0; }
+  /* The views are a row of their own that scrolls sideways, faded at the edge that hides more;
+     the tools are the 「…」 menu in the top bar. */
+  .run-head { display: block; }
+  .run-head-tools { display: none; }
+  .run-views-wrap { position: relative; }
+  .run-views { display: flex; width: 100%; -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start, 0px), #000 calc(100% - var(--fade-end, 0px)), transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start, 0px), #000 calc(100% - var(--fade-end, 0px)), transparent 100%); }
+  .run-views .segment { flex: 1 0 auto; justify-content: center; }
   .run-card-top { flex-direction: column; }
   .diff-layout { grid-template-columns: minmax(0, 1fr); }
   .diff-files { position: static; max-height: 220px; }

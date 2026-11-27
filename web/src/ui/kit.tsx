@@ -156,6 +156,29 @@ export function Menu({ icon, label, items }: { icon: string; label: string; item
   );
 }
 
+/** For a row that scrolls sideways: `--fade-start` and `--fade-end` on it are 24px on an edge
+ * that hides more and 0 otherwise, for a CSS mask that fades only where there is more to see. */
+export function useEdgeFade<T extends HTMLElement>() {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => {
+      el.style.setProperty("--fade-start", el.scrollLeft > 1 ? "24px" : "0px");
+      el.style.setProperty("--fade-end", el.scrollLeft + el.clientWidth < el.scrollWidth - 1 ? "24px" : "0px");
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const seen = new ResizeObserver(update);
+    seen.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      seen.disconnect();
+    };
+  }, []);
+  return ref;
+}
+
 /** A note on the page: a line that matters, with its tone's color for the mark. */
 export function Note({ text, tone = "gray" }: { text: string; tone?: Tone }) {
   return (

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseStrings } from "../src/lib/strings.ts";
 
-export const data = JSON.parse(process.env.JANUS_WEB_DATA ?? "{}") as { workspace: string; asked: string; later: string; delivered: string; chat: string; goal: string; reviewed: string };
+export const data = JSON.parse(process.env.JANUS_WEB_DATA ?? "{}") as { workspace: string; asked: string; later: string; delivered: string; chat: string; goal: string; reviewed: string; stopping: string; gone: string; suggested: string };
 const shots = join(process.env.JANUS_WEB_REPORT ?? "/tmp", "shots");
 export const english = parseStrings(readFileSync(new URL("../../frontend/Sources/Janus/en.lproj/Localizable.strings", import.meta.url), "utf8"));
 

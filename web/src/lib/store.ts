@@ -7,6 +7,7 @@
 
 import { computed, signal } from "@preact/signals";
 import { api, type Json } from "./api.ts";
+import { confirm, confirmDeleteRun } from "./confirm.ts";
 import { serverLang, tr } from "./i18n.ts";
 import { RunPager } from "./pager.ts";
 import { ACTIVE } from "./status.ts";
@@ -246,16 +247,11 @@ export async function deleteSetup(kind: "workspaces" | "roles" | "connections", 
 
 // --- Acting on runs ----------------------------------------------------------------------------
 
-/** Ask the person (the browser's own dialog: a phone shows it full width). */
-export function ask(title: string, text = ""): boolean {
-  return window.confirm(text ? `${title}\n\n${text}` : title);
-}
-
 /** Start a goal in a workspace and return its id; first say what the person should know before it starts. */
 export async function createRun(goal: string, ws: string, images: Json[]): Promise<string | null> {
   try {
     const warnings: string[] = (await api.get(`/api/runs/preflight?workspace=${encodeURIComponent(ws)}`)).warnings ?? [];
-    if (warnings.length && !ask(tr("继续执行？"), warnings.join("\n\n"))) return null;
+    if (warnings.length && !(await confirm({ title: tr("继续执行？"), text: warnings.join("\n\n"), ok: tr("继续"), destructive: false }))) return null;
     const r = await api.post("/api/runs", { goal, workspace: ws, images });
     await loadRuns();
     return r.id;
@@ -286,8 +282,8 @@ export async function deleteRun(r: Json): Promise<boolean> {
   const chat = r.kind === "chat";
   const name = r.title ? tr("「%@」", r.title) : chat ? tr("这个对话") : tr("这个任务");
   const ok = chat
-    ? ask(tr("删除对话？"), tr("%@的聊天记录、日志和专属工作目录（含%@留下的文件）都会删除，找不回来；进行中的会话会停止。", name, r.config?.team?.[0]?.name || tr("这名数字员工")))
-    : ask(tr("删除任务？"), tr("%@的记录、子任务、产物和日志都会删除，找不回来。没提交的改动先存成补丁；你的目录和已合并的结果不受影响。", name));
+    ? await confirm({ title: tr("删除对话？"), text: tr("%@的聊天记录、日志和专属工作目录（含%@留下的文件）都会删除，找不回来；进行中的会话会停止。", name, r.config?.team?.[0]?.name || tr("这名数字员工")), ok: tr("删除") })
+    : await confirmDeleteRun(name);
   if (!ok) return false;
   try {
     await api.delete(`/api/runs/${encodeURIComponent(r.id)}`);

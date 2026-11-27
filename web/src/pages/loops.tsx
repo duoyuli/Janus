@@ -10,7 +10,8 @@ import { api, type Json } from "../lib/api.ts";
 import { dateTime } from "../lib/format.ts";
 import { serverLang, t } from "../lib/i18n.ts";
 import { go, link } from "../lib/router.ts";
-import { ask, loadLoops, loadRuns, loops, loopOfRun, role, show, workspace } from "../lib/store.ts";
+import { confirm } from "../lib/confirm.ts";
+import { loadLoops, loadRuns, loops, loopOfRun, role, show, workspace } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
 import { Field, FormPage, Radio, Select, TextArea, TextInput } from "../ui/form.tsx";
@@ -274,7 +275,7 @@ export function LoopPage({ run, session, asks }: { run: Json; session?: preact.C
     }
   };
   const remove = async () => {
-    if (!ask(t`删除值班「${loop.title}」？`, t`它的会话和记录一起删掉，找不回来；派出的任务保留。`)) return;
+    if (!(await confirm({ title: t`删除值班「${loop.title}」？`, text: t`它的会话和记录一起删掉，找不回来；派出的任务保留。`, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/loops/${encodeURIComponent(loop.id)}`);
       await Promise.all([loadLoops(), loadRuns()]);

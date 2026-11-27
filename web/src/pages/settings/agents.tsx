@@ -5,13 +5,14 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { api, type Json } from "../../lib/api.ts";
+import { closeSheet, confirm } from "../../lib/confirm.ts";
 import { t, tr } from "../../lib/i18n.ts";
 import { go, link } from "../../lib/router.ts";
 import { connections, loadSetup, meta, roles, show } from "../../lib/store.ts";
 import type { Tone } from "../../lib/status.ts";
 import { Avatar, Button, Card, Menu, Note, Pill, Spinner } from "../../ui/kit.tsx";
 import { Icon } from "../../ui/Icon.tsx";
-import { confirmed, Field, TextInput, Segmented, Select, FormPage, TextArea } from "../../ui/form.tsx";
+import { Field, TextInput, Segmented, Select, FormPage, TextArea } from "../../ui/form.tsx";
 import { acknowledge, adapterAction, adapters, autoUpdateSeen, login, testConnection } from "./data.ts";
 
 /** A catalog word of the agent kinds (`/api/meta` `kinds`), in the interface language. */
@@ -99,7 +100,7 @@ function ConnectionRow({ c }: { c: Json }) {
   const remove = async () => {
     const used = using.map((r) => r.name);
     const msg = used.length ? t`这些数字员工正在使用它，删除后会变成未绑定，需要重新选择 Agent：${used.join(t`、`)}` : "";
-    if (!confirmed(t`删除「${c.name}」和它的独立目录（包括登录凭据）？`, msg)) return;
+    if (!(await confirm({ title: t`删除「${c.name}」和它的独立目录（包括登录凭据）？`, text: msg, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/setup/connections/${encodeURIComponent(c.id)}`);
       show(t`已删除 ${c.name}`);
@@ -348,7 +349,7 @@ function ConnectionForm({ id }: { id: string }) {
   const dirty = JSON.stringify({ ...draft, newId: undefined }) !== JSON.stringify({ ...saved, newId: undefined }) || (idTouched && !draft.id) || Object.values(secrets).some(Boolean);
   const back = () => go("/settings/agents");
   const cancel = () => {
-    if (!dirty || confirmed(t`放弃未保存的更改？`, t`关闭后，这次的修改不会保存。`)) back();
+    void closeSheet(dirty, back);
   };
   /** Pasted credentials stay with the provider and auth form they were typed for. */
   const envFor = (kind: string, a: string): string => {

@@ -9,10 +9,11 @@ import { useEffect, useState } from "preact/hooks";
 import type { Json } from "../lib/api.ts";
 import { t } from "../lib/i18n.ts";
 import { go, link, search } from "../lib/router.ts";
-import { ask, loadInbox, loadRuns, show } from "../lib/store.ts";
+import { confirmDeleteRun } from "../lib/confirm.ts";
+import { loadInbox, loadRuns, show } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
-import { usePageTitle } from "../lib/title.ts";
-import { Button, Card, Menu, Pill, Spinner } from "../ui/kit.tsx";
+import { usePageActions, usePageTitle } from "../lib/title.ts";
+import { Button, Card, Menu, Pill, Spinner, useEdgeFade } from "../ui/kit.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { Markdown } from "../session/Markdown.tsx";
 import { BoardView } from "./board.tsx";
@@ -89,6 +90,27 @@ export function GoalPage({ run, sub }: { run: RunModel; sub: RunSub }) {
     }
   })();
   if (sub.kind === "diff" || sub.kind === "doc") return page;
+  return <RunFrame run={run} full={full} title={title} tab={tab} inboxCount={inboxCount} replayBar={run.replaying.value && (sub.kind === "board" || sub.kind === "task" || sub.kind === "agent")} page={page} />;
+}
+
+/** The goal's frame: its title, the three views and its tools; on a phone the tools are one 「…」
+ * menu in the top bar and the views a row of their own that scrolls sideways. */
+function RunFrame({ run, full, title, tab, inboxCount, replayBar, page }: { run: RunModel; full: Json; title: string; tab: string; inboxCount: number; replayBar: boolean; page: ComponentChildren }) {
+  const docs: Json[] = full.docs ?? [];
+  const remove = useDelete(run, title, full.actions?.delete);
+  const fade = useEdgeFade<HTMLElement>();
+  usePageActions(
+    <Menu
+      icon="ellipsis.circle"
+      label={t`更多`}
+      items={[
+        ...docs.map((d) => ({ label: t`文档：${d.name}`, onSelect: () => go(docLink(run.id, d.path)) })),
+        ...(full.page?.summary ? [{ label: t`复制交付摘要`, onSelect: () => copySummary(full.page.summary) }] : []),
+        { label: t`导出事件日志…`, onSelect: () => exportLog(run.id) },
+        { label: t`删除任务…`, onSelect: () => void remove() },
+      ]}
+    />,
+  );
   const views: [string, string, string][] = [
     ["board", inboxCount === 0 ? t`工作台` : t`工作台 · ${inboxCount}`, runLink(run.id)],
     ["audit", t`审计与回放`, runLink(run.id, "audit")],
@@ -101,25 +123,29 @@ export function GoalPage({ run, sub }: { run: RunModel; sub: RunSub }) {
           <h1 class="display ellipsis">{title}</h1>
           {full.readOnly && <span class="caption secondary">{t`只读 · 这个任务已停止`}</span>}
         </div>
-        <nav class="segmented run-views" aria-label={t`视图`}>
-          {views.map(([v, label, href]) => (
-            <a class={"segment" + (tab === v ? " on" : "")} aria-current={tab === v ? "page" : undefined} {...link(href)} onClick={(e) => {
-              // The audit and team pages show the live run: going there ends a replay.
-              if (v !== "board") run.setReplay(null);
-              link(href).onClick(e);
-            }}>{label}</a>
-          ))}
-        </nav>
+        <div class="run-views-wrap">
+          <nav class="segmented run-views" aria-label={t`视图`} ref={fade}>
+            {views.map(([v, label, href]) => (
+              <a class={"segment" + (tab === v ? " on" : "")} aria-current={tab === v ? "page" : undefined} {...link(href)} onClick={(e) => {
+                // The audit and team pages show the live run: going there ends a replay.
+                if (v !== "board") run.setReplay(null);
+                link(href).onClick(e);
+              }}>{label}</a>
+            ))}
+          </nav>
+        </div>
         <div class="run-head-tools">
-          <DocumentsMenu run={run} docs={full.docs ?? []} />
+          <DocumentsMenu run={run} docs={docs} />
           <Menu icon="square.and.arrow.up" label={t`分享`} items={[
             ...(full.page?.summary ? [{ label: t`复制交付摘要`, onSelect: () => copySummary(full.page.summary) }] : []),
             { label: t`导出事件日志…`, onSelect: () => exportLog(run.id) },
           ]} />
-          <DeleteButton run={run} title={title} why={full.actions?.delete} />
+          <button type="button" class="icon-btn" aria-label={t`删除任务`} aria-disabled={!full.actions?.delete?.ok} title={full.actions?.delete?.ok ? t`删掉这个任务和它的全部记录、产物，删了就找不回来` : full.actions?.delete?.why ?? ""} onClick={() => void remove()}>
+            <Icon name="trash" />
+          </button>
         </div>
       </header>
-      {run.replaying.value && (sub.kind === "board" || sub.kind === "task" || sub.kind === "agent") && <ReplayBar run={run} />}
+      {replayBar && <ReplayBar run={run} />}
       {page}
     </div>
   );
@@ -139,15 +165,15 @@ function exportLog(id: string) {
   a.remove();
 }
 
-function DeleteButton({ run, title, why }: { run: RunModel; title: string; why?: Json }) {
-  const ok = !!why?.ok;
-  const remove = async () => {
-    if (!ok) {
+/** Delete the goal after asking; when the service does not allow it, say why instead. */
+function useDelete(run: RunModel, title: string, why?: Json) {
+  return async () => {
+    if (!why?.ok) {
       show(why?.why ?? "");
       return;
     }
     const name = title ? t`「${title}」` : t`这个任务`;
-    if (!ask(t`删除任务？`, t`${name}的记录、子任务、产物和日志都会删除，找不回来。没提交的改动先存成补丁；你的目录和已合并的结果不受影响。`)) return;
+    if (!(await confirmDeleteRun(name))) return;
     if (!(await deleteRun(run.id))) return;
     await loadRuns();
     await loadInbox();
@@ -155,11 +181,6 @@ function DeleteButton({ run, title, why }: { run: RunModel; title: string; why?:
     go(ws ? `/workspaces/${encodeURIComponent(ws)}` : "/inbox", true);
     show(t`已删除任务`);
   };
-  return (
-    <button type="button" class="icon-btn" aria-label={t`删除任务`} aria-disabled={!ok} title={ok ? t`删掉这个任务和它的全部记录、产物，删了就找不回来` : why?.why ?? ""} onClick={() => void remove()}>
-      <Icon name="trash" />
-    </button>
-  );
 }
 
 /** The run's Markdown files, one click away: deliverables, artifacts, documents the agents wrote or mentioned. */

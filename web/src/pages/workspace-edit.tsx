@@ -8,7 +8,8 @@ import { useEffect } from "preact/hooks";
 import { api, type Json } from "../lib/api.ts";
 import { serverLang, t } from "../lib/i18n.ts";
 import { go } from "../lib/router.ts";
-import { ask, connection, defaultTeam, deleteSetup, role, roleGroups, roles, saveSetup, show, workspace, workspaces } from "../lib/store.ts";
+import { closeSheet, confirm } from "../lib/confirm.ts";
+import { connection, defaultTeam, deleteSetup, role, roleGroups, roles, saveSetup, show, workspace, workspaces } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
 import { Field, FormPage, Radio, Stepper, Switch, TextArea, TextInput } from "../ui/form.tsx";
@@ -120,7 +121,7 @@ export function WorkspaceEditor({ id }: { id?: string }) {
     saving.value = false;
   };
   const remove = async () => {
-    if (!original || !ask(t`删除工作区「${original.name}」？`, t`任务记录会保留，在侧栏的「团队」里还能找到。`)) return;
+    if (!original || !(await confirm({ title: t`删除工作区「${original.name}」？`, text: t`任务记录会保留，在侧栏的「团队」里还能找到。`, ok: t`删除` }))) return;
     try {
       await deleteSetup("workspaces", original.id);
       go(workspaces.value[0] ? `/workspaces/${encodeURIComponent(workspaces.value[0].id)}` : "/workspaces", true);
@@ -139,7 +140,7 @@ export function WorkspaceEditor({ id }: { id?: string }) {
         <>
           {!isNew && <Button onClick={() => void remove()}>{t`删除工作区…`}</Button>}
           <span class="spacer" />
-          <Button onClick={() => (!dirty || ask(t`放弃未保存的更改？`, t`关闭后，这次的修改不会保存。`)) && go(back)}>{t`取消`}</Button>
+          <Button onClick={() => void closeSheet(dirty, () => go(back))}>{t`取消`}</Button>
           <Button kind="primary" disabled={saving.value || !v.path.trim() || insp?.exists === false} onClick={() => void save()}>
             {saving.value ? t`正在保存…` : isNew ? t`创建工作区` : t`保存`}
           </Button>
@@ -242,7 +243,7 @@ export function BriefEditor({ id }: { id: string }) {
           {dirty && <span class="caption fg-amber">{t`还没保存 · 保存后下个任务起生效`}</span>}
           <span class="spacer" />
           <span class={"caption" + (over ? " fg-red" : "")}>{`${[...text].length} / ${BRIEF_LIMIT}`}</span>
-          <Button onClick={() => (!dirty || ask(t`放弃未保存的更改？`, t`关闭后，这次的修改不会保存。`)) && go(back)}>{t`取消`}</Button>
+          <Button onClick={() => void closeSheet(dirty, () => go(back))}>{t`取消`}</Button>
           <Button kind="primary" disabled={saving.value || !dirty || over} onClick={() => void save()}>
             {saving.value ? t`正在保存…` : t`保存`}
           </Button>

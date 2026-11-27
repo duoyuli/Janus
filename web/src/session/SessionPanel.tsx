@@ -7,11 +7,12 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { api, query, type Json } from "../lib/api.ts";
+import { confirm } from "../lib/confirm.ts";
 import { show } from "../lib/store.ts";
 import { serverLang, t } from "../lib/i18n.ts";
 import { sends, symbol, touch } from "../lib/sendkey.ts";
 import { useDrawn } from "../lib/testing.ts";
-import { AddImages, confirmed, ImageStrip, MAX_IMAGES, readImages, Segmented } from "../ui/form.tsx";
+import { AddImages, ImageStrip, MAX_IMAGES, readImages, Segmented } from "../ui/form.tsx";
 import { Button, Pill } from "../ui/kit.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { ActivityRow, ChatItem, EditsCard, LiveRow, TextRow, TurnHead } from "./Items.tsx";
@@ -337,7 +338,7 @@ function Composer({ run, sessionKey, mode, placeholder }: { run: RunModel; sessi
         return;
       }
       case "finish":
-        if (!confirmed(t`用当前产出完成这个子任务？`, t`子任务里已有的改动会照常记录成 diff。`)) return;
+        if (!(await confirm({ title: t`用当前产出完成这个子任务？`, text: t`子任务里已有的改动会照常记录成 diff。`, ok: t`完成`, destructive: false }))) return;
         void run.act({ type: "finish", ...to });
         return;
       case "resumeRun":

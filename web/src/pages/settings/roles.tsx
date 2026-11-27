@@ -4,12 +4,13 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { api, type Json } from "../../lib/api.ts";
+import { closeSheet, confirm } from "../../lib/confirm.ts";
 import { serverLang, t } from "../../lib/i18n.ts";
 import { go, link } from "../../lib/router.ts";
 import { connections, loadSetup, roleGroups, roles, show } from "../../lib/store.ts";
 import { Avatar, Button, Card, initials, Menu, Note, Pill, Spinner } from "../../ui/kit.tsx";
 import { Icon } from "../../ui/Icon.tsx";
-import { confirmed, Field, TextInput, Select, FormPage, SwitchRow, TextArea } from "../../ui/form.tsx";
+import { Field, TextInput, Select, FormPage, SwitchRow, TextArea } from "../../ui/form.tsx";
 import { roleStats, testConnection } from "./data.ts";
 
 const RECRUITER = "recruiter";
@@ -198,7 +199,7 @@ function RoleForm({ id }: { id: string }) {
   const dirty = JSON.stringify(r) !== JSON.stringify(first) || picture.kind !== "unchanged";
   const back = () => go("/settings/agents");
   const cancel = () => {
-    if (!dirty || confirmed(t`放弃未保存的更改？`, t`关闭后，这次的修改不会保存。`)) back();
+    void closeSheet(dirty, back);
   };
   const choose = (file: File | undefined) => {
     if (!file) return;
@@ -226,7 +227,7 @@ function RoleForm({ id }: { id: string }) {
     setSaving(false);
   };
   const remove = async () => {
-    if (!confirmed(t`删除数字员工「${r.name}」？`)) return;
+    if (!(await confirm({ title: t`删除数字员工「${r.name}」？`, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/setup/roles/${encodeURIComponent(r.id)}`);
       await loadSetup();
@@ -334,7 +335,7 @@ function RoleForm({ id }: { id: string }) {
           <div class="soft-box wrap-row">
             <Avatar role={roles.value.find((x) => x.id === RECRUITER)} size={26} />
             <span class="grow">{t`不知道怎么写职责和指令？和招聘顾问聊聊你要做的事，它帮你设计好，你确认后创建。`}</span>
-            <Button onClick={() => (!dirty || confirmed(t`放弃未保存的更改？`, t`关闭后，这次的修改不会保存。`)) && void chatWithRecruiter()}>{t`找招聘顾问`}</Button>
+            <Button onClick={() => void closeSheet(dirty, () => void chatWithRecruiter())}>{t`找招聘顾问`}</Button>
           </div>
         )}
         <Field label={t`名称`}>

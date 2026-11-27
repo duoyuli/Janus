@@ -10,7 +10,8 @@ import { api, type Json } from "../lib/api.ts";
 import { dateTime } from "../lib/format.ts";
 import { t } from "../lib/i18n.ts";
 import { go, link } from "../lib/router.ts";
-import { ask, loadMemories, loadRuns, memories, role, show, workspace } from "../lib/store.ts";
+import { closeSheet, confirm } from "../lib/confirm.ts";
+import { loadMemories, loadRuns, memories, role, show, workspace } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
 import { Field, FormPage, Select, TextArea, TextInput } from "../ui/form.tsx";
@@ -160,7 +161,7 @@ export function NotePage({ id, note }: { id: string; note: string }) {
     }
   };
   const remove = async () => {
-    if (!ask(t`删除笔记「${original.title}」？`, t`之后的任务不会再读到它。`)) return;
+    if (!(await confirm({ title: t`删除笔记「${original.title}」？`, text: t`之后的任务不会再读到它。`, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/memories/${encodeURIComponent(note)}`);
       await loadMemories(id);
@@ -187,7 +188,7 @@ export function NotePage({ id, note }: { id: string; note: string }) {
             {t`加入共享资料…`}
           </Button>
           <span class="spacer" />
-          <Button onClick={() => (!dirty || ask(t`放弃未保存的更改？`, t`关闭后，这次的修改不会保存。`)) && go(back)}>{t`取消`}</Button>
+          <Button onClick={() => void closeSheet(dirty, () => go(back))}>{t`取消`}</Button>
           <Button kind="primary" disabled={saving.value || !dirty || !valid} onClick={() => void save().then((ok) => ok && go(back))}>
             {saving.value ? t`正在保存…` : t`保存`}
           </Button>

@@ -9,7 +9,7 @@ import type { Json } from "../lib/api.ts";
 import { t } from "../lib/i18n.ts";
 import { link } from "../lib/router.ts";
 import { load, save } from "../lib/prefs.ts";
-import { ask } from "../lib/store.ts";
+import { confirm } from "../lib/confirm.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { Avatar, Button, Card, Note, Pill } from "../ui/kit.tsx";
 import { Icon } from "../ui/Icon.tsx";
@@ -30,7 +30,7 @@ export const leadFocus = signal(0);
 
 /** Stop the run, after asking (Mac: `cancelRun`). */
 export async function cancelRun(run: RunModel) {
-  if (ask(t`停止这个任务？`, t`所有会话都会结束，已有改动保留。停了就不能再继续。`)) void run.act({ type: "cancel" });
+  if (await confirm({ title: t`停止这个任务？`, text: t`所有会话都会结束，已有改动保留。停了就不能再继续。`, ok: t`停止` })) await run.act({ type: "cancel" });
 }
 
 

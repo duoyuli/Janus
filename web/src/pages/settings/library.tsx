@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { signal } from "@preact/signals";
 import { api, type Json } from "../../lib/api.ts";
+import { confirm } from "../../lib/confirm.ts";
 import { serverLang, t } from "../../lib/i18n.ts";
 import { ago } from "../../lib/format.ts";
 import { go, link } from "../../lib/router.ts";
@@ -16,7 +17,7 @@ import { load, save } from "../../lib/prefs.ts";
 import { useDrawn } from "../../lib/testing.ts";
 import { Button, Card, Note, Pill, Spinner } from "../../ui/kit.tsx";
 import { Icon } from "../../ui/Icon.tsx";
-import { Check, confirmed, Field, TextInput, Segmented, FormPage, SwitchRow, TextArea } from "../../ui/form.tsx";
+import { Check, Field, TextInput, Segmented, FormPage, SwitchRow, TextArea } from "../../ui/form.tsx";
 import { library, loadLibrary, picks, useFollow } from "./data.ts";
 
 export type LibraryKind = "skills" | "servers";
@@ -226,7 +227,7 @@ function SkillTab({ query }: { query: string }) {
     }
   };
   const removeSource = async (s: Json) => {
-    if (!confirmed(t`删除来源 ${s.url}？`, t`本机的仓库副本会删除。还有从它导入的资源时不能删除。`)) return;
+    if (!(await confirm({ title: t`删除来源 ${s.url}？`, text: t`本机的仓库副本会删除。还有从它导入的资源时不能删除。`, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/library/sources/${encodeURIComponent(s.id)}`);
       await loadLibrary();
@@ -413,7 +414,7 @@ function Row({ i }: { i: Json }) {
   const warm = i.warm ?? {};
   const lines = [i.endpoint, i.description, i.originText, i.varsText, i.server?.transport === "stdio" ? t`同一任务共用一个进程，用到才启动` : "", mcp ? "" : usage(i)].filter(Boolean);
   const remove = async () => {
-    if (!confirmed(t`删除 ${i.name}？`, t`进行中的任务不受影响；这个服务器会停下，它的值一起删除。`)) return;
+    if (!(await confirm({ title: t`删除 ${i.name}？`, text: t`进行中的任务不受影响；这个服务器会停下，它的值一起删除。`, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/library/items/${encodeURIComponent(i.id)}`);
       await loadLibrary();
@@ -788,7 +789,7 @@ export function McpEditor({ id }: { id: string }) {
     setSaving(false);
   };
   const remove = async () => {
-    if (!confirmed(t`删除 ${d.name}？`, t`进行中的任务不受影响；这个服务器会停下，它的值一起删除。`)) return;
+    if (!(await confirm({ title: t`删除 ${d.name}？`, text: t`进行中的任务不受影响；这个服务器会停下，它的值一起删除。`, ok: t`删除` }))) return;
     try {
       await api.delete(`/api/library/items/${encodeURIComponent(d.id)}`);
       await loadLibrary();

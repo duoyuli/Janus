@@ -66,6 +66,17 @@ def prepare(ctx):
     reviewed.orchestrate(scenarios.task("T1", rt.member("m1")))
     reviewed.read_board(lambda b: "[完成] T1" in b)
     reviewed.finish("## 结论\n笔记写好了。\n\n## 需要你决定\n- 要不要发布？\n\n## 改了什么\nnotes.md 写了一份笔记")
+    # Asking before what cannot be undone, each on its own team (a lead told to finish finishes
+    # every lead of its team's agent): a goal at work to stop, a delivered one to delete, and one
+    # delivered with lines the lead suggests for the shared material.
+    stopping = ctx.team("web-stop", members=("m1",)).run("要停的任务")
+    stopping.lead()
+    gone = ctx.team("web-gone", members=("m1",)).run("要删的任务")
+    gone.lead()
+    gone.finish("目标已完成：删掉也无妨")
+    suggested = ctx.team("web-brief", members=("m1",)).run("写定价页")
+    suggested.lead()
+    suggested.finish("定价页写好了。\n\n## 建议更新共享资料\n- 定价页在 docs/pricing.md\n- 免费版限 3 个项目")
     # Each one is in the inbox before the browser opens it.
     wait(lambda: {asked.id, later.id, delivered.id, reviewed.id} <= {e["run"] for e in ctx.api("GET", "/api/inbox?lang=zh")["open"]},
          "四个 Run 都进了收件箱", timeout=60)
@@ -110,7 +121,7 @@ def prepare(ctx):
     folder = ctx.path("web-folder")
     return {"workspace": "web", "asked": asked.id, "later": later.id, "delivered": delivered.id, "reviewed": reviewed.id,
             "newWorkspace": "web-new", "loop": loop["id"], "loopRun": loop["run"], "folder": folder,
-            "chat": chat, "goal": goal.id}
+            "chat": chat, "goal": goal.id, "stopping": stopping.id, "gone": gone.id, "suggested": suggested.id}
 
 
 def main():

@@ -8,8 +8,9 @@ import { t } from "../lib/i18n.ts";
 import { link, route } from "../lib/router.ts";
 import { chats, inbox, loopOfRun, pastWorkspaces, runs, toast, workingWorkspaces, workspaces } from "../lib/store.ts";
 import { connected } from "../lib/stream.ts";
-import { backTo, pageTitle } from "../lib/title.ts";
+import { backTo, pageActions, pageTitle } from "../lib/title.ts";
 import { ACTIVE } from "../lib/status.ts";
+import { ConfirmDialog } from "../ui/ConfirmDialog.tsx";
 import { Icon } from "../ui/Icon.tsx";
 import { waitingIn } from "../pages/workspace.tsx";
 
@@ -27,6 +28,7 @@ export function Shell({ children }: { children: ComponentChildren }) {
         )}
       </div>
       <TabBar />
+      <ConfirmDialog />
     </div>
   );
 }
@@ -131,7 +133,7 @@ function TopBar() {
         )}
       </div>
       <div class="title">{pageTitle.value}</div>
-      <div class="side">{!connected.value && <Icon name="wifi.slash" label={t`正在连接服务…`} class="fg-amber" />}</div>
+      <div class="side">{!connected.value ? <Icon name="wifi.slash" label={t`正在连接服务…`} class="fg-amber" /> : pageActions.value}</div>
     </header>
   );
 }
