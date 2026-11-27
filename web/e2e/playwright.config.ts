@@ -13,6 +13,8 @@ import { join } from "node:path";
 const report = process.env.JANUS_WEB_REPORT ?? join(tmpdir(), "janus-web-e2e");
 /** The paired browser's cookie, written by `pair` for the projects after it. */
 export const PAIRED = join(report, "paired.json");
+/** A name for 127.0.0.1 that Chrome does not treat as a secure context (`plain-http`). */
+const PLAIN_HOST = "janus.test";
 
 export default defineConfig({
   testDir: ".",
@@ -32,11 +34,26 @@ export default defineConfig({
     { name: "pair", testMatch: /\/pair\.spec\.ts$/, use: { viewport: { width: 1280, height: 820 } } },
     {
       name: "phone",
-      testMatch: /(web|home|settings|session|run|confirm|brief)\.spec\.ts/,
+      testMatch: /(web|home|settings|session|run|confirm|brief|mobile)\.spec\.ts/,
       dependencies: ["pair"],
       use: { ...devices["iPhone 13"], channel: "chrome", defaultBrowserType: "chromium", viewport: { width: 390, height: 844 }, storageState: PAIRED },
     },
     { name: "desktop", testMatch: /(web|home|settings|session|run|confirm|brief)\.spec\.ts/, dependencies: ["phone"], use: { viewport: { width: 1280, height: 820 }, storageState: PAIRED } },
     { name: "unpair", testMatch: /unpair\.spec\.ts/, dependencies: ["desktop"], use: { viewport: { width: 1280, height: 820 }, storageState: PAIRED } },
+    // The same server under a name Chrome does not count as secure, as a phone on the local
+    // network or Tailscale sees it; it pairs there itself.
+    {
+      name: "plain-http",
+      testMatch: /plain-http\.spec\.ts/,
+      dependencies: ["unpair"],
+      use: {
+        ...devices["iPhone 13"],
+        channel: "chrome",
+        defaultBrowserType: "chromium",
+        viewport: { width: 390, height: 844 },
+        baseURL: process.env.JANUS_WEB_URL?.replace("127.0.0.1", PLAIN_HOST),
+        launchOptions: { args: [`--host-resolver-rules=MAP ${PLAIN_HOST} 127.0.0.1`] },
+      },
+    },
   ],
 });
