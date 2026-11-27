@@ -36,8 +36,8 @@ def decisions(ctx, c):
         c(first["events"] == second["events"],
           f"两次读取之间没有新事件（{first['events']} 条），耗时仍在推进")
         a, b = first.get("elapsedMs"), second.get("elapsedMs")
-        c(a is not None and b is not None and b - a >= 2000, f"应用：没有新事件时，运行卡片的耗时仍按秒推进（{a} → {b} ms）")
-        c(drawn(ctx.app.picture(f"{run.id}-elapsed")), f"应用：运行卡片画出来了（{run.id}-elapsed.png）")
+        c(a is not None and b is not None and b - a >= 2000, f"应用：没有新事件时，群标题下的耗时仍按秒推进（{a} → {b} ms）")
+        c(drawn(ctx.app.picture(f"{run.id}-elapsed")), f"应用：群聊页画出来了（{run.id}-elapsed.png）")
         st = ctx.app.until(lambda s: len([e for e in s["open"] if e["run"] == run.id]) >= 3, "收件箱列出三个等用户处理的事项",
                            "open inbox", timeout=60)
         mine = [e for e in st["open"] if e["run"] == run.id]

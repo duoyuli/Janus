@@ -3,7 +3,8 @@
 
 Stages demonstration data on a scratch Janus home with the end-to-end test's drivers, in English
 and in Chinese, and pictures four pages of the app in the light and the dark appearance: the
-inbox, a delivered run, a collaborator's session at work and a workspace. The scripted agent
+inbox, a delivered run's group with its tasks beside it, the group while a collaborator works
+with its session open beside it, and a workspace. The scripted agent
 says and writes what `content.json` gives it, so the pages show plausible work, not test strings.
 The pictures are converted to sRGB and reduced to 256 colours with ImageMagick.
 
@@ -29,9 +30,9 @@ from product import build  # noqa: E402
 BASE = "/tmp/demo"
 MARK = os.path.join(BASE, ".janus-screenshots")
 SRGB = "/System/Library/ColorSync/Profiles/sRGB Profile.icc"
-# The English delivery stops under "To Look At": the line below it is written by the server and is
-# still Chinese in the English interface. Pixel rows kept, the last 40 fading out.
-CUT = {("delivery", "en"): 956}
+# The English delivery stops under "To Look At": the merge line below it is written by the server and
+# is still Chinese in the English interface. Pixel rows kept, the last 40 fading out.
+CUT = {("delivery", "en"): 880}
 
 EXPORT_PY = '''"""Invoices as CSV rows."""
 import csv
@@ -432,8 +433,8 @@ def stage(lang, server_bin, app_bin, node, raw):
 
         app = App(app_bin, home, addr, raw, os.path.join(logs, "app.log"), settings={"janus.language": t["language"]})
         app.until(lambda s: s.get("connections") is not None, "应用连上服务", timeout=90)
-        # The window keeps the size of its last launch.
-        app.do("size 1000x800")
+        # The window keeps the size of its last launch. Wide enough for the group's side panel.
+        app.do("size 1280x800")
 
         def shoot(page, *commands):
             app.do("reload", *commands)
@@ -452,7 +453,7 @@ def stage(lang, server_bin, app_bin, node, raw):
         wait(lambda: done(main_run, "T2"), "T2 完成", 180)
         wait(lambda: {e.get("task") for e in events(main_run) if e["type"] == "tool.started"} >= {"T3", "V1"}, "T3 和 V1 在干活", 120)
         time.sleep(2)
-        shoot("session", f"open run:{main_run}", "page task:V1")
+        shoot("session", f"open run:{main_run}", "page board", "side work:V1")
         fake.touch("hold-T3")
         fake.touch("hold-V1")
         wait(lambda: done(main_run, "T3", "V1"), "T3 和 V1 完成", 120)
@@ -466,7 +467,7 @@ def stage(lang, server_bin, app_bin, node, raw):
                 lead(made["run"], "dispatch", {"goal": t["dispatch"], "key": "github:acme/ledger#415", "source_url": "https://github.com/acme/ledger/issues/415"})
         time.sleep(3)
 
-        shoot("delivery", f"open run:{main_run}", "page board")
+        shoot("delivery", f"open run:{main_run}", "page board", "side tasks", "mention")
         shoot("workspace", "open home:ledger")
         shoot("inbox", "open inbox")
     finally:
@@ -483,9 +484,10 @@ def publish(raw, out, lang):
             cmd = ["magick", os.path.join(raw, name), "-profile", SRGB]
             rows = CUT.get((page, lang))
             if rows:
+                w = subprocess.run(["magick", "identify", "-format", "%w", os.path.join(raw, name)], capture_output=True, text=True).stdout.strip()
                 # Kept in full colour: 256 colours would turn the fade into stripes.
-                cmd += ["-crop", f"2000x{rows}+0+0", "+repage", "-write", "mpr:picture", "-alpha", "extract",
-                        "(", "-size", f"2000x{rows - 40}", "xc:white", "-size", "2000x40", "gradient:white-black", "-append", ")",
+                cmd += ["-crop", f"{w}x{rows}+0+0", "+repage", "-write", "mpr:picture", "-alpha", "extract",
+                        "(", "-size", f"{w}x{rows - 40}", "xc:white", "-size", f"{w}x40", "gradient:white-black", "-append", ")",
                         "-compose", "Multiply", "-composite", "-write", "mpr:mask", "+delete",
                         "mpr:picture", "mpr:mask", "-alpha", "off", "-compose", "CopyOpacity", "-composite", "-strip"]
             else:

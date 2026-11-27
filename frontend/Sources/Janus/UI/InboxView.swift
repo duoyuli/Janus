@@ -94,7 +94,7 @@ struct InboxView: View {
         case "held": return ("hand.raised.fill", .amber)
         case "interrupted": return ("pause.circle.fill", .gray)
         case "failed": return ("xmark.octagon.fill", .red)
-        default: return (TimelineMark.openSymbols[e.kind] ?? "exclamationmark.circle.fill", e.canWait ? .amber : .red)
+        default: return (WaitingRow.openSymbols[e.kind] ?? "exclamationmark.circle.fill", e.canWait ? .amber : .red)
         }
     }
 

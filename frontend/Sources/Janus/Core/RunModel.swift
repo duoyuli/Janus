@@ -94,7 +94,8 @@ final class RunModel {
             guard let self else { return }
             let at = until.map { "&until=\($0)" } ?? ""
             let detail = ChatDensity.current == .detail ? "&detail=1" : ""
-            guard let j = try? await self.api.get("/api/runs/\(self.id)/view?lang=\(L.serverLanguage)\(at)\(detail)"),
+            // The lead's conversation is the run page's group: the team's posts in their place.
+            guard let j = try? await self.api.get("/api/runs/\(self.id)/view?lang=\(L.serverLanguage)\(at)\(detail)&group=1"),
                   !Task.isCancelled, self.replayedSeq == until else { return }
             if let until {
                 self.replayState = RunState(j, events: self.events.filter { $0.seq <= until })
@@ -133,10 +134,9 @@ final class RunModel {
     // Board view state
     var goalOpen = false
     var resultOpen = false
-    /// The usage ledger's detail, and the progress timeline, are folded in the run card and above
-    /// the conversation until opened here (W1 F3, F8). They last for this opening of the run.
+    /// The usage ledger's detail opens beside the group's header on request (W1 F3); it lasts for
+    /// this opening of the run.
     var usageOpen = false
-    var progressOpen = false
     /// Each acceptance row's own switch; a task without an entry uses its default.
     var taskOpen: [String: Bool] = [:]
     /// The delivery folded to one line (the lead at work, the team at work…) is opened to read.
@@ -146,8 +146,18 @@ final class RunModel {
     /// Turns and groups of calls the person opened or folded in each conversation (by session,
     /// then row id), for this opening of the run.
     var chatOpen: [SessionTarget: [Int: Bool]] = [:]
-    /// The inspector tab chosen for this opening; nil until the board first appears.
-    var inspectorTab: String?
+    /// What the group's side panel shows: the team's lists, or one task's topic.
+    var side = GroupSide.members
+    /// A window too narrow for the side panel shows it over the group on request.
+    var sideShown = false
+    /// Whom the group's composer sends to: the lead, or the task a collaborator works on.
+    var composeTo = SessionTarget.agent("lead")
+    /// Bumped to bring a row of the group into view: 「@你」 goes through what waits on the person.
+    var jump: Jump?
+    struct Jump: Equatable {
+        let row: Int
+        let n: Int
+    }
     // Audit view state
     var invariantsOpen = false
     var auditCat = "all"
@@ -349,13 +359,5 @@ final class RunModel {
     func agentName(_ id: String) -> String {
         let w = who(id)
         return w.runtime.isEmpty ? w.name : "\(w.name) · \(w.runtime)"
-    }
-
-    /// The inspector tab a run opens on: the last one the person chose, otherwise by state —
-    /// team before any task exists, tasks afterwards. It is resolved once per opening, so tasks
-    /// appearing later do not switch the tab under the person (W1 U2/A15).
-    static func initialInspectorTab(saved: String?, hasTasks: Bool) -> String {
-        guard let saved, !saved.isEmpty else { return hasTasks ? "tasks" : "team" }
-        return saved
     }
 }

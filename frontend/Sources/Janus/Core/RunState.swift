@@ -357,8 +357,6 @@ struct RunState {
     var cards: [ServedCard] = []
     /// The run's Markdown documents that exist.
     var docs: [RunDoc] = []
-    /// The progress timeline's rows and marks, as the server lays out what is on it.
-    var timeline: JSON = .null
     /// The run card's status, as the server words it.
     var capsule = (text: "", tone: Tone.gray)
     /// The team panel's rows, in the team's order.
@@ -386,6 +384,8 @@ struct RunState {
     var page = ServedPage()
     /// The checks events carry (a result, a verification), by seq, as the server writes them.
     var checks: [Int: [CheckView]] = [:]
+    /// Each task's topic, who is at work and what waits on the person, beside the group.
+    var feed = Feed()
     /// The newest event the server folded in.
     var seq = 0
     /// The events shown with it, the run's log up to the shown position (the app's own copy).
@@ -412,7 +412,6 @@ struct RunState {
         docs = j["docs"].array.map(RunDoc.init)
         lines = Dictionary(j["lines"].object.compactMap { k, v in Int(k).flatMap { s in ServedLine(v).map { (s, $0) } } }, uniquingKeysWith: { a, _ in a })
         cards = j["cards"].array.map(ServedCard.init)
-        timeline = j["timeline"]
         capsule = (j["capsule"]["text"].str, Tone(rawValue: j["capsule"]["tone"].str) ?? .gray)
         members = j["members"].array.map(MemberLine.init)
         audit = j["audit"].array.map { ($0["text"].str, $0["ok"].bool ?? false, $0["note"].str) }
@@ -426,6 +425,7 @@ struct RunState {
         resumeNote = j["resumeNote"].string
         page = ServedPage(j["page"])
         checks = Dictionary(j["checks"].object.compactMap { k, v in Int(k).map { ($0, CheckView.list(v)) } }, uniquingKeysWith: { a, _ in a })
+        feed = Feed(j["feed"])
         seq = j["seq"].int ?? 0
         self.events = events
     }
@@ -527,7 +527,7 @@ struct QuickAction: Equatable {
 }
 
 /// What the shared board holds up, as the server words it; the board's results, handoffs and
-/// decisions reach the app laid out on the timeline (`RunState.timeline`).
+/// decisions reach the app as the group's posts (`Feed`).
 struct BoardFacts {
     var open: [OpenFact] = []
 

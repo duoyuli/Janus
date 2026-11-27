@@ -27,10 +27,12 @@ struct ChatScroll: View {
     let density: ChatDensity
     /// Waiting requests are answered above the composer, not in the conversation.
     let docked: Bool
+    /// A row to bring into view, once per new value.
+    var jump: RunModel.Jump?
     /// The person opened or folded a turn or a group of calls (row id, open).
     let toggle: (Int, Bool) -> Void
     @Local private var follow = ChatFollow()
-    @Local private var position = ScrollPosition(edge: .bottom)
+    @Local private var position = ScrollPosition(idType: Int.self, edge: .bottom)
     /// Flips with each scroll to the end, so the next one is a new position (`toNewest`).
     @Local private var nudge = false
     /// The content offset that shows the end, from the last measurement.
@@ -48,6 +50,8 @@ struct ChatScroll: View {
                     if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
                     ForEach(all[..<split]) { line($0) }
                 }
+                // Each row is a target a jump (「@你」) can go to by its id.
+                .scrollTargetLayout()
                 // The newest rows and what the agent is writing right now are always built: their
                 // heights are known, not estimated, so the bottom edge is where the end really is.
                 // A lazy list's estimate of a tall reply it had not built left the view short of the
@@ -55,6 +59,7 @@ struct ChatScroll: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(all[split...]) { line($0) }
                 }
+                .scrollTargetLayout()
             }
         }
         // A margin of the scroll view, not padding around the rows, so that scrolling to the newest
@@ -102,6 +107,12 @@ struct ChatScroll: View {
             if again { toNewest() }
         }
         .overlay(alignment: .bottom) { if !follow.following { back } }
+        // Taken to a row further up (「@你」): the person reads there, so the view lets go of the end.
+        .onChange(of: jump) {
+            guard let jump else { return }
+            update { $0.left() }
+            position.scrollTo(id: jump.row, anchor: .top)
+        }
     }
 
     /// The live preview's row, always last.
@@ -156,6 +167,7 @@ struct ChatScroll: View {
         case .activity(_, let es, let open, let summary, _): ActivityRow(run: run, events: es, open: open, summary: summary, st: st) { toggle(r.id, !(open ?? true)) }
         case .text(_, let es, let reply, _): TextRow(events: es, reply: reply)
         case .edits(_, let files, _): EditsCard(files: files, diffs: st.diffs, cwd: cwd)
+        case .post(_, let p, _): PostRow(run: run, st: st, post: p)
         }
     }
 
@@ -292,6 +304,13 @@ struct ChatFollow: Equatable {
             return false
         }
         return true
+    }
+
+    /// The view is taken to a row further up: it no longer follows the end.
+    mutating func left() {
+        following = false
+        landing = 0
+        landingSince = nil
     }
 
     /// The view is sent to the newest item: sending a message, the button, a new display level.

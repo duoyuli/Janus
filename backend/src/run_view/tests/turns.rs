@@ -116,6 +116,7 @@ fn kinds(log: &Log, rows: &[Row]) -> Vec<String> {
             Row::Activity { events, open, .. } => format!("activity:{}:{}", events.len(), state(open)),
             Row::Text { events, reply, .. } => format!("text:{}{}", events.len(), if *reply { ":reply" } else { "" }),
             Row::Edits { files, .. } => format!("edits:{}", files.len()),
+            Row::Post { post, .. } => format!("post:{}", post.kind.as_str()),
         })
         .collect()
 }
@@ -187,7 +188,8 @@ fn an_open_turn_shows_its_work_in_order() {
             | Row::Head { gap, .. }
             | Row::Activity { gap, .. }
             | Row::Text { gap, .. }
-            | Row::Edits { gap, .. } => *gap,
+            | Row::Edits { gap, .. }
+            | Row::Post { gap, .. } => *gap,
         })
         .collect();
     assert_eq!(gaps, [Gap::None, Gap::Block, Gap::Line, Gap::Loose, Gap::Line, Gap::Block, Gap::Block]);

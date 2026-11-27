@@ -330,6 +330,10 @@ pub enum Row {
     /// The files the turn changed.
     #[serde(rename_all = "camelCase")]
     Edits { id: i64, turn: i64, files: Vec<EditedFile>, gap: Gap },
+    /// One of the group's posts in the lead's conversation (`feed::merge`): it stands apart like a
+    /// turn and never folds.
+    #[serde(rename_all = "camelCase")]
+    Post { id: i64, post: Box<super::feed::Post>, gap: Gap },
 }
 
 // Rows made of several events take negative ids from the seq they start at, one slot of eight per
@@ -342,6 +346,9 @@ pub fn activity_id(seq: i64) -> i64 {
 }
 pub fn edits_id(turn: i64) -> i64 {
     -(turn * 8 + 3)
+}
+pub fn post_id(seq: i64) -> i64 {
+    -(seq * 8 + 4)
 }
 
 /// One turn: what opened it and everything the agent did until the next one.
@@ -702,6 +709,7 @@ fn gaps(rows: &mut [Row], evs: &[&Event]) {
             Row::Head { .. } | Row::Edits { .. } => (Gap::Block, false),
             Row::Activity { .. } => (Gap::Line, false),
             Row::Text { reply, .. } => (if *reply { Gap::Block } else { Gap::Loose }, false),
+            Row::Post { .. } => (Gap::Round, false),
         };
         let slot = match r {
             Row::Section { gap, .. }
@@ -709,7 +717,8 @@ fn gaps(rows: &mut [Row], evs: &[&Event]) {
             | Row::Head { gap, .. }
             | Row::Activity { gap, .. }
             | Row::Text { gap, .. }
-            | Row::Edits { gap, .. } => gap,
+            | Row::Edits { gap, .. }
+            | Row::Post { gap, .. } => gap,
         };
         *slot = if i == 0 { Gap::None } else { gap };
         prev_opener = is_opener;

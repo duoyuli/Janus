@@ -72,9 +72,9 @@ import Testing
         try data.write(to: dir.appendingPathComponent(name))
         return data.count
     }
-    let runCard = try render("run-card-light.png", dark: false, RunCard(run: run, st: st, width: 620))
-    let runCardDark = try render("run-card-dark.png", dark: true, RunCard(run: run, st: st, width: 620))
-    let runCardNarrow = try render("run-card-narrow-light.png", dark: false, RunCard(run: run, st: st, width: 560).frame(width: 560))
+    let runCard = try render("group-header-light.png", dark: false, GroupHeader(run: run, st: st))
+    let runCardDark = try render("group-header-dark.png", dark: true, GroupHeader(run: run, st: st))
+    let runCardNarrow = try render("group-header-narrow-light.png", dark: false, GroupHeader(run: run, st: st, wide: false).frame(width: 560))
     let detail = try render("run-usage-detail-light.png", dark: false, Card { UsageSection(run: run, st: st) })
     // The session card's header is the other place the numbers appear: it labels them 本会话/上一轮.
     let chat = ChatCard(run: run, st: st, title: "调研者", info: st.session(.task("T1")), target: .task("T1"))

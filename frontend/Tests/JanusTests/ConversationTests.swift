@@ -38,8 +38,31 @@ private func kinds(_ rows: [Conversation.Row]) -> [String] {
         case .activity(_, let es, let open, _, _): return "activity:\(es.count):\(open.map { $0 ? "open" : "folded" } ?? "-")"
         case .text(_, let es, let reply, _): return "text:\(es.count)\(reply ? ":reply" : "")"
         case .edits(_, let files, _): return "edits:\(files.count)"
+        case .post(_, let p, _): return "post:\(p.kind.rawValue)"
         }
     }
+}
+
+/// The group's posts come in the lead's rows as the server put them, and never fold with a turn;
+/// the topics, who is at work and what waits on the person decode beside them.
+@Test func groupPostsDecodeInPlaceAndBesideTheRows() {
+    let events = (1...6).map { Event(["seq": .number(Double($0)), "ts": .number(Double($0) * 1000), "type": "agent.message", "actor": "lead", "text": "", "data": ["text": "x"]]) }
+    let post: JSON = ["seq": 2, "ts": 2000, "kind": "dispatch", "by": "lead", "group": true, "title": "派了 2 件事",
+                      "tasks": [["id": "T1", "scope": ""], ["id": "T2", "scope": "依赖 T1"]], "you": false]
+    let ask: JSON = ["seq": 5, "ts": 5000, "kind": "ask", "by": "lead", "task": "T2", "group": true, "key": "q1", "text": "上限多少？", "you": true]
+    let rows: JSON = [
+        ["kind": "head", "id": -9, "turn": 1, "agent": "lead", "running": false, "open": false, "start": 0, "end": 0, "stats": "", "summary": "工作了 1 分", "gap": "none"],
+        ["kind": "post", "id": -20, "post": post, "gap": "round"],
+        ["kind": "activity", "id": -26, "events": [3, 4], "open": .null, "summary": "", "turn": 1, "fold": true, "sole": false, "gap": "block"],
+        ["kind": "post", "id": -44, "post": ask, "gap": "round"],
+    ]
+    let shown = Conversation.rows(rows, events: { s in events.first { $0.seq == s } }, open: [:])
+    #expect(kinds(shown) == ["head:folded", "post:dispatch", "post:ask"], "the folded turn's work is left out, the posts stay")
+    guard case .post(let id, let p, _) = shown[1] else { Issue.record("no post"); return }
+    #expect(id == -20 && p.tasks.map(\.id) == ["T1", "T2"] && p.tasks[1].scope == "依赖 T1" && p.group)
+    let feed = Feed(["topics": ["T2": [ask]], "typing": [["agent": "implementer", "task": "T2", "text": "正在运行 pytest -q"]], "mentions": [-44]])
+    #expect(feed.topics["T2"]?.first?.key == "q1" && feed.topics["T2"]?.first?.you == true)
+    #expect(feed.typing == [Feed.Typing(agent: "implementer", task: "T2", text: "正在运行 pytest -q")] && feed.mentions == [-44])
 }
 
 /// A folded turn leaves out what folds with it; opening it shows its work; a click on the group

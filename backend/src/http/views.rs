@@ -5,6 +5,7 @@ use super::{ApiError, ApiResult, ok, reply};
 use crate::db::InboxMark;
 use crate::lang::Lang;
 use crate::orchestrator::App;
+use crate::run_view::Layout;
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
 use serde::Deserialize;
@@ -20,6 +21,9 @@ pub(super) struct ViewQuery {
     /// `1`: the conversations at the detail level, every tool call shown.
     #[serde(default)]
     detail: u8,
+    /// `1`: the lead's conversation laid out as the group, with the posts in their place.
+    #[serde(default)]
+    group: u8,
 }
 
 /// The language a request asks for, or the app's.
@@ -38,7 +42,7 @@ pub(super) async fn run(
     Query(q): Query<ViewQuery>,
 ) -> ApiResult {
     let lang = lang_of(&app, q.lang.as_deref())?;
-    match app.run_view(&id, q.until, lang, q.detail == 1)? {
+    match app.run_view(&id, q.until, lang, Layout { detail: q.detail == 1, group: q.group == 1 })? {
         Some(view) => reply(json!(view)),
         None => Err(ApiError::not_found("任务不存在")),
     }

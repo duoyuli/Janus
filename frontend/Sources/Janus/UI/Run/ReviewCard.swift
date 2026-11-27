@@ -1,6 +1,6 @@
 import SwiftUI
 
-// The delivery on the run page, reviewed one round at a time. While it waits for the person the
+// The delivery in the run's group, reviewed one round at a time. While it waits for the person the
 // card is the whole review: the lead's conclusion, what needs looking at, what changed, the action,
 // then the subtasks and the rest folded. At any other stage it folds to one line that says who it
 // waits on now (docs/architecture/20261031-frontend.md#review).
@@ -14,7 +14,6 @@ struct ResultCard: View {
     var body: some View {
         if let r = st.result, let stage = st.review?.stage {
             let d = Delivery(r)
-            SectionHeader(title: L.text("交付"))
             if stage.reviews {
                 Card(padding: 18, tint: stage == .awaiting ? Tone.green.color : Tone.amber.color) {
                     ReviewBody(run: run, st: st, d: d, stage: stage, width: width)

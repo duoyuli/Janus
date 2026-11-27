@@ -92,7 +92,26 @@ enum Snapshots {
             case "replay": r.replay = Int(kv.last ?? "") ?? 1; r.page = .board
             default: r.page = .board; r.replay = nil
             }
-        // Open or close the board's folded parts (`fold usage|progress|review|tasks|all|T3 open|closed`),
+        // The group's side panel (`side members|tasks|files|topic:T1|work:T1`), whom its composer
+        // sends to (`to agent:lead|task:T1`), and 「@你」 (`mention`), as the person clicks them.
+        case "side":
+            guard let r = store.run else { return }
+            switch kv.first {
+            case "tasks": r.side = .tasks
+            case "files": r.side = .files
+            case "topic": r.side = .topic(kv.last ?? "", work: false)
+            case "work": r.side = .topic(kv.last ?? "", work: true)
+            default: r.side = .members
+            }
+            r.sideShown = true
+        case "to":
+            store.run?.composeTo = SessionTarget(label: arg) ?? .agent("lead")
+        case "mention":
+            guard let r = store.run, !r.shown.feed.mentions.isEmpty else { return }
+            let ids = r.shown.feed.mentions
+            let n = (r.jump?.n ?? -1) + 1
+            r.jump = RunModel.Jump(row: ids[n % ids.count], n: n)
+        // Open or close the board's folded parts (`fold usage|review|tasks|all|T3 open|closed`),
         // which a picture alone cannot reach.
         case "fold":
             guard let r = store.run else { return }
@@ -100,11 +119,10 @@ enum Snapshots {
             let open = p.count < 2 || p[1] != "closed"
             switch p.first {
             case "usage": r.usageOpen = open
-            case "progress": r.progressOpen = open
             case "review": r.reviewOpen = open
             case "tasks": for t in r.shown.orderedTasks { r.taskOpen[t.id] = open }
             case "all":
-                r.usageOpen = open; r.progressOpen = open; r.reviewOpen = open
+                r.usageOpen = open; r.reviewOpen = open
                 for t in r.shown.orderedTasks { r.taskOpen[t.id] = open }
             case let id? where !id.isEmpty: r.taskOpen[id] = open
             default: break
@@ -319,25 +337,30 @@ enum Snapshots {
                 let proposal: JSON = r.proposal?.json ?? .null
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "readOnly": .bool(r.readOnly), "page": JSON(String(describing: r.page)),
-                    // What the run's menu and card offer, as the server allows at the shown position.
+                    // What the run's menu and the group's header offer, as the server allows at the shown position.
                     "allowed": .object(r.shown.allowed.answers.mapValues { .bool($0["ok"].bool ?? false) }),
                     "resumeNote": JSON(r.shown.resumeNote),
                     // The audit page's system rules, kept or not.
                     "audit": JSON.array(r.state.audit.map { ["text": JSON($0.0), "ok": .bool($0.1), "note": JSON($0.2)] }),
-                    // The run card's status and the team panel's rows, as drawn.
+                    // The group header's status and the members' rows, as drawn.
                     "capsule": JSON(r.shown.capsule.text),
                     "members": JSON.array(r.shown.members.map { ["id": JSON($0.id), "phase": JSON($0.phase.rawValue), "line": JSON($0.line), "stats": JSON($0.stats)] }),
-                    // The progress timeline's rows and the lane above, as the app decoded them.
-                    "timeline": [
-                        "tasks": JSON.array(r.shown.timeline["tasks"].array.map { TimelineTask($0, now: 0) }.map {
-                            ["id": JSON($0.id), "bars": JSON($0.bars.count), "waiting": JSON($0.waiting), "result": JSON($0.result?.title)]
-                        }),
-                        "milestones": JSON.array(r.shown.timeline["milestones"].array.map(TimelineMark.init).map { JSON("\($0.kind.rawValue):\($0.title)") }),
-                    ],
+                    // The group as drawn: each post in the lead's conversation (kind, by, task, text,
+                    // whether it waits on the person), each task's topic, who is at work, and the
+                    // composer's addressee (docs/architecture/20261031-frontend.md#run_group).
+                    "group": JSON.array(ChatCard.rows(run: r, st: r.shown, info: r.shown.session(.agent("lead")), target: .agent("lead")).compactMap { row -> JSON? in
+                        guard case .post(_, let p, _) = row else { return nil }
+                        return Self.post(p)
+                    }),
+                    "topics": .object(r.shown.feed.topics.mapValues { JSON.array($0.map(Self.post)) }),
+                    "typing": JSON.array(r.shown.feed.typing.map { ["agent": JSON($0.agent), "task": JSON($0.task), "text": JSON($0.text)] }),
+                    "mentions": JSON(r.shown.feed.mentions.count),
+                    "side": JSON(String(describing: r.side)),
+                    "composeTo": JSON(r.composeTo.label),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     "proposal": proposal,
                     "proposalShown": .bool(r.proposal != nil),
-                    // The inspector's 交付物 under 产物 (the 文档 menu's deliverables).
+                    // The side panel's 交付物 under 文件 (the 文档 menu's deliverables).
                     "deliverables": JSON.array(r.documents.filter { $0.source == .deliverable }.map { JSON($0.path) }),
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.consolidated,
@@ -482,6 +505,12 @@ enum Snapshots {
     /// The first composer of the key window (or the first visible one).
     /// A block as the state names it: its kind, and for a table its header, for code its language.
     /// One conversation row as the test reads it: its kind, and what it shows in words.
+    /// A post as the end-to-end test compares it with the server's.
+    static func post(_ p: Post) -> JSON {
+        ["seq": JSON(p.seq), "kind": JSON(p.kind.rawValue), "by": JSON(p.by), "task": JSON(p.task), "title": JSON(p.title),
+         "text": JSON(p.text), "you": .bool(p.you), "settled": JSON(p.settled)]
+    }
+
     static func row(_ r: Conversation.Row) -> JSON {
         switch r {
         case .section(let e, let injected, _): return ["kind": "section", "type": JSON(e.type.rawValue), "injected": JSON.array(injected.map { JSON($0.data["channel"].string ?? $0.type.rawValue) })]
@@ -491,6 +520,7 @@ enum Snapshots {
         case .activity(_, let es, let open, _, _): return ["kind": "activity", "calls": JSON(es.count), "open": open.map { JSON.bool($0) } ?? .null]
         case .text(_, let es, let reply, _): return ["kind": reply ? "reply" : "text", "text": JSON(es.map { $0.data["text"].str }.joined())]
         case .edits(_, let files, _): return ["kind": "edits", "files": JSON.array(files.map { ["path": JSON($0.path), "added": JSON($0.added), "removed": JSON($0.removed)] })]
+        case .post(_, let p, _): return ["kind": "post", "post": post(p)]
         }
     }
 

@@ -56,17 +56,19 @@ enum Conversation {
         /// The agent's text, `reply` when it ended the turn.
         case text(id: Int, events: [Event], reply: Bool, gap: Gap)
         case edits(id: Int, files: [EditedFile], gap: Gap)
+        /// One of the group's posts, in the lead's conversation at its place (`Feed`).
+        case post(id: Int, Post, gap: Gap)
 
         var id: Int {
             switch self {
             case .section(let e, _, _), .item(let e, _): return e.seq
-            case .head(let id, _, _, _), .activity(let id, _, _, _, _), .text(let id, _, _, _), .edits(let id, _, _): return id
+            case .head(let id, _, _, _), .activity(let id, _, _, _, _), .text(let id, _, _, _), .edits(let id, _, _), .post(let id, _, _): return id
             }
         }
 
         var gap: Gap {
             switch self {
-            case .section(_, _, let g), .item(_, let g), .head(_, _, _, let g), .activity(_, _, _, _, let g), .text(_, _, _, let g), .edits(_, _, let g): return g
+            case .section(_, _, let g), .item(_, let g), .head(_, _, _, let g), .activity(_, _, _, _, let g), .text(_, _, _, let g), .edits(_, _, let g), .post(_, _, let g): return g
             }
         }
     }
@@ -122,6 +124,8 @@ enum Conversation {
                 out.append(.text(id: id, events: shown, reply: r["reply"].bool ?? false, gap: gap))
             case "edits":
                 out.append(.edits(id: id, files: r["files"].array.map(EditedFile.init), gap: gap))
+            case "post":
+                out.append(.post(id: id, Post(r["post"]), gap: gap))
             default:
                 continue
             }

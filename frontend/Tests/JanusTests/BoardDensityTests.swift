@@ -4,8 +4,8 @@ import SwiftUI
 import Testing
 @testable import Janus
 
-// The workbench's density rules (W1 F2, F6, F9, U2, U6): the summary line, the delivery overview
-// and acceptance rows, and the layout widths and heights, all read here without a screenshot.
+// The workbench's density rules (W1 F2, F6, F9): the summary line, the delivery overview and
+// acceptance rows, and the width they wrap at, all read here without a screenshot.
 
 // MARK: Run card summary
 
@@ -50,34 +50,13 @@ import Testing
 
 // MARK: Layout rules
 
-@Test func boardLayoutFollowsTheDensityWidths() {
-    #expect(BoardLayout.isTwoColumn(838) && !BoardLayout.isTwoColumn(837))
-    #expect(BoardLayout.runCardStacks(639) && !BoardLayout.runCardStacks(640))
+@Test func deliveryRowsStackUnderTheirWidth() {
     #expect(BoardLayout.deliveryRowStacks(837) && !BoardLayout.deliveryRowStacks(838))
-
-    let roomy = BoardLayout.cardHeights(contentHeight: 1_000, twoColumn: true, empty: false)
-    #expect(roomy.chat == 700 && roomy.inspector == 700)
-    let short = BoardLayout.cardHeights(contentHeight: 300, twoColumn: true, empty: false)
-    #expect(short.chat == 420 && short.inspector == 420)
-    let tall = BoardLayout.cardHeights(contentHeight: 2_000, twoColumn: true, empty: false)
-    #expect(tall.chat == 800 && tall.inspector == 800)
-    let fresh = BoardLayout.cardHeights(contentHeight: 1_000, twoColumn: true, empty: true)
-    #expect(fresh.chat == 320 && fresh.inspector == 320)
-    let stacked = BoardLayout.cardHeights(contentHeight: 1_000, twoColumn: false, empty: false)
-    #expect(stacked.chat == 700 && stacked.inspector == 480)
-}
-
-@Test @MainActor func inspectorStartsOnTheSavedTabOrByState() {
-    #expect(RunModel.initialInspectorTab(saved: nil, hasTasks: false) == "team")
-    #expect(RunModel.initialInspectorTab(saved: nil, hasTasks: true) == "tasks")
-    #expect(RunModel.initialInspectorTab(saved: "", hasTasks: true) == "tasks")
-    #expect(RunModel.initialInspectorTab(saved: "changes", hasTasks: false) == "changes")
-    #expect(RunModel.initialInspectorTab(saved: "team", hasTasks: true) == "team")
 }
 
 // MARK: Rendered cards
 
-/// The cards the workbench shows, drawn off screen: the fresh run card and the delivery's default
+/// The cards the workbench shows, drawn off screen: the fresh group header and the delivery's default
 /// and opened rows, in both appearances. The pictures are read beside the real-window shots; the
 /// assertions keep them from silently turning into blank images.
 @Test @MainActor func workbenchCardsRenderFoldedAndOpen() throws {
@@ -105,9 +84,9 @@ import Testing
     freshRun.events = fresh
     freshRun.replay = fresh.count
     let freshState = RunState(["run": ["status": "running", "goal": "刚创建的目标", "start": 1_000_000, "now": 1_000_000]], events: fresh)
-    try render("run-card-fresh-light", dark: false, width: 1100, RunCard(run: freshRun, st: freshState, width: 1100))
-    try render("run-card-fresh-dark", dark: true, width: 1100, RunCard(run: freshRun, st: freshState, width: 1100))
-    try render("run-card-fresh-narrow-light", dark: false, width: 600, RunCard(run: freshRun, st: freshState, width: 600).frame(width: 600))
+    try render("group-header-fresh-light", dark: false, width: 1100, GroupHeader(run: freshRun, st: freshState))
+    try render("group-header-fresh-dark", dark: true, width: 1100, GroupHeader(run: freshRun, st: freshState))
+    try render("group-header-fresh-narrow-light", dark: false, width: 600, GroupHeader(run: freshRun, st: freshState, wide: false).frame(width: 600))
 
     // A delivery with two tasks: one clean and folded, one with a failed criterion, a trace gap
     // and a risk, which starts open.

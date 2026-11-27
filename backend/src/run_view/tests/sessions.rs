@@ -19,7 +19,7 @@ use super::*;
 
 /// The conversation `key` of `log` at its end: `live` in the service's memory, or `replaying`.
 fn session(log: &Log, key: &str, live: bool, replaying: bool) -> SessionView {
-    fold(&log.events).view(live, replaying, &Words::of(Lang::Zh, &json!({})), false).sessions[key].clone()
+    fold(&log.events).view(live, replaying, &Words::of(Lang::Zh, &json!({})), Layout::default()).sessions[key].clone()
 }
 
 /// A chat's composer: a plain message while the session waits, cutting in while it works, and a

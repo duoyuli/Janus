@@ -72,15 +72,6 @@ enum AttemptStatus: String {
         case .failed: return (L.text("失败"), .red)
         }
     }
-
-    /// What an ended attempt shows as on the timeline, in the task's terms.
-    var asTask: TaskStatus {
-        switch self {
-        case .running: return .running
-        case .succeeded: return .succeeded
-        case .failed: return .failed
-        }
-    }
 }
 
 /// What a run is (`backend/src/status.rs`, `RunKind`, `runs.kind`): a goal the lead pursues

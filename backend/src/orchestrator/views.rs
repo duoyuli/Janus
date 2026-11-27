@@ -7,7 +7,9 @@ use crate::db::{InboxMark, RunRow, RunsPage};
 use crate::lang::Lang;
 use crate::run_ops;
 use crate::run_ops::RunOp;
-use crate::run_view::{Candidate, Fold, InboxEntry, Pill, RunView, Words, fold, inbox_entries, row_label, row_title};
+use crate::run_view::{
+    Candidate, Fold, InboxEntry, Layout, Pill, RunView, Words, fold, inbox_entries, row_label, row_title,
+};
 use crate::status::{RunKind, RunStatus};
 use anyhow::Result;
 use serde::Serialize;
@@ -121,9 +123,9 @@ impl App {
         Ok(out)
     }
 
-    /// Run `id`'s view written in `lang`, up to and including seq `until` (all of it without);
-    /// its conversations at the display level `detail`. `None` when there is no such run.
-    pub fn run_view(&self, id: &str, until: Option<i64>, lang: Lang, detail: bool) -> Result<Option<RunView>> {
+    /// Run `id`'s view written in `lang`, up to and including seq `until` (all of it without),
+    /// laid out as `layout` asks. `None` when there is no such run.
+    pub fn run_view(&self, id: &str, until: Option<i64>, lang: Lang, layout: Layout) -> Result<Option<RunView>> {
         let Some(row) = self.db.run(id)? else { return Ok(None) };
         let mut words = Words::of(lang, &row.config);
         words.title = row_title(&row, lang);
@@ -136,7 +138,7 @@ impl App {
         };
         let work = self.cfg.layout.run(row.kind, id).work;
         let show = |f: &Fold, replaying: bool| {
-            let mut view = f.view(live, replaying, &words, detail);
+            let mut view = f.view(live, replaying, &words, layout);
             view.docs = f.docs(&work);
             view.title = words.title.clone();
             view.page = f.page(&view, &words);

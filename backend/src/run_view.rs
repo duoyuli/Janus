@@ -18,6 +18,7 @@ mod cards;
 pub mod checks;
 pub mod docs;
 mod evidence;
+pub mod feed;
 mod inbox;
 pub mod lines;
 mod page;
@@ -1090,6 +1091,8 @@ pub struct Fold {
     checks: BTreeMap<i64, Vec<Value>>,
     /// What a consolidation of the team memory changed, as its last `memory.consolidated` says.
     consolidated: Option<Value>,
+    /// The events the group's posts are made from.
+    feed: feed::FeedFold,
 }
 
 /// One file change an event carries (a tool call's edit, the edit an approval asks about), as it
@@ -1117,6 +1120,7 @@ impl Fold {
         let d = e.data.as_ref().unwrap_or(&null);
         self.docs.apply(e, d);
         self.traces.apply(e, d);
+        self.feed.apply(e);
         if e.kind() == EventKind::MemoryConsolidated {
             self.consolidated = Some(d.clone());
         }
@@ -1176,10 +1180,11 @@ impl Fold {
         self.state.seq
     }
 
-    /// What the run page shows, written in `words`. `live`: the run is in the service's memory;
-    /// without it no lead session is there to work or to be held, whatever the last events said.
-    /// `replaying`: a past position, where nothing can be sent.
-    pub fn view(&self, live: bool, replaying: bool, words: &Words, detail: bool) -> RunView {
+    /// What the run page shows, written in `words` and laid out as `layout` asks. `live`: the run
+    /// is in the service's memory; without it no lead session is there to work or to be held,
+    /// whatever the last events said. `replaying`: a past position, where nothing can be sent.
+    pub fn view(&self, live: bool, replaying: bool, words: &Words, layout: Layout) -> RunView {
+        let detail = layout.detail;
         let mut board = self.board.facts(&self.state);
         words.board(&mut board, &self.state);
         let mut review = review::review(&self.state, live);
@@ -1190,7 +1195,19 @@ impl Fold {
             |seq: i64, i: usize| self.diffs.get(&seq).and_then(|c| c.get(i)).map_or((0, 0), |c| (c.added, c.removed));
         let name = if self.state.run.kind == RunKind::Loop { words.title.clone() } else { words.name("lead") };
         let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail, name: &name };
-        let sessions = sessions::sessions(&self.state, live, replaying, &drawn);
+        let mut sessions = sessions::sessions(&self.state, live, replaying, &drawn);
+        // The group: the lead's conversation with the posts everyone should see in their place.
+        let posts = self.feed.posts(&self.state, review.as_ref(), words);
+        if let Some(lead) = sessions.get_mut(&sessions::agent_key("lead")).filter(|_| layout.group) {
+            let pushes: Vec<i64> = self
+                .shown
+                .values()
+                .filter(|e| e.kind() == EventKind::SessionPrompt && e.task.is_none())
+                .filter(|e| e.data.as_ref().is_some_and(|d| d["channel"] == "board"))
+                .map(|e| e.seq)
+                .collect();
+            feed::merge(&mut lead.rows, &posts, &pushes);
+        }
         let timeline = timeline::timeline(&self.state, &board, &self.stamps, replaying, words);
         let capsule = card::capsule(&self.state, review.as_ref(), words);
         let status = self.state.run.status;
@@ -1204,6 +1221,7 @@ impl Fold {
         let now = jiff::Timestamp::now().as_millisecond();
         let lines = lines::lines(&lines::Ctx { st: &self.state, words, events: &self.shown, now });
         let cards = cards::cards(&self.state, &board.open, words);
+        let feed = feed::feed(&posts, &self.state, &lines, words);
         RunView {
             state: self.state.clone(),
             lines,
@@ -1228,6 +1246,7 @@ impl Fold {
             resume_note,
             consolidated: self.consolidated.as_ref().map(|d| Consolidated::of(d, words)),
             page: page::Page::default(),
+            feed,
         }
     }
 
@@ -1250,6 +1269,16 @@ impl Fold {
         }
         Asks { open, review, result: self.state.result().cloned() }
     }
+}
+
+/// How a client lays the run page out.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Layout {
+    /// The conversations at the detail level: every tool call shown.
+    pub detail: bool,
+    /// The lead's conversation as the group (`feed::merge`): the posts everyone should see in
+    /// their place, the board's pushes into the lead's turn left out.
+    pub group: bool,
 }
 
 /// What a run asks of the person, as the inbox reads it (`Fold::asks`).
@@ -1323,6 +1352,9 @@ pub struct RunView {
     pub consolidated: Option<Consolidated>,
     /// The run page's lines and lists around the board (`page`).
     pub page: page::Page,
+    /// The group's topics and who is at work (`feed`); the group itself is the lead's
+    /// conversation in `sessions`.
+    pub feed: feed::Feed,
 }
 
 /// What a consolidation of the team memory changed (`memory.consolidated`), as its page says it.

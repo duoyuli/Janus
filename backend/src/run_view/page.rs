@@ -322,7 +322,7 @@ fn review_line(r: &DeliveryView, stage: ReviewStage, w: &Words) -> Option<String
             line
         }
         ReviewStage::Stopped => {
-            l.pick("交付之后任务停下了，见上面的运行卡片。", "The run stopped after this delivery; see the run card above.").into()
+            l.pick("交付之后任务停下了，原因写在页面顶部。", "The run stopped after this delivery; the top of the page says why.").into()
         }
     };
     Some(line)

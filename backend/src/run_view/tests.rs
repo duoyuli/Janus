@@ -6,6 +6,7 @@ mod audit;
 mod board;
 mod card;
 mod evidence;
+mod feed;
 mod inbox;
 mod lines;
 mod page;
@@ -81,11 +82,11 @@ impl Log {
 
     /// The view as the person reads it in Chinese, members named by their ids.
     pub(super) fn view(&self) -> RunView {
-        fold(&self.events).view(true, false, &Words::of(Lang::Zh, &json!({})), false)
+        fold(&self.events).view(true, false, &Words::of(Lang::Zh, &json!({})), Layout::default())
     }
 
     pub(super) fn view_in(&self, lang: Lang, live: bool, config: &Value) -> RunView {
-        fold(&self.events).view(live, false, &Words::of(lang, config), false)
+        fold(&self.events).view(live, false, &Words::of(lang, config), Layout::default())
     }
 
     pub(super) fn last_ts(&self) -> i64 {
@@ -610,8 +611,12 @@ fn a_kept_fold_brought_up_to_date_equals_a_fresh_one() {
     let all = views.current("r1", |after| Ok(log.events[after as usize..].to_vec()), Fold::clone).unwrap();
     assert_eq!(all.seq(), log.events.len() as i64);
     let fresh =
-        serde_json::to_value(fold(&log.events).view(true, false, &Words::of(Lang::Zh, &json!({})), false)).unwrap();
-    assert_eq!(serde_json::to_value(all.view(true, false, &Words::of(Lang::Zh, &json!({})), false)).unwrap(), fresh);
+        serde_json::to_value(fold(&log.events).view(true, false, &Words::of(Lang::Zh, &json!({})), Layout::default()))
+            .unwrap();
+    assert_eq!(
+        serde_json::to_value(all.view(true, false, &Words::of(Lang::Zh, &json!({})), Layout::default())).unwrap(),
+        fresh
+    );
 }
 
 /// A consolidation's page says what it changed, as its last `memory.consolidated` says, in the

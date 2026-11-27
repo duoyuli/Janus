@@ -258,7 +258,7 @@ def same_actions(ctx, c, st, run_id, what):
     view = ctx.api("GET", f"/api/runs/{run_id}/view")
     served = {k: v["ok"] for k, v in view["actions"].items()}
     c(st["run"]["allowed"] == served and st["run"]["resumeNote"] == view.get("resumeNote"),
-      f"应用：{what}能做的操作和运行卡片上的提示与服务端一致（应用 {st['run']['allowed']}，服务端 {served}）")
+      f"应用：{what}能做的操作和群标题下的提示与服务端一致（应用 {st['run']['allowed']}，服务端 {served}）")
     return served
 
 

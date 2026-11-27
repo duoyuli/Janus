@@ -57,7 +57,7 @@ def restart(ctx, c):
         if st:
             ok = same_actions(ctx, c, st, paused.id, "中断的 Run ")
             c(ok["resumeRun"] and not ok["pause"] and not ok["cancel"] and st["run"]["resumeNote"],
-              "中断的 Run 可以从中断处继续，不能暂停或停止，运行卡片上写着怎样继续")
+              "中断的 Run 可以从中断处继续，不能暂停或停止，群标题下写着怎样继续")
         paused.act("resumeRun")
         resumed = paused.wait_event("run.recovered")
         c(resumed["actor"] == "user" and not resumed["data"].get("auto"), "你点「从中断处继续」后它接着做")

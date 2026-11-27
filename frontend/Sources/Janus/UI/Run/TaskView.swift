@@ -29,7 +29,6 @@ struct TaskView: View {
         let summary = st.evidence[t.id] ?? TaskEvidence()
         let verifiers = summary.verifications
         let session = st.session(.task(t.id))
-        let notes = session.notes
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
@@ -222,5 +221,26 @@ struct TimelineRow: View {
             if !d.text.isEmpty { Note(text: d.text, tone: .amber) }
         default: Note(text: d.text, tone: d.tone)
         }
+    }
+}
+
+/// An event kind's symbol, as the server names it (`EventMark`), drawn as the app's glyph.
+struct EventIcon: View {
+    let mark: EventMark
+
+    static let glyph: [String: String] = [
+        "created": "✦", "stop": "■", "pause": "Ⅱ", "start": "▶", "next": "▸", "assign": "↗", "fail": "✕", "retry": "↻",
+        "reopen": "↺", "submit": "⇪", "done": "✓", "artifact": "▤", "handoff": "⇄", "question": "?", "escalate": "⇡",
+        "write": "✎", "reply": "↩", "flag": "⚑", "delivered": "★", "blocked": "⊘", "forward": "→", "waiting": "◌",
+        "tool": "⌘", "route": "↪", "quote": "❝", "hand": "✋", "interrupt": "‖", "warning": "⚠", "stall": "⏳", "split": "✂",
+    ]
+
+    var body: some View {
+        let tone = mark.tone
+        Text(Self.glyph[mark.icon] ?? "·")
+            .font(.system(size: 12, weight: .semibold))
+            .frame(width: 22, height: 22)
+            .foregroundStyle(tone?.color ?? .secondary)
+            .background((tone?.color ?? .secondary).opacity(0.12), in: Circle())
     }
 }

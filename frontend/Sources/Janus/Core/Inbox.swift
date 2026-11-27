@@ -139,6 +139,17 @@ struct WaitingRow: Identifiable, Equatable {
     let tone: Tone
     var entries: [InboxEntry]
 
+    /// Open items, by kind (`OpenFact.kind`): their glyph.
+    static let openSymbols: [String: String] = [
+        "approval": "hand.raised.fill", "input": "square.and.pencil",
+        "question": "questionmark.bubble.fill", "session": "text.bubble.fill",
+        "lead_stall": "hourglass", "loop_touched": "doc.badge.ellipsis", "loop_failed": "exclamationmark.triangle",
+        "conflict": "arrow.triangle.merge", "overstep": "arrow.right.to.line",
+        "trace": "doc.badge.ellipsis", "stall": "hourglass",
+        "blocker": "exclamationmark.octagon.fill", "lead_question": "questionmark.circle.fill",
+        "failed": "xmark.octagon.fill", "blocked": "pause.circle.fill",
+    ]
+
     /// What it waits on, as a glyph: the one thing's kind, or a stack for several. It leads the
     /// row, so a Loop that waits does not look like the Loop itself or a goal it dispatched.
     var symbol: String {
@@ -151,7 +162,7 @@ struct WaitingRow: Identifiable, Equatable {
         case "failed": return "xmark.octagon.fill"
         case "dream": return "brain.head.profile"
         case "dream_failed": return "exclamationmark.triangle.fill"
-        default: return TimelineMark.openSymbols[e.kind] ?? "exclamationmark.circle.fill"
+        default: return WaitingRow.openSymbols[e.kind] ?? "exclamationmark.circle.fill"
         }
     }
 }

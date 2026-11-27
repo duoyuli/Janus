@@ -12,7 +12,7 @@ fn page_of(log: &Log, lang: Lang) -> crate::run_view::page::Page {
             { "id": "researcher", "name": "研究员", "connection_name": "Codex" },
         ]}),
     );
-    let mut view = f.view(true, false, &words, false);
+    let mut view = f.view(true, false, &words, Layout::default());
     view.title = "给 divide 增加除零保护".into();
     f.page(&view, &words)
 }

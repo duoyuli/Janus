@@ -480,3 +480,18 @@ struct LoopView: View {
         }
     }
 }
+
+/// What waits on the person in a Loop's session, each with its card.
+struct InboxSection: View {
+    let run: RunModel
+    let st: RunState
+
+    var body: some View {
+        let open = st.cards
+        // Nothing to do shows nothing; the toolbar's 工作台 count says the same.
+        if !open.isEmpty {
+            SectionHeader(title: L.text("待处理"), count: open.count)
+            ForEach(open, id: \.seq) { card in RequestCard(run: run, st: st, card: card) }
+        }
+    }
+}

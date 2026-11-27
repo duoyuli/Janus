@@ -1,7 +1,7 @@
 //! The run's progress timeline: one row per task with a bar per attempt, what the task produced at
 //! the end of its bar, what it waits for before it starts, and the decisions and open items on a
 //! lane above. The client lays it out on a time axis; what is on it is worked out here.
-// @project-doc docs/architecture/20261031-frontend.md#run_timeline
+// @project-doc docs/architecture/20261126-web.md#run_timeline
 
 use super::board::{BoardFacts, OpenKind};
 use super::words::Words;

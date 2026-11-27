@@ -5,6 +5,7 @@
 
 use super::*;
 use crate::lang::Lang;
+use crate::run_view::Layout;
 
 async fn get(app: &App, path: &str) -> (u16, String) {
     let r = reqwest::get(format!("http://{}{path}", app.cfg.addr)).await.unwrap();
@@ -32,7 +33,7 @@ async fn a_run_serves_its_conversations_and_only_its_files() {
     wait_until(&h.app, &run, "T1 done", |e| task_event(e, "task.succeeded", "T1")).await;
     wait_until(&h.app, &run, "T1's diff", |e| e.iter().any(|e| e.kind == "artifact.created")).await;
 
-    let view = h.app.run_view(&run, None, Lang::Zh, false).unwrap().unwrap();
+    let view = h.app.run_view(&run, None, Lang::Zh, Layout::default()).unwrap().unwrap();
     let s = &view.sessions["task:T1"];
     assert_eq!(s.plan.len(), 2);
     assert!(s.commands.iter().any(|c| c.name == "review" && c.hint == "要审查什么"), "{:?}", s.commands);
@@ -84,7 +85,7 @@ async fn a_run_serves_its_conversations_and_only_its_files() {
     let notes = work.join("notes.md").to_string_lossy().into_owned();
     act(&h, &run, json!({ "type": "message", "agent": "lead", "text": format!("看看 {notes}") }));
     wait_until(&h.app, &run, "the message", |e| has(e, "user.message")).await;
-    let view = h.app.run_view(&run, None, Lang::Zh, false).unwrap().unwrap();
+    let view = h.app.run_view(&run, None, Lang::Zh, Layout::default()).unwrap().unwrap();
     assert!(view.docs.iter().any(|d| d.path == notes), "{:?}", view.docs);
     let (code, body) = get(&h.app, &format!("/api/runs/{run}/doc?path={}", q(&notes))).await;
     assert!(code == 200 && body.starts_with("# 笔记"), "{code} {body}");

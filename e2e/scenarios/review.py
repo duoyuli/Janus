@@ -1,7 +1,7 @@
 """Reviewing a delivery (docs/architecture/20261031-frontend.md#review): the lead's conclusion and
 the questions it leaves, one round at a time, and no stopping once a result is out."""
 
-from lib import wait
+from lib import drawn, wait
 from scenarios import scenario, task
 
 REPORT = "## 结论\n笔记写好了。\n\n## 需要你决定\n- 要不要发布？\n\n## 改了什么\nnotes.md 写了一份笔记"
@@ -28,15 +28,29 @@ def review(ctx, c):
                 and (r["review"]["signals"] or [{}])[0] == {"source": "lead", "text": "要不要发布？"},
                 "交付卡片的结论、要你决定的事、改的文件和子任务与服务端一致，要你决定的事排在最前", pages=("page board",))
     if st:
-        view = ctx.api("GET", f"/api/runs/{run.id}/view")
-        served = [{"id": t["id"], "bars": len(t["bars"]), "waiting": t.get("waiting"), "result": (t.get("result") or {}).get("title")}
-                  for t in view["timeline"]["tasks"]]
-        marks = [f"{m['kind']}:{m['title']}" for m in view["timeline"]["milestones"]]
-        c(st["run"]["timeline"] == {"tasks": served, "milestones": marks} and served[0]["result"],
-          f"应用：进展时间线的子任务、尝试、结论和上面一栏的决定与服务端一致（{st['run']['timeline']}）")
+        view = ctx.api("GET", f"/api/runs/{run.id}/view?group=1")
+
+        def post(p):
+            return {"seq": p["seq"], "kind": p["kind"], "by": p["by"], "task": p.get("task"), "title": p.get("title", ""),
+                    "text": p.get("text", ""), "you": p["you"], "settled": p.get("settled", "")}
+        served = [post(r["post"]) for r in view["sessions"]["agent:lead"]["rows"] if r["kind"] == "post"]
+        kinds = [p["kind"] for p in served]
+        c(st["run"]["group"] == served and kinds[:2] == ["dispatch", "start"] and "result" in kinds
+          and kinds[-1] == "delivery" and served[-1]["you"],
+          f"应用：群里的消息（派工、开工、交结果、等你验收的交付）和服务端排的一致，按事件顺序插在负责人的对话里（{kinds}）")
+        topics = {k: [post(p) for p in v] for k, v in view["feed"]["topics"].items()}
+        c(st["run"]["topics"] == topics and [p["kind"] for p in topics["T1"]] == ["start", "result"],
+          f"应用：T1 的话题和服务端一致：开工、交结果（{[p['kind'] for p in st['run']['topics'].get('T1', [])]}）")
+        c(st["run"]["mentions"] == len(view["feed"]["mentions"]) == 1, "应用：「@你」只有等你验收的这一件")
+        side = ctx.app.do(f"open run:{run.id}", "page board", "side topic:T1", "mention", f"shot {run.id}-group")["run"]
+        c(side["side"] == 'topic("T1", work: false)' and drawn(ctx.app.picture(f"{run.id}-group")),
+          f"应用：点开 T1 的话题、跳到等你处理的消息，群聊页画出来了（{side['side']}，{run.id}-group.png）")
+        plain = ctx.api("GET", f"/api/runs/{run.id}/view")
+        c(not any(r["kind"] == "post" for r in plain["sessions"]["agent:lead"]["rows"]),
+          "不要群聊布局的客户端（Web）拿到的负责人对话和原来一样，没有群消息")
         members = [{"id": m["id"], "phase": m["phase"], "line": m["line"], "stats": m.get("stats")} for m in view["members"]]
         c(st["run"]["capsule"] == view["capsule"]["text"] and st["run"]["members"] == members and len(members) == 2,
-          f"应用：运行卡片的状态和团队面板每个成员的一行与服务端一致（{st['run']['capsule']}，{st['run']['members']}）")
+          f"应用：群标题的状态和成员栏每个成员的一行与服务端一致（{st['run']['capsule']}，{st['run']['members']}）")
         c(st["run"]["audit"] == view["audit"] and len(view["audit"]) == 5 and all(r["ok"] for r in view["audit"]),
           f"应用：审计页的五条系统规则与服务端一致，都满足（{[r['note'] for r in st['run']['audit']]}）")
         rows = [{"task": t["task"], "metrics": t["metrics"], "markers": t["markers"], "open": t["needsAttention"],
