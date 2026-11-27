@@ -306,6 +306,13 @@ async fn the_switch_opens_and_closes_the_network_listener() {
         .await;
     assert_eq!(on["listening"], true, "{on}");
     assert_eq!(on["urls"].as_array().unwrap().last().unwrap(), &json!(base));
+    let links = on["links"].as_array().unwrap();
+    assert_eq!(links.last().unwrap(), &json!({ "url": base, "network": "local" }));
+    assert!(links[..links.len() - 1].iter().all(|l| l["network"] == "tailscale" || l["network"] == "lan"), "{links:?}");
+    assert!(
+        links.windows(2).all(|w| (w[0]["network"] == "tailscale") >= (w[1]["network"] == "tailscale")),
+        "the tailnet's first: {links:?}"
+    );
     // The app on this Mac still reaches the loopback listener as before.
     assert_eq!(status(http().get(format!("{base}/api/inbox"))).await, StatusCode::OK);
     // The network side of the port is taken: by Janus. (Connecting to it from here would wait on
@@ -384,4 +391,33 @@ async fn paired_devices_read_the_editors_credentials() {
         StatusCode::UNAUTHORIZED,
         "an unpaired device"
     );
+}
+
+/// Phone access answers the tailnet and private networks; a public address is neither listed nor
+/// let in.
+#[test]
+fn networks_are_told_apart() {
+    use crate::devices::{Network, network_of};
+    let of = |s: &str| network_of(s.parse().unwrap());
+    for ip in ["100.83.160.125", "100.64.0.1", "100.127.255.254", "fd7a:115c:a1e0::e801:a089"] {
+        assert_eq!(of(ip), Some(Network::Tailscale), "{ip}");
+    }
+    for ip in [
+        "192.168.1.5",
+        "10.0.0.2",
+        "172.20.1.1",
+        "169.254.1.1",
+        "fe80::1",
+        "fd00::1",
+        "fd7b::1:2",
+        "::ffff:192.168.1.5",
+    ] {
+        assert_eq!(of(ip), Some(Network::Lan), "{ip}");
+    }
+    for ip in ["127.0.0.1", "::1"] {
+        assert_eq!(of(ip), Some(Network::Local), "{ip}");
+    }
+    for ip in ["8.8.8.8", "100.63.255.255", "100.128.0.1", "2001:4860::8888", "::ffff:8.8.8.8"] {
+        assert_eq!(of(ip), None, "{ip}");
+    }
 }

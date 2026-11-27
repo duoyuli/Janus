@@ -72,17 +72,27 @@ pub(super) async fn guard(State((app, via)): State<(Arc<App>, Via)>, mut req: Re
         }
         return next.run(req).await;
     }
-    if via == Via::Lan && !app.lan_listening() {
-        let mut resp = ApiError::forbidden("手机访问已关闭").into_response();
-        resp.headers_mut().insert(header::CONNECTION, HeaderValue::from_static("close"));
-        return resp;
+    let peer = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|c| c.0.ip());
+    if via == Via::Lan {
+        let why = if !app.lan_listening() {
+            Some("手机访问已关闭")
+        } else if !peer.is_some_and(|ip| crate::devices::network_of(ip).is_some()) {
+            // The tailnet is the way in from outside; a public address is not let in.
+            Some("手机访问只接受局域网和 Tailscale 里的设备")
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            let mut resp = ApiError::forbidden(why).into_response();
+            resp.headers_mut().insert(header::CONNECTION, HeaderValue::from_static("close"));
+            return resp;
+        }
     }
     if !path.starts_with("/api/") {
         // The web client's own files: nothing in them is the person's.
         return next.run(req).await;
     }
-    let peer_local = req.extensions().get::<ConnectInfo<SocketAddr>>().is_some_and(|c| c.0.ip().is_loopback());
-    if via == Via::Local && peer_local && from_local_app(req.headers()) {
+    if via == Via::Local && peer.is_some_and(|ip| ip.is_loopback()) && from_local_app(req.headers()) {
         req.extensions_mut().insert(Client::App);
         return next.run(req).await;
     }

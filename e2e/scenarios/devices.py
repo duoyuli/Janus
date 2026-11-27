@@ -83,6 +83,12 @@ def devices(ctx, c):
 
     on = ctx.api("PUT", "/api/lan-access", {"enabled": True})
     c(on["enabled"] and on["listening"] and on["urls"][-1] == f"http://127.0.0.1:{port}", f"打开手机访问，服务在局域网上监听（{on['urls']}）")
+    nets = [link["network"] for link in on["links"]]
+    c(nets[-1] == "local" and all(n in ("tailscale", "lan") for n in nets[:-1]) and nets[:-1] == sorted(nets[:-1], key=lambda n: n != "tailscale"),
+      f"链接标明网络，tailnet 的在前，本机的最后（{nets}）")
+    paired_on = ctx.api("POST", "/api/devices/pairing")
+    c([link["network"] for link in paired_on["links"]] == nets and all(link["url"].endswith(f"/pair/{paired_on['code']}") for link in paired_on["links"]),
+      "配对链接覆盖同样的网络")
     c(refused(lambda: browser(ctx, "PUT", "/api/lan-access", {"enabled": False}, cookie=token)) == 403, "配对的设备不能拨开关")
     c(wildcard_taken(port), "同一端口在所有接口上有人监听")
     lan = [urllib.parse.urlparse(u).netloc for u in on["urls"][:-1]]

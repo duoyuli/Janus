@@ -3,22 +3,29 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-/// Settings › 手机访问: let phones on the local network reach Janus, pair a phone by its QR code
-/// (a fresh one-time code each time it is shown, renewed before it expires), open the web client
-/// in this Mac's browser already paired, and unpair what was paired.
+/// Settings › 手机访问: let phones on the local network and the tailnet reach Janus, pair a phone by
+/// its QR code (a fresh one-time code each time it is shown, renewed before it expires) on the
+/// address picked (the tailnet's first), open the web client in this Mac's browser already paired,
+/// and unpair what was paired.
 // @project-doc docs/architecture/20261031-frontend.md#mobile_access
 struct MobileAccessView: View {
     let store: AppStore
     @Local private var failure: String?
     @Local private var pairing: JSON?
     @Local private var busy = false
+    /// The address picked for the QR code, by its host; none: the first, the tailnet's when there is one.
+    @Local private var picked: String?
 
     private var access: JSON { store.lanAccess ?? .null }
     private var on: Bool { access["enabled"].bool ?? false }
     private var listening: Bool { access["listening"].bool ?? false }
-    /// The link the QR code opens: the first network address while the switch is on.
-    private var link: String? {
-        listening ? pairing?["urls"].array.first?.string : nil
+    /// The pairing links on the tailnet and the local network, the tailnet's first.
+    private var links: [JSON] {
+        listening ? (pairing?["links"].array ?? []).filter { $0["network"].str != "local" } : []
+    }
+    /// The link the QR code opens.
+    private var link: JSON? {
+        links.first { Self.host($0) == picked } ?? links.first
     }
 
     var body: some View {
@@ -30,7 +37,7 @@ struct MobileAccessView: View {
                 HStack(spacing: 22) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(L.text("允许局域网里的手机访问")).font(.headline)
-                        Text(L.text("打开后，同一网络里的手机扫码配对后能用 Janus 的 Web 版。局域网里是明文传输，只在可信的网络上打开；在外面用 Tailscale 或 VPN 连回来。"))
+                        Text(L.text("打开后，同一局域网或同一 Tailscale 里的手机扫码配对后能用 Janus 的 Web 版。局域网里是明文传输，只在家里、公司这类可信的网络上打开；在外面经 Tailscale 连回来，不要把端口转发到外网。"))
                             .font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -81,7 +88,7 @@ struct MobileAccessView: View {
     private var qrSection: some View {
         HStack(alignment: .top, spacing: 22) {
             Group {
-                if let link, let image = Self.qr(link) {
+                if let link, let image = Self.qr(link["url"].str) {
                     Image(nsImage: image)
                         .interpolation(.none)
                         .resizable()
@@ -95,21 +102,28 @@ struct MobileAccessView: View {
             .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 8) {
                 Text(L.text("用手机的相机扫码")).font(.headline)
-                Text(L.text("手机和这台 Mac 要在同一个网络里。二维码只能用一次，几分钟后自动换一个。"))
+                Text(L.text("手机要和这台 Mac 在同一个局域网里，或者连着同一个 Tailscale。二维码只能用一次，几分钟后自动换一个。"))
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if links.count > 1 {
+                    Picker(L.text("配对用的地址"), selection: Binding(get: { link.map(Self.host) ?? "" }, set: { picked = $0 })) {
+                        // By value, not by index: the links change under the picker when the switch turns.
+                        ForEach(links.map { (host: Self.host($0), label: Self.label($0)) }, id: \.host) { l in
+                            Text(verbatim: l.label).tag(l.host)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .frame(maxWidth: 360, alignment: .leading)
+                }
                 if let link {
-                    Text(verbatim: link)
+                    Text(verbatim: link["url"].str)
                         .font(.callout.monospaced())
                         .textSelection(.enabled)
                 }
-                // The other network addresses (a Tailscale one, a second interface); the last one is this Mac's own.
-                let more = Array((pairing?["urls"].array ?? []).compactMap(\.string).dropFirst().dropLast())
-                if !more.isEmpty {
-                    Text(L.text("扫不上时，在手机浏览器里打开其他地址之一："))
-                        .font(.callout).foregroundStyle(.secondary)
-                    ForEach(more, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()).textSelection(.enabled) }
-                }
+                Text(L.text("用哪个地址配对，手机以后就从那个地址打开 Janus。Tailscale 的地址在家里和外面都能用。"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -161,6 +175,15 @@ struct MobileAccessView: View {
                 NSWorkspace.shared.open(url)
             }
         } catch { failure = error.localizedDescription }
+    }
+
+    /// A link's host (its address), which stays while the code in it changes.
+    static func host(_ link: JSON) -> String { URL(string: link["url"].str)?.host ?? link["url"].str }
+
+    /// A link as the picker names it: its network, then its address.
+    static func label(_ link: JSON) -> String {
+        let network = link["network"].str == "tailscale" ? "Tailscale" : L.text("局域网")
+        return "\(network) · \(host(link))"
     }
 
     /// `text` as a QR code, drawn crisp at any size.

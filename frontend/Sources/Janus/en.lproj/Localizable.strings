@@ -1683,7 +1683,7 @@
 /* Settings › Phone Access */
 "手机访问" = "Phone Access";
 "允许局域网里的手机访问" = "Allow phones on the local network";
-"打开后，同一网络里的手机扫码配对后能用 Janus 的 Web 版。局域网里是明文传输，只在可信的网络上打开；在外面用 Tailscale 或 VPN 连回来。" = "When on, a phone on the same network can scan to pair and use Janus on the web. Traffic on the local network is not encrypted, so turn this on only on a network you trust; when away, connect back through Tailscale or a VPN.";
+"打开后，同一局域网或同一 Tailscale 里的手机扫码配对后能用 Janus 的 Web 版。局域网里是明文传输，只在家里、公司这类可信的网络上打开；在外面经 Tailscale 连回来，不要把端口转发到外网。" = "When on, a phone on the same local network or the same Tailscale network can scan to pair and use Janus on the web. Traffic on the local network is not encrypted, so turn this on only on a network you trust, such as at home or at work; when away, connect back through Tailscale, and never forward the port to the Internet.";
 "在这台 Mac 的浏览器里用" = "Use in this Mac's browser";
 "用默认浏览器打开 Web 版，并配对这个浏览器。" = "Open Janus on the web in your default browser and pair that browser.";
 "在浏览器中打开" = "Open in Browser";
@@ -1691,7 +1691,9 @@
 "还没有配对的设备" = "No paired devices yet";
 "配对二维码" = "Pairing QR code";
 "用手机的相机扫码" = "Scan with your phone's camera";
-"手机和这台 Mac 要在同一个网络里。二维码只能用一次，几分钟后自动换一个。" = "Your phone and this Mac must be on the same network. Each QR code works once and is replaced every few minutes.";
-"扫不上时，在手机浏览器里打开其他地址之一：" = "If scanning doesn't work, open one of these addresses in the phone's browser:";
+"手机要和这台 Mac 在同一个局域网里，或者连着同一个 Tailscale。二维码只能用一次，几分钟后自动换一个。" = "Your phone must be on the same local network as this Mac, or on the same Tailscale network. Each QR code works once and is replaced every few minutes.";
+"配对用的地址" = "Address to pair on";
+"用哪个地址配对，手机以后就从那个地址打开 Janus。Tailscale 的地址在家里和外面都能用。" = "The phone keeps opening Janus at the address it paired on. The Tailscale address works both at home and away.";
+"局域网" = "Local network";
 "配对于 %@ · 最近使用 %@" = "Paired %@ · last used %@";
 "取消配对" = "Unpair";

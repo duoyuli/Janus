@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket};
 use std::sync::Mutex;
 
 /// The cookie that carries a paired device's token.
@@ -127,32 +127,90 @@ fn hash(token: &str) -> String {
     hex(&Sha256::digest(token.as_bytes()))
 }
 
-/// The local network addresses of this Mac, the way packets to the local network, the Internet and
-/// a Tailscale network would leave it. Connecting a UDP socket sends nothing; it only asks the
-/// system which address it would use.
-pub fn lan_addresses() -> Vec<IpAddr> {
-    let probes = [
-        Ipv4Addr::new(192, 168, 255, 255),
-        Ipv4Addr::new(10, 255, 255, 255),
-        Ipv4Addr::new(172, 31, 255, 255),
-        Ipv4Addr::new(8, 8, 8, 8),
-        // Tailscale's own address range.
-        Ipv4Addr::new(100, 100, 100, 100),
-    ];
-    let mut out: Vec<IpAddr> = vec![];
-    for p in probes {
-        let Ok(s) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)) else { continue };
-        if s.connect((p, 9)).is_err() {
-            continue;
+/// Which network an address is on, as phone access sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Network {
+    /// The person's tailnet: `100.64.0.0/10` and `fd7a:115c:a1e0::/48`, on a `utun` interface.
+    Tailscale,
+    /// A private network: home or office (`10/8`, `172.16/12`, `192.168/16`, link-local, IPv6
+    /// unique-local and link-local).
+    Lan,
+    /// This Mac itself.
+    Local,
+}
+
+/// The network `ip` is on; none for a public address, which phone access neither lists nor
+/// answers (the person reaches Janus from outside only through their tailnet).
+pub fn network_of(ip: IpAddr) -> Option<Network> {
+    match ip.to_canonical() {
+        IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            if a == 100 && (b & 0xc0) == 64 {
+                Some(Network::Tailscale)
+            } else if v4.is_loopback() {
+                Some(Network::Local)
+            } else if v4.is_private() || v4.is_link_local() {
+                Some(Network::Lan)
+            } else {
+                None
+            }
         }
-        if let Ok(a) = s.local_addr() {
-            let ip = a.ip();
-            if !ip.is_loopback() && !ip.is_unspecified() && !out.contains(&ip) {
-                out.push(ip);
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            if s[..3] == [0xfd7a, 0x115c, 0xa1e0] {
+                Some(Network::Tailscale)
+            } else if v6.is_loopback() {
+                Some(Network::Local)
+            } else if (s[0] & 0xfe00) == 0xfc00 || (s[0] & 0xffc0) == 0xfe80 {
+                Some(Network::Lan)
+            } else {
+                None
             }
         }
     }
+}
+
+/// This Mac's addresses on the local network and on the tailnet, the tailnet's first. They are
+/// found the way packets would leave: connecting a UDP socket sends nothing, it only asks the
+/// system which address it would use. Asked anew each time, so a new Wi-Fi or a tailnet that came
+/// up shows at once.
+pub fn lan_addresses() -> Vec<(IpAddr, Network)> {
+    let probes: [IpAddr; 7] = [
+        // Tailscale's own service addresses, reached over its interface.
+        Ipv4Addr::new(100, 100, 100, 100).into(),
+        Ipv6Addr::new(0xfd7a, 0x115c, 0xa1e0, 0, 0, 0, 0, 0x53).into(),
+        Ipv4Addr::new(192, 168, 255, 255).into(),
+        Ipv4Addr::new(10, 255, 255, 255).into(),
+        Ipv4Addr::new(172, 31, 255, 255).into(),
+        Ipv4Addr::new(169, 254, 255, 255).into(),
+        Ipv4Addr::new(8, 8, 8, 8).into(),
+    ];
+    let mut out: Vec<(IpAddr, Network)> = vec![];
+    for p in probes {
+        let unspecified: IpAddr = if p.is_ipv4() { Ipv4Addr::UNSPECIFIED.into() } else { Ipv6Addr::UNSPECIFIED.into() };
+        let Ok(s) = UdpSocket::bind((unspecified, 0)) else { continue };
+        if s.connect((p, 9)).is_err() {
+            continue;
+        }
+        let Ok(a) = s.local_addr() else { continue };
+        let ip = a.ip();
+        match network_of(ip) {
+            Some(n @ (Network::Tailscale | Network::Lan)) if !out.iter().any(|(seen, _)| *seen == ip) => {
+                out.push((ip, n))
+            }
+            _ => {}
+        }
+    }
+    out.sort_by_key(|(ip, n)| (*n, ip.is_ipv6()));
     out
+}
+
+/// Where a client reaches Janus, and on which network.
+#[derive(Clone, Debug, Serialize)]
+pub struct Link {
+    pub url: String,
+    pub network: Network,
 }
 
 impl App {
@@ -198,19 +256,26 @@ impl App {
             inner.codes.push((code.clone(), expires));
             inner.failures = 0;
         });
-        let urls: Vec<String> = self.base_urls().iter().map(|b| format!("{b}/pair/{code}")).collect();
-        Ok(json!({ "code": code, "expiresAt": expires, "urls": urls }))
+        let links: Vec<Link> =
+            self.links().into_iter().map(|l| Link { url: format!("{}/pair/{code}", l.url), ..l }).collect();
+        let urls: Vec<&str> = links.iter().map(|l| l.url.as_str()).collect();
+        Ok(json!({ "code": code, "expiresAt": expires, "urls": urls, "links": links }))
     }
 
-    /// Where clients reach Janus: each local network address while the listener runs, then this
-    /// Mac's own address.
-    pub fn base_urls(&self) -> Vec<String> {
+    /// Where clients reach Janus: while the listener runs, each tailnet address, then each local
+    /// network address; last this Mac's own.
+    pub fn links(&self) -> Vec<Link> {
         let port = self.port();
         let mut out = vec![];
         if self.lan_listening() {
-            out.extend(lan_addresses().into_iter().map(|ip| format!("http://{ip}:{port}")));
+            out.extend(
+                lan_addresses().into_iter().map(|(ip, network)| Link {
+                    url: format!("http://{}", std::net::SocketAddr::new(ip, port)),
+                    network,
+                }),
+            );
         }
-        out.push(format!("http://127.0.0.1:{port}"));
+        out.push(Link { url: format!("http://127.0.0.1:{port}"), network: Network::Local });
         out
     }
 
@@ -329,11 +394,14 @@ impl App {
     /// The switch, whether the listener runs, why it does not, and where it is reached.
     pub fn lan_access(&self) -> Value {
         let error = self.devices.lan.lock().unwrap().error.clone();
+        let links = self.links();
+        let urls: Vec<&str> = links.iter().map(|l| l.url.as_str()).collect();
         json!({
             "enabled": self.lan_enabled(),
             "listening": self.lan_listening(),
             "port": self.port(),
-            "urls": self.base_urls(),
+            "urls": urls,
+            "links": links,
             "error": error,
         })
     }
