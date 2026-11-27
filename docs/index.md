@@ -39,7 +39,7 @@ Janus 是单机、单用户的工具：编排器只在本机运行。Git 仓库�
 - `.github/workflows/`：测试和发布工作流，见 [CI 与发布](operations/20261101-ci_release.md)。
 - `examples/calc/`：最小示例项目（普通文件，随仓库提交），用作工作区前先复制到仓库之外。
 
-仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/20261031-deployment.md#layout)。`.gitignore` 只忽略构建输出：`backend/target/`、`frontend/.build/`、`dist/`（包括 `web/dist/`）、`web/node_modules/` 和 `.DS_Store`。
+仓库只放代码。数据库、ACP 适配器、产物、配置和日志都在 Janus home（默认 `~/.janus`），见[部署方案](operations/20261031-deployment.md#layout)。`.gitignore` 只忽略构建输出和本机文件：`backend/target/`、`frontend/.build/`、`dist/`（包括 `web/dist/`）、`web/node_modules/`、`__pycache__/`、`.DS_Store`，以及本机安装的设计 skill。
 
 ## 文档范围
 
