@@ -1505,7 +1505,6 @@
 "页签" = "Tabs";
 "返回" = "Back";
 "正在连接服务…" = "Connecting to the service…";
-"这个页面在网页上还没有做完：先在 Mac 上的 Janus 打开它。" = "This page is not in the web version yet. Open it in Janus on the Mac for now.";
 "Janus 服务 %@" = "Janus service %@";
 "没有这个页面。" = "There is no such page.";
 "没有这个工作区。" = "There is no such workspace.";
