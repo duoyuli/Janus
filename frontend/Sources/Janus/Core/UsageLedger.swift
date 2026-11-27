@@ -100,28 +100,6 @@ extension UsageCostLine {
     }
 }
 
-/// Tokens and turns on one model, in a bill.
-struct UsageModelLine: Equatable, Identifiable {
-    var model: String
-    var tokens = UsageTokens()
-    var turns = 0
-    /// USD at the model's list price; nil when it has none.
-    var estimate: Double?
-    var id: String { model }
-}
-
-/// Who paid in a period's bill: an Agent, with its models (from the backend).
-struct UsageBillGroup: Equatable, Identifiable {
-    var id: String
-    var name: String
-    var tokens = UsageTokens()
-    var turns = 0
-    var cost = UsageCost()
-    var models: [UsageModelLine] = []
-    /// The priced models' estimates added up; nil when none has a price.
-    var estimate: Double?
-}
-
 /// One ACP session (or one lead session): the unit the numbers are counted in.
 struct UsageSession: Identifiable, Equatable {
     var key: String

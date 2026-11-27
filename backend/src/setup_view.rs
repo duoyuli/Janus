@@ -9,6 +9,7 @@ use crate::lang::{Lang, tr};
 use serde_json::{Value, json};
 
 pub mod adapters;
+pub mod bill;
 pub mod library;
 pub mod mcp_draft;
 pub mod picks;

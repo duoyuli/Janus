@@ -53,11 +53,6 @@ let serverLedger: JSON = [
     #expect(UsageLedger.empty.remindersLine == nil)
 }
 
-/// Estimates are written as US dollars, to the cent; a tiny amount is not rounded to zero.
-@Test func usageUSDIsWrittenInDollars() {
-    #expect(usageUSD(6389.624) == "$6,389.62" && usageUSD(0.004) == "<$0.01" && usageUSD(0) == "$0.00")
-}
-
 /// The run card's wall-clock time counts from the run's start while the run is ticking (live,
 /// not replayed, still going), and keeps the recorded value everywhere else: a read-only or
 /// finished run, and a clock that reads earlier than the records. Only the run's own time moves.

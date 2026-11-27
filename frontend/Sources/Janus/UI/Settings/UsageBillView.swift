@@ -63,12 +63,10 @@ struct UsageBillView: View {
     }
 
     private func load() async {
-        let now = Date()
-        let (from, to) = period.range(now: now)
-        let offset = TimeZone.current.secondsFromGMT(for: now) / 60
+        let offset = TimeZone.current.secondsFromGMT(for: Date()) / 60
         do {
-            let j = try await store.api.get("/api/usage?from=\(Int(from.timeIntervalSince1970 * 1000))&to=\(Int(to.timeIntervalSince1970 * 1000))&offset=\(offset)")
-            bill = UsageBill.period(j, issued: now)
+            let j = try await store.api.get("/api/usage/receipt?period=\(period.rawValue)&offset=\(offset)&lang=\(L.serverLanguage)")
+            bill = UsageBill(j["receipt"])
             failure = nil
         } catch {
             failure = error.localizedDescription

@@ -138,7 +138,7 @@ struct UsageReceipt: View {
             VStack(spacing: 3) {
                 Text(bill.headlineCaption).font(.caption2.weight(.semibold)).tracking(1.5).foregroundStyle(.secondary)
                 Text(bill.headline).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
-                    .help(bill.tokens.total.map { "\(usageNum($0)) tokens" } ?? L.text("没有会话上报 Token"))
+                    .help(bill.headlineHelp)
                 Text(bill.headlineDetail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity)
@@ -151,7 +151,7 @@ struct UsageReceipt: View {
                 HStack {
                     Text(bill.groupsTitle)
                     Spacer()
-                    Text(bill.priced ? L.text("估算 · Token") : "TOKEN")
+                    Text(bill.amountTitle)
                 }
                 .font(.caption2.weight(.semibold)).tracking(1).foregroundStyle(.secondary)
                 ForEach(bill.groups) { g in ReceiptGroup(group: g) }
@@ -171,24 +171,24 @@ struct UsageReceipt: View {
 
 /// One payer of a bill and its models, most tokens first.
 private struct ReceiptGroup: View {
-    let group: UsageBillGroup
+    let group: UsageBillLine
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(group.name).font(.callout.weight(.bold))
-                if group.cost.reported {
-                    Text(verbatim: UsageScope(cost: group.cost).costDetail).font(.caption).foregroundStyle(.secondary)
+                if let cost = group.cost {
+                    Text(verbatim: cost).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                ReceiptAmount(estimate: group.estimate, tokens: group.tokens, turns: group.turns, bold: true)
+                ReceiptAmount(line: group, bold: true)
             }
             ForEach(group.models) { m in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("•").foregroundStyle(.secondary).accessibilityHidden(true)
-                    Text(m.model).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+                    Text(m.name).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 8)
-                    ReceiptAmount(estimate: m.estimate, tokens: m.tokens, turns: m.turns, bold: false)
+                    ReceiptAmount(line: m, bold: false)
                 }
                 .padding(.leading, 6)
                 .accessibilityElement(children: .combine)
@@ -200,23 +200,20 @@ private struct ReceiptGroup: View {
 
 /// A payer's or a model's amount: the estimate with the tokens beside it when priced, else the tokens.
 private struct ReceiptAmount: View {
-    let estimate: Double?
-    let tokens: UsageTokens
-    let turns: Int
+    let line: UsageBillLine
     let bold: Bool
 
     var body: some View {
-        let compact = tokens.total.map(usageCompact) ?? L.text("未上报")
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            if let estimate {
-                Text(compact).font(.caption2).foregroundStyle(.secondary)
-                Text(usageUSD(estimate)).font(bold ? .callout.weight(.bold) : .caption)
+            if let estimate = line.estimate {
+                Text(line.tokens).font(.caption2).foregroundStyle(.secondary)
+                Text(estimate).font(bold ? .callout.weight(.bold) : .caption)
             } else {
-                Text(compact).font(bold ? .callout.weight(.bold) : .caption)
+                Text(line.tokens).font(bold ? .callout.weight(.bold) : .caption)
             }
         }
         .monospacedDigit()
-        .help(tokens.total.map { L.text("\(usageNum($0)) tokens · \(turns) 轮") } ?? L.text("没有上报 Token"))
+        .help(line.help)
     }
 }
 

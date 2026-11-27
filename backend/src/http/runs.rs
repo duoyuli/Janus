@@ -167,6 +167,30 @@ pub(super) async fn usage_bill(State(app): State<Arc<App>>, Query(p): Query<Peri
     reply(bill::period(&app.db, p.from, p.to, p.offset.unwrap_or(0), prices.as_deref())?)
 }
 
+#[derive(Deserialize)]
+pub(super) struct ReceiptQuery {
+    /// `week`, `days30`, `thisMonth` or `lastMonth`, in the person's calendar.
+    period: String,
+    /// The person's time zone in minutes east of UTC.
+    offset: Option<i64>,
+    lang: Option<String>,
+}
+
+/// The usage bill of a period as the settings page shows it: its lines worded in `lang`
+/// (`setup_view::bill`), and the bill itself (`bill`).
+// @project-doc docs/architecture/20261031-frontend.md#usage_bill
+pub(super) async fn usage_receipt(State(app): State<Arc<App>>, Query(q): Query<ReceiptQuery>) -> ApiResult {
+    use crate::setup_view::bill as receipt;
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let offset = q.offset.unwrap_or(0);
+    let now = crate::util::now_ms();
+    let (from, to) = receipt::range(&q.period, now, offset)
+        .ok_or_else(|| ApiError::bad_request(format!("没有这个区间：{}", q.period)))?;
+    let prices = app.prices();
+    let raw = json!(bill::period(&app.db, from, to, offset, prices.as_deref())?);
+    reply(json!({ "receipt": receipt::receipt(&raw, now, offset, lang), "bill": raw }))
+}
+
 /// Download the models.dev list now instead of waiting for the daily sync: where it came from,
 /// when, and how many models it priced.
 // @project-doc docs/interfaces/20261031-http_api.md#prices

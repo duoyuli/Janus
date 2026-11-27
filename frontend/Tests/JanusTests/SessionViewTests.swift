@@ -81,23 +81,18 @@ import Testing
         .frame(width: 560, height: 260)
     let session = try render("session-header-light.png", dark: false, chat)
     #expect(detail > 10_000 && session > 10_000)
-    // The period bill of the settings pane, from a response shaped like `GET /api/usage`.
-    let period: JSON = [
-        "from": 1_760_000_000_000, "to": 1_762_592_000_000, "runs": 12, "turns": 3192, "sessions": 40, "unreportedSessions": 3,
-        "activeDays": 21, "days": 30,
-        "tokens": ["total": 6_450_000_000, "input": 200_000_000, "output": 21_400_000, "cachedRead": 6_228_600_000],
-        "cost": ["lines": [["currency": "USD", "amount": 12.5, "sessions": 4]], "reportedSessions": 4, "missingSessions": 36],
-        "estimate": ["amount": 6389.62, "unpricedTurns": 12, "unpricedModels": ["qwen3.8-27b-mlx"], "fetchedAt": 1_762_580_000_000],
-        "agents": [
-            ["id": "codex", "name": "Codex", "turns": 2900, "tokens": ["total": 5_900_000_000], "cost": ["lines": [], "reportedSessions": 0, "missingSessions": 30], "estimate": 5213.22,
-             "models": [["model": "gpt-6-astra", "turns": 2500, "tokens": ["total": 5_100_000_000], "estimate": 4418.29], ["model": "gpt-6.1-sol", "turns": 400, "tokens": ["total": 800_000_000], "estimate": 794.93]]],
-            ["id": "claude", "name": "Claude Code", "turns": 292, "tokens": ["total": 550_000_000], "cost": ["lines": [["currency": "USD", "amount": 12.5, "sessions": 4]], "reportedSessions": 4, "missingSessions": 6],
-             "models": [["model": "claude-opus-5-5", "turns": 250, "tokens": ["total": 500_000_000]], ["model": "claude-haiku-5-5", "turns": 42, "tokens": ["total": 50_000_000]]]],
-        ],
+    // The period bill of the settings pane, from a receipt shaped like `GET /api/usage/receipt`.
+    let receipt: JSON = [
+        "title": "用量账单", "meta": [["label": "区间", "value": "2025年10月9日 – 2025年11月7日"]], "headline": "$6,389.62",
+        "headlineCaption": "按 models.dev API 价格折算 · 非账单", "headlineDetail": "6,450,000,000 tokens · Agent 上报费用 12.5 USD（4 个会话）",
+        "stats": [["label": "任务", "value": "12 个"]], "groupsTitle": "Agent / 模型", "amountTitle": "估算 · Token",
+        "groups": [["name": "Codex", "amount": ["tokens": "5.9B", "estimate": "$5,213.22", "help": "5,900,000,000 tokens · 2900 轮"],
+                    "models": [["model": "gpt-6-astra", "amount": ["tokens": "5.1B", "estimate": "$4,418.29", "help": ""]]]]],
+        "totals": [["label": "Token 总量", "value": "6,450,000,000"], ["label": "缓存命中率", "value": "97%"]],
+        "notes": ["估算按 models.dev 的 API 价格（不含长上下文加价），不是账单。"], "text": "用量账单",
     ]
-    let bill = UsageBill.period(period, issued: Date(timeIntervalSince1970: 1_762_590_000))
-    #expect(bill.headline == "$6,389.62" && bill.totalRows.last?.value == "97%", "\(bill.headline) \(bill.totalRows)")
-    #expect(bill.notes.first?.contains("models.dev") == true && bill.notes.contains { $0.contains(expectedCopy("12 轮没有价格", "excluded from the estimate: 12")) })
+    let bill = UsageBill(receipt)
+    #expect(bill.headline == "$6,389.62" && bill.totalRows.last?.value == "97%" && bill.groups[0].models[0].name == "gpt-6-astra")
     let periodCard = try render("period-bill-light.png", dark: false, Card(padding: 22) { UsageReceipt(bill: bill) }.frame(width: 520))
     #expect(periodCard > 10_000)
     #expect(runCard > 10_000 && runCardDark > 10_000 && runCardNarrow > 10_000, "the cards drew: \(runCard)/\(runCardDark)/\(runCardNarrow) bytes")
