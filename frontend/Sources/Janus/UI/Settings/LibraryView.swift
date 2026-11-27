@@ -218,9 +218,8 @@ struct LibraryView: View {
         case .source(let id):
             let s = store.librarySources.first { $0["id"].str == id } ?? [:]
             let imported = importedNames(s)
-            let rest = s["offers"].array.filter { imported[$0["path"].str] == nil }
-            group(Self.key(g.origin), open: open, icon: "shippingbox", title: Library.sourceName(s),
-                  caption: L.text("GitHub · 提交 \(String(s["commit"].str.prefix(7)))") + (rest.isEmpty ? "" : L.text(" · \(rest.count) 个未导入")),
+            let rest = s["pending"].array
+            group(Self.key(g.origin), open: open, icon: "shippingbox", title: s["name"].str, caption: s["caption"].str,
                   summary: summary) {
                 if store.updatingSources.contains(id) { ProgressView().controlSize(.small) }
                 else if s["updateAvailable"].truthy { Pill(L.text("有更新"), .blue); Button(L.text("更新")) { Task { await store.updateSources([id]) } }.controlSize(.small) }
@@ -435,7 +434,7 @@ struct LibraryView: View {
         let id = i["id"].str
         let open = expanded.contains(id)
         let mcp = i["kind"].str == "mcp"
-        let warning = Self.warning(i)
+        let warning = i["warning"].str
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Button {
@@ -443,7 +442,7 @@ struct LibraryView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Text(i["name"].str).font(.system(.callout, design: .monospaced).weight(.medium)).lineLimit(1)
-                        Text(i["description"].truthy ? i["description"].str : mcp ? Library.endpoint(i) : "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(i["description"].truthy ? i["description"].str : i["endpoint"].str).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         Spacer(minLength: 8)
                         if !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(Tone.amber.color).lineLimit(1) }
                         switch i["warm"]["state"].str {
@@ -468,13 +467,12 @@ struct LibraryView: View {
 
     private func details(_ i: JSON) -> some View {
         let mcp = i["kind"].str == "mcp"
-        let vars = Library.vars(i)
-        let lines = [mcp ? Library.endpoint(i) : "", i["description"].str, Library.origin(i), vars.text,
+        let lines = [i["endpoint"].str, i["description"].str, i["originText"].str, i["varsText"].str,
                      i["server"]["transport"].str == "stdio" ? L.text("同一任务共用一个进程，用到才启动") : "", mcp ? "" : Library.usage(i, now: L.nowMs())].filter { !$0.isEmpty }
         return VStack(alignment: .leading, spacing: 3) {
             ForEach(lines, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             // How findable the skill is: the agent picks it by its description alone.
-            ForEach(i["hints"].array.map(Library.hint), id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color).textSelection(.enabled) }
+            ForEach(i["hintTexts"].strings, id: \.self) { Text($0).font(.caption).foregroundStyle(Tone.amber.color).textSelection(.enabled) }
             if mcp { warmState(i) }
             HStack(spacing: 12) {
                 if mcp || i["origin"]["type"].str == "created" { Button(L.text("编辑")) { edit(i) }.buttonStyle(.link) }
@@ -504,14 +502,6 @@ struct LibraryView: View {
                 Button(L.text("重新准备")) { Task { await store.warmMcp(i["id"].str) } }.buttonStyle(.link).font(.caption)
             }
         }
-    }
-
-    /// What keeps an item from working, in one line: values not filled in, or gone from its source.
-    static func warning(_ i: JSON) -> String {
-        let vars = Library.vars(i)
-        let gone = i["origin"]["type"].str == "git" && !i["source"]["inSource"].truthy
-        let hints = i["hints"].array.isEmpty ? "" : L.text("描述可以改进")
-        return [vars.complete ? "" : vars.text, gone ? L.text("来源中已删除") : "", hints].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private func importedNames(_ preview: JSON) -> [String: String] {

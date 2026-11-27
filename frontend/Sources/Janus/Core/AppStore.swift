@@ -209,7 +209,7 @@ final class AppStore {
     var librarySources: [JSON] { library?["sources"].array ?? [] }
 
     func loadLibrary() async {
-        if let l = try? await api.get("/api/library") { library = l }
+        if let l = try? await api.get("/api/library?lang=\(L.serverLanguage)") { library = l }
         else if library == nil { library = ["items": [], "sources": []] }
     }
 

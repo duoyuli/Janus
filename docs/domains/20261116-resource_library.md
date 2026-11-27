@@ -156,7 +156,7 @@ Agent 读了资源库某个 Skill 的 `SKILL.md`，Janus 记一条 `skill.used`�
 <a id="skill_hints"></a>
 ## Skill 的改进提示
 
-Agent 只凭描述从目录里挑 Skill，所以资源库检查每个 Skill 的描述（`library/quality.rs`，用的是目录里的那一行），在列表的 `hints` 里按类别返回，应用按界面语言写成文字（`Library.hint`）。它们只是提示：不拒绝保存，Skill 照常进入目录。
+Agent 只凭描述从目录里挑 Skill，所以资源库检查每个 Skill 的描述（`library/quality.rs`，用的是目录里的那一行），在列表的 `hints` 里按类别返回，同时按客户端的语言写成文字（`hintTexts`，`setup_view::library`）。它们只是提示：不拒绝保存，Skill 照常进入目录。
 
 | 类别（`kind`） | 什么时候 |
 | --- | --- |

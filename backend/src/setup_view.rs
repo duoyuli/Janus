@@ -8,6 +8,7 @@
 use crate::lang::{Lang, tr};
 use serde_json::{Value, json};
 
+pub mod library;
 #[cfg(test)]
 mod tests;
 

@@ -5,13 +5,24 @@ use super::{ApiError, ApiResult, ok, reply};
 use crate::library::Item;
 use crate::orchestrator::App;
 use axum::Json;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, Query, State};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 
-pub(super) async fn library(State(app): State<Arc<App>>) -> ApiResult {
-    reply(app.library_view()?)
+#[derive(Deserialize)]
+pub(super) struct LangQuery {
+    /// `zh` or `en`, for what the library says about its items; the app's language without.
+    lang: Option<String>,
+}
+
+/// The library, with what the screens say about each item and source in `lang`
+/// (`setup_view::library`).
+pub(super) async fn library(State(app): State<Arc<App>>, Query(q): Query<LangQuery>) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let mut lib = app.library_view()?;
+    crate::setup_view::library::dress_library(&mut lib, lang);
+    reply(lib)
 }
 
 /// The MCP router's settings: whether it gives `run_code` (code mode).
@@ -20,8 +31,15 @@ pub(super) async fn save_router(State(app): State<Arc<App>>, Json(body): Json<Va
     reply(app.save_code_mode(&body)?)
 }
 
-pub(super) async fn item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
-    reply(app.item_view(&id)?)
+pub(super) async fn item(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<LangQuery>,
+) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let mut item = app.item_view(&id)?;
+    crate::setup_view::library::dress_item(&mut item, lang);
+    reply(item)
 }
 
 /// A server's saved values, for the editor: to the app on this Mac and to paired devices, the only

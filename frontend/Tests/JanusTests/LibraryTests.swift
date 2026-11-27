@@ -10,26 +10,6 @@ private let docs: JSON = [
     "vars": [["name": "Authorization", "set": true], ["name": "X-Team", "set": false]],
 ]
 
-/// The library's rows say where an item came from, where a server is and what is missing.
-@Test func libraryItemsReadTheWayTheServerDescribesThem() {
-    #expect(Library.origin(docs) == expectedCopy("来自 acme/kit · 来源中已删除", "From acme/kit · Removed upstream"))
-    #expect(Library.endpoint(docs) == "SSE · https://d.example/sse")
-    #expect(Library.vars(docs) == (text: expectedCopy("Header 1/2 已设置", "Header: 1 of 2 set"), complete: false))
-
-    let skill: JSON = ["kind": "skill", "origin": ["type": "created"]]
-    #expect(Library.origin(skill) == expectedCopy("在 Janus 中新建", "Created in Janus"))
-    #expect(Library.vars(skill).complete)
-    let stdio: JSON = ["server": ["transport": "stdio", "command": "npx", "args": ["-y", "gh-mcp"]]]
-    #expect(Library.endpoint(stdio) == "stdio · npx -y gh-mcp")
-}
-
-/// A row says in one line what keeps an item from working.
-@Test func libraryRowsWarnInOneLine() {
-    #expect(LibraryView.warning(docs) == expectedCopy("Header 1/2 已设置 · 来源中已删除", "Header: 1 of 2 set · Removed upstream"))
-    let fine: JSON = ["kind": "skill", "origin": ["type": "created"], "vars": []]
-    #expect(LibraryView.warning(fine).isEmpty)
-}
-
 /// Skills fold into groups by where they came from: every GitHub source in the order added (also
 /// one nothing is imported from yet), then each folder they were copied out of, then the ones
 /// written in Janus. The group is a field of the origin, not read from the item's id.
@@ -56,8 +36,6 @@ private let docs: JSON = [
     #expect(groups.map(\.origin) == [.source("s1"), .source("s2"), .folder("/a"), .folder("/u/skills"), .created])
     #expect(groups.map { $0.items.map { $0["id"].str } } == [["c", "f"], [], ["e"], ["b", "d"], ["a"]])
     #expect(Library.skillGroups(nil, skills: []).isEmpty, "no sources and no skills: no groups")
-    #expect(Library.sourceName(sources[0]) == "acme/kit")
-    #expect(Library.sourceName(sources[1]) == "acme/more/skills @v2")
 }
 
 /// The MCP editor's form and JSON are one server, values included: written out as Claude Code's
@@ -171,22 +149,13 @@ private let docs: JSON = [
 /// was read and what would make it easier to find.
 @Test func skillRowsShowUseAndHints() {
     let skills: [JSON] = [
-        ["id": "b", "name": "beta", "uses": ["sessions": 2, "lastAt": 1_000]],
-        ["id": "a", "name": "alpha", "uses": ["sessions": 0, "lastAt": nil]],
+        ["id": "b", "name": "beta", "uses": ["sessions": 2, "lastAt": 1_000], "usageText": "被 2 个会话读过"],
+        ["id": "a", "name": "alpha", "uses": ["sessions": 0, "lastAt": nil], "usageText": "还没有会话读过"],
         ["id": "g", "name": "gamma", "uses": ["sessions": 5, "lastAt": 1_000]],
     ]
     #expect(Library.catalogOrder(["skillRouter": ["order": ["g", "b", "a"]]], skills: skills).map { $0["name"].str } == ["gamma", "beta", "alpha"])
     #expect(Library.searched(["skillRouter": ["catalog": "search"]]))
     #expect(!Library.searched(["skillRouter": ["catalog": "list"]]) && !Library.searched(nil))
-    #expect(Library.usage(skills[1], now: 1_000) == expectedCopy("还没有会话读过", "Not read by any session yet"))
-    #expect(Library.usage(skills[0], now: 3_000) == expectedCopy("被 2 个会话读过 · 最近一次：刚刚", "Sessions that read it: 2 · last: Just now"))
-    let hinted: JSON = ["kind": "skill", "origin": ["type": "created"], "hints": [["kind": "short"]]]
-    #expect(LibraryView.warning(hinted) == expectedCopy("描述可以改进", "Description could be better"))
-    #expect(Library.hint(["kind": "long", "chars": 1700, "kept": 1536])
-        == expectedCopy("描述有 1700 个字，目录里只保留前 1536 个：把关键用途和触发词写在开头",
-                        "The description has 1,700 characters; the catalog keeps the first 1,536, so put the key use and trigger words first."))
-    #expect(Library.hint(["kind": "alike", "skill": "review"])
-        == expectedCopy("和 review 的描述很像，Agent 可能分不清用哪个：写出各自适用的场合",
-                        "Reads much like review's description, so the agent may not tell them apart: say when each one applies."))
-    #expect(!Library.hint(["kind": "short"]).isEmpty && !Library.hint(["kind": "noWhen"]).isEmpty)
+    #expect(Library.usage(skills[1], now: 1_000) == "还没有会话读过", "the service's words, and no time when never read")
+    #expect(Library.usage(skills[0], now: 3_000) == "被 2 个会话读过 · " + L.text("最近一次：\(L.ago(1_000, 3_000))"))
 }
