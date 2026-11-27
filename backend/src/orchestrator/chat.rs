@@ -111,6 +111,15 @@ pub struct Proposal {
     pub roles: Vec<ProposedRole>,
 }
 
+impl Proposal {
+    /// Its employees in groups, listed as the settings list digital employees
+    /// (`readiness::role_groups`): each group with its employees' numbers.
+    pub fn groups(&self, lang: Lang) -> Vec<crate::agents::readiness::RoleGroup> {
+        let numbered: Vec<Value> = self.roles.iter().map(|r| json!({ "id": r.n, "group": r.role.group })).collect();
+        crate::agents::readiness::role_groups(&numbered, lang)
+    }
+}
+
 /// One employee of a proposal, numbered from 1 (`n`, what the person ticks), and the saved
 /// digital employee of the same name, if any, which the app leaves unticked.
 #[derive(Serialize)]

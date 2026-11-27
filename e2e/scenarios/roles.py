@@ -101,6 +101,9 @@ def roles(ctx, c):
         sheet = st["proposalSheet"]
         c(sheet["chat"] == chat and [r["name"] for r in sheet["roles"]] == ["店铺负责人", "文案", "客服"] and sheet["picked"] == ["1", "2"],
           "应用：确认表单列出这一批，去掉客服后勾选两位")
+        served = ctx.api("GET", f"/api/runs/{chat}/proposal?lang=zh")["groups"]
+        c(sheet["groups"] == [{"title": g["title"], "roles": g["roles"]} for g in served],
+          "应用：确认表单按服务端给的分组列出")
         c(drawn(ctx.app.picture("proposal-sheet")), "应用：确认表单画出来了（proposal-sheet.png）")
         ctx.app.do("proposal-create")
         ctx.ui(c, chat, lambda r, s: r.get("proposal") is None and s.get("proposalSheet") is None, "创建后对话页的提议消失，表单关闭")

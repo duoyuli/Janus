@@ -8,8 +8,13 @@ struct Proposal: Equatable {
     /// so a newer proposal is never acted on by mistake.
     let id: JSON
     let roles: [ProposedRole]
+    /// The employees in groups, in the server's order (as the settings list digital employees):
+    /// each group's title and its employees' numbers.
+    let groups: [(title: String, roles: [String])]
     /// As the server answered, for the end-to-end checks that compare it.
     let json: JSON
+
+    static func == (a: Proposal, b: Proposal) -> Bool { a.json == b.json }
 
     /// The server's answer; `nil` when it said none (`null`). Typed, so a chat that proposed
     /// nothing can never show「提议了 0 位数字员工」.
@@ -17,6 +22,7 @@ struct Proposal: Equatable {
         guard !j.isNull else { return nil }
         id = j["proposal"]
         roles = j["roles"].array.map(ProposedRole.init)
+        groups = j["groups"].array.map { (title: $0["title"].str, roles: $0["roles"].strings) }
         json = j
     }
 }
@@ -27,7 +33,6 @@ struct ProposedRole: Hashable {
     let n: String
     let name: String
     let desc: String
-    let group: String
     let prompt: String
     let initials: String
     let color: String
@@ -39,7 +44,6 @@ struct ProposedRole: Hashable {
         n = j["n"].str
         name = j["name"].str
         desc = j["desc"].str
-        group = j["group"].str
         prompt = j["prompt"].str
         initials = Role.initials(j["init"].str, name: j["name"].str)
         color = j["color"].truthy ? j["color"].str : "#64748b"

@@ -231,12 +231,13 @@ enum Snapshots {
                 "roleGroups": JSON.array(store.servedRoleGroups.map { g in
                     ["group": g["group"], "title": g["title"], "roles": g["roles"]]
                 }),
-                // The proposal sheet as shown: whose chat, each employee (number, name, group, lead,
-                // whether the name is taken) and which are ticked.
+                // The proposal sheet as shown: whose chat, each employee (number, name, lead, whether
+                // the name is taken), the groups they are listed under and which are ticked.
                 "proposalSheet": store.proposalSheet.map { p in
                     ["chat": JSON(p.chat), "error": p.error.map(JSON.init) ?? .null, "connection": JSON(p.connection),
                      "picked": JSON.array(p.picked.sorted().map(JSON.init)),
-                     "roles": JSON.array(p.roles.map { r -> JSON in ["n": JSON(r.n), "name": JSON(r.name), "group": JSON(r.group), "lead": JSON(r.lead), "existing": JSON(r.existing)] })]
+                     "roles": JSON.array(p.roles.map { r -> JSON in ["n": JSON(r.n), "name": JSON(r.name), "lead": JSON(r.lead), "existing": JSON(r.existing)] }),
+                     "groups": JSON.array(p.proposal.groups.map { g -> JSON in ["title": JSON(g.title), "roles": JSON.array(g.roles.map(JSON.init))] })]
                 } ?? .null,
                 // The digital employees whose own picture the app has loaded, with its size in pixels.
                 "avatars": .object(AvatarImages.shared.images.mapValues { img in

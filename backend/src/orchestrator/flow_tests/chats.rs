@@ -179,6 +179,10 @@ async fn a_hiring_chat_proposes_employees_the_person_creates() {
     assert!(!err);
     let newer = h.app.open_proposal(&id).unwrap().unwrap();
     assert!(newer.proposal > open.proposal);
+    // Listed in groups as the settings list digital employees, by number.
+    let groups: Vec<(String, String, Vec<String>)> =
+        newer.groups(crate::lang::Lang::Zh).into_iter().map(|g| (g.group, g.title, g.roles)).collect();
+    assert_eq!(groups, [("律所".to_string(), "律所".to_string(), vec!["1".to_string(), "2".to_string()])]);
     assert!(h.app.create_proposed(&id, open.proposal, &["1".into()], "fake").is_err(), "a replaced proposal");
     assert!(h.app.create_proposed(&id, newer.proposal, &["3".into()], "fake").is_err(), "no third employee");
 

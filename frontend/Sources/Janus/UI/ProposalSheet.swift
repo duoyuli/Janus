@@ -33,11 +33,11 @@ struct ProposalSheetView: View {
     @ViewBuilder private var list: some View {
         if let error = sheet?.error { Note(text: error, tone: .red) }
         let roles = sheet?.roles ?? []
-        let groups = Array(Set(roles.map(\.group))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-        ForEach(groups, id: \.self) { g in
+        // The server's groups, in its order, each with its employees' numbers.
+        ForEach(Array((sheet?.proposal.groups ?? []).enumerated()), id: \.offset) { _, g in
             VStack(alignment: .leading, spacing: 0) {
-                Text(AppStore.groupTitle(g)).font(.headline).padding(.bottom, 6)
-                ForEach(roles.filter { $0.group == g }, id: \.self) { r in row(r); Divider() }
+                Text(g.title).font(.headline).padding(.bottom, 6)
+                ForEach(g.roles.compactMap { n in roles.first { $0.n == n } }, id: \.self) { r in row(r); Divider() }
             }
         }
     }

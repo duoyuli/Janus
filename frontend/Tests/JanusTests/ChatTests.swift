@@ -17,6 +17,9 @@ private struct ChatLog {
 /// a JSON literal would have become `JSON.null` and shown「提议了 0 位数字员工」.
 @Test func noProposalShowsNoBanner() {
     #expect(Proposal(.null) == nil)
-    let p = try! #require(Proposal(["proposal": 12, "roles": [["n": "1", "name": "测试", "existing": true]]]))
+    let p = try! #require(Proposal(["proposal": 12, "roles": [["n": "1", "name": "测试", "existing": true]],
+                                    "groups": [["group": "", "title": "未分组", "roles": ["1"]]]]))
     #expect(p.id == 12 && p.roles.map(\.name) == ["测试"] && p.roles[0].existing && p.roles[0].n == "1")
+    // The groups are the server's, titles and order included.
+    #expect(p.groups.map(\.title) == ["未分组"] && p.groups[0].roles == ["1"])
 }

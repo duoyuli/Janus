@@ -200,7 +200,7 @@ extension RunModel {
     /// The chat's open proposal, as the server has it.
     // @project-doc docs/domains/20261120-chats.md#chat_app
     func loadProposal() async {
-        guard let p = try? await api.get("/api/runs/\(API.q(id))/proposal") else { return }
+        guard let p = try? await api.get("/api/runs/\(API.q(id))/proposal?lang=\(L.serverLanguage)") else { return }
         let open = Proposal(p)
         // Set only on a change: every set redraws the chat, which would pull it off where it follows.
         if proposal != open { proposal = open }

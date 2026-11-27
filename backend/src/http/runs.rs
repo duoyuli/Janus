@@ -224,12 +224,27 @@ pub(super) async fn files(
     reply(json!({ "files": acp_view::workspace_files(&cwd, q.q.as_deref().unwrap_or(""), 20) }))
 }
 
+#[derive(Deserialize)]
+pub(super) struct ProposalQuery {
+    /// `zh` or `en`, for the groups' titles; the app's language without.
+    lang: Option<String>,
+}
+
 /// The digital employees a chat proposed and the person has not acted on yet (`null`: none),
-/// numbered and marked with a saved one of the same name.
+/// numbered and marked with a saved one of the same name, and listed in groups the way the
+/// settings list digital employees (`groups`, each with its employees' numbers).
 // @project-doc docs/interfaces/20261031-http_api.md#proposed_employees
-pub(super) async fn proposal(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
+pub(super) async fn proposal(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<ProposalQuery>,
+) -> ApiResult {
     stored_run(&app, &id)?;
-    reply(app.open_proposal(&id)?)
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let Some(open) = app.open_proposal(&id)? else { return reply(Value::Null) };
+    let mut out = json!(open);
+    out["groups"] = json!(open.groups(lang));
+    reply(out)
 }
 
 #[derive(Deserialize)]

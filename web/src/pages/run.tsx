@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { api, type Json } from "../lib/api.ts";
 import { joinList, tilde } from "../lib/format.ts";
-import { t } from "../lib/i18n.ts";
+import { serverLang, t } from "../lib/i18n.ts";
 import { connections, loadSetup, show } from "../lib/store.ts";
 import { useDrawn } from "../lib/testing.ts";
 import { usePageTitle } from "../lib/title.ts";
@@ -102,7 +102,7 @@ function useProposal(run: RunModel, chat: boolean): Json | null {
   const marks = run.events.value.filter((e) => ["roles.proposed", "roles.created", "roles.declined"].includes(e.type)).length;
   useEffect(() => {
     if (!chat) return;
-    api.get(`${run.path}/proposal`).then(setP, () => {});
+    api.get(`${run.path}/proposal?lang=${serverLang()}`).then(setP, () => {});
   }, [chat, marks]);
   return p;
 }
@@ -117,7 +117,9 @@ function ProposalSheet({ run, proposal, onClose }: { run: RunModel; proposal: Js
   const [open, setOpen] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const groups = [...new Set(roles.map((r) => r.group ?? ""))].sort((a, b) => a.localeCompare(b));
+  // The service's groups, in its order, each with its employees' numbers.
+  const groups: { title: string; roles: string[] }[] = proposal.groups ?? [];
+  const byNumber = new Map(roles.map((r) => [r.n, r]));
   const create = async () => {
     setCreating(true);
     try {
@@ -142,9 +144,10 @@ function ProposalSheet({ run, proposal, onClose }: { run: RunModel; proposal: Js
           {error && <Note text={error} tone="red" />}
           {groups.map((g) => (
             <section>
-              <h3>{g || t`未分组`}</h3>
-              {roles
-                .filter((r) => (r.group ?? "") === g)
+              <h3>{g.title}</h3>
+              {g.roles
+                .map((n) => byNumber.get(n))
+                .filter((r): r is Json => !!r)
                 .map((r) => (
                   <div class="proposed">
                     <div class="proposed-row">
