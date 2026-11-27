@@ -37,6 +37,8 @@ def review(ctx, c):
         members = [{"id": m["id"], "phase": m["phase"], "line": m["line"], "stats": m.get("stats")} for m in view["members"]]
         c(st["run"]["capsule"] == view["capsule"]["text"] and st["run"]["members"] == members and len(members) == 2,
           f"应用：运行卡片的状态和团队面板每个成员的一行与服务端一致（{st['run']['capsule']}，{st['run']['members']}）")
+        c(st["run"]["audit"] == view["audit"] and len(view["audit"]) == 5 and all(r["ok"] for r in view["audit"]),
+          f"应用：审计页的五条系统规则与服务端一致，都满足（{[r['note'] for r in st['run']['audit']]}）")
         rows = [{"task": t["task"], "metrics": t["metrics"], "markers": t["markers"], "open": t["needsAttention"],
                  "strength": t["strength"]["text"]} for t in view["delivery"]["tasks"]]
         rv = st["run"]["review"]

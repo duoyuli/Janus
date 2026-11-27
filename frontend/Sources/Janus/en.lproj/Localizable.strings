@@ -67,7 +67,6 @@
 "%lld 个来源有更新" = "Sources with updates: %lld";
 "%lld 个模型" = "Models: %lld";
 "%lld 个资源来源有更新" = "Resource sources with updates: %lld";
-"%lld 个问题" = "Questions: %lld";
 "%lld 个风险" = "Risks: %lld";
 "%lld 分 %@ 秒" = "%lld min %@ sec";
 "%lld 分钟" = "%lld min";
@@ -81,7 +80,6 @@
 "%lld 条意见" = "Comments: %lld";
 "%lld 条系统规则没满足" = "%lld system rules broken";
 "%lld 条，基于 %lld 条事件" = "Invariants: %lld · Events checked: %lld";
-"%lld 次完成" = "Completions: %lld";
 "%lld 次尝试" = "Attempts: %lld";
 "%lld 秒" = "%lld sec";
 "%lld 秒前" = "%lld sec ago";
@@ -97,7 +95,6 @@
 "输入、缓存读取、缓存写入和输出；为 0 的不列" = "Input, cache reads, cache writes, and output; zeros are left out";
 "Agent 上报费用 %@" = "Agent-reported cost: %@";
 "Agent 写过或提到的文档" = "Documents Written or Mentioned by Agents";
-"Agent 只提交进度与结果" = "Agents submit progress and results";
 "Agent 已读到" = "Seen by the Agent";
 "Agent 未上报费用" = "No cost reported by agents";
 "Agent 没有权限模式" = "The Agent has no permission mode";
@@ -367,7 +364,6 @@
 "子任务 %lld / %lld" = "Subtasks: %lld / %lld";
 "子任务与成员明细" = "Subtask & Member Details";
 "子任务产物" = "Subtask Artifacts";
-"子任务状态只由 Janus 改变" = "Only Janus changes subtask state";
 "子任务里已有的改动会照常记录成 diff。" = "Existing changes will still be recorded in the diff.";
 "安装" = "Install";
 "完成" = "Done";
@@ -623,7 +619,6 @@
 "查看 %@ 的全部信息" = "View everything about %@";
 "查看完整目标" = "Show Full Goal";
 "查看这个任务交付、保存或提到的 Markdown 文档" = "View Markdown documents delivered, saved, or mentioned in this run";
-"标记完成前已提交结构化结果和证据" = "Structured results and evidence precede completion";
 "忽略" = "Ignore";
 "核对中" = "Verifying";
 "根据推理或自我判断得到的结果，不是运行得到的结果" = "Result based on reasoning or judgment without an executed check";
@@ -670,7 +665,6 @@
 "正文：Agent 使用这个 Skill 时读到的说明" = "Instructions the Agent reads when it uses this skill";
 "每轮 Agent 上报的 Token 之和（含子 Agent）；没上报写「未上报」，上下文快照不计入" = "Sum of tokens each Agent reports per turn (subagents included); missing shows Not reported; context snapshots excluded";
 "每个 Agent 在独立的进程和配置目录里运行，不影响你本机的 Agent。" = "Each Agent runs in its own process with a separate configuration directory. Your local Agent setup is kept intact.";
-"每个子任务同一时间最多一个进行中的尝试" = "At most one active attempt per subtask";
 "没有上报 Token" = "No tokens reported";
 "没有会话" = "No sessions";
 "没有会话上报 Token" = "No session reported tokens";
@@ -752,7 +746,6 @@
 "等待登录" = "Waiting for sign-in";
 "等待看板上的进展" = "Wait for board activity";
 "等你输入" = "Waiting for you";
-"等待输入时附带可回答的问题" = "Waiting for input requires an answerable question";
 "等待返回" = "Waiting for result";
 "等待返回…" = "Waiting for result…";
 "粘贴的图片.%@" = "Pasted Image.%@";
@@ -939,7 +932,6 @@
 "重新读取" = "Reload";
 "重新读取文件（Agent 可能还在修改它）" = "Reload the file to see changes the Agent may have made";
 "重试" = "Retry";
-"重试会新建尝试，旧记录保留" = "A retry starts a new attempt and retains previous records";
 "重试策略：%@" = "Retry policy: %@";
 "问负责人" = "Question for the Lead";
 "问题" = "Question";

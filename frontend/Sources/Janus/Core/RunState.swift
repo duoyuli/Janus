@@ -358,6 +358,9 @@ struct RunState {
     var capsule = (text: "", tone: Tone.gray)
     /// The team panel's rows, in the team's order.
     var members: [MemberLine] = []
+    /// The audit page's system rules over the log: what each says, whether it is kept, and what it
+    /// was checked over.
+    var audit: [(String, Bool, String)] = []
     /// Each task's acceptance evidence, by its id, as the server groups it.
     var evidence: [String: TaskEvidence] = [:]
     /// The latest delivery's evidence: the round's numbers and each task's row.
@@ -395,6 +398,7 @@ struct RunState {
         timeline = j["timeline"]
         capsule = (j["capsule"]["text"].str, Tone(rawValue: j["capsule"]["tone"].str) ?? .gray)
         members = j["members"].array.map(MemberLine.init)
+        audit = j["audit"].array.map { ($0["text"].str, $0["ok"].bool ?? false, $0["note"].str) }
         evidence = j["evidence"].object.mapValues(TaskEvidence.init)
         delivery = j["delivery"].isNull ? nil : DeliveryEvidence(j["delivery"])
         allowed = RunActions(answers: j["actions"].object)

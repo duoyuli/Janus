@@ -2,6 +2,7 @@
 //! messages, deliveries; the board, the review and the inbox are in the submodules.
 
 mod aside;
+mod audit;
 mod board;
 mod card;
 mod evidence;

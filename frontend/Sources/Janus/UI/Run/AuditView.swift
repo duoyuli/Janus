@@ -17,7 +17,7 @@ struct AuditView: View {
         for e in events { for a in [e.actor, e.to].compactMap({ $0 }) where !a.isEmpty && !actors.contains(a) { actors.append(a) } }
         return VStack(alignment: .leading, spacing: 12) {
             // One line when every invariant holds; the list opens on its own when one does not.
-            let invs = invariants(events)
+            let invs = full.audit
             let broken = invs.filter { !$0.1 }.count
             DisclosureGroup(isExpanded: Binding(get: { broken > 0 || run.invariantsOpen }, set: { run.invariantsOpen = $0 })) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), alignment: .leading)], alignment: .leading, spacing: 6) {
@@ -97,36 +97,6 @@ struct AuditView: View {
             }
         }
         .padding(20)
-    }
-
-    /// Event types only the orchestrator writes: a task's state changes and its attempts.
-    private static let orchestratorOnly: Set<EventKind> = [.taskReady, .taskAssigned, .taskSucceeded, .taskReopened, .taskRetryScheduled]
-
-    private func invariants(_ events: [Event]) -> [(String, Bool, String)] {
-        var active: [String: Int] = [:], numbers: [String: [Int]] = [:]
-        var overlap = 0, gaps = 0, noEvidence = 0, unsubmitted = 0, badQuestion = 0, badActor = 0
-        var submitted = Set<String>()
-        for e in events {
-            let task = e.task ?? ""
-            if e.type == .attemptStarted { if active[task] != nil { overlap += 1 }; active[task] = e.attempt ?? 0; numbers[task, default: []].append(e.attempt ?? 0) }
-            if [.attemptFailed, .taskSucceeded].contains(e.type) { active[task] = nil }
-            if e.type == .resultSubmitted { submitted.insert("\(task)#\(e.attempt ?? 0)") }
-            if e.type == .taskSucceeded {
-                if !e.data["summary"].truthy || e.data["evidence"].array.isEmpty { noEvidence += 1 }
-                if !submitted.contains("\(task)#\(e.attempt ?? 0)") { unsubmitted += 1 }
-            }
-            if e.type == .questionAsked && !(e.data["question"].truthy && !e.data["options"].array.isEmpty) { badQuestion += 1 }
-            if (Self.orchestratorOnly.contains(e.type) || e.type.family == "attempt") && e.actor != "janus" { badActor += 1 }
-        }
-        for ns in numbers.values { for (i, n) in ns.enumerated() where n != i + 1 { gaps += 1 } }
-        let attempts = numbers.values.reduce(0) { $0 + $1.count }
-        return [
-            (L.text("每个子任务同一时间最多一个进行中的尝试"), overlap == 0, L.text("\(attempts) 次尝试")),
-            (L.text("重试会新建尝试，旧记录保留"), gaps == 0, L.text("\(numbers.count) 个子任务")),
-            (L.text("子任务状态只由 Janus 改变"), badActor == 0, L.text("Agent 只提交进度与结果")),
-            (L.text("标记完成前已提交结构化结果和证据"), noEvidence == 0 && unsubmitted == 0, L.text("\(events.filter { $0.type == .taskSucceeded }.count) 次完成")),
-            (L.text("等待输入时附带可回答的问题"), badQuestion == 0, L.text("\(events.filter { $0.type == .questionAsked }.count) 个问题")),
-        ]
     }
 }
 

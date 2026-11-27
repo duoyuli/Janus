@@ -11,6 +11,7 @@
 // @project-doc docs/architecture/20261031-frontend.md#event_derivation
 
 mod aside;
+mod audit;
 mod board;
 pub mod docs;
 mod card;
@@ -1075,6 +1076,7 @@ pub struct Fold {
     stamps: BTreeMap<i64, (i64, String)>,
     /// How many of each task's verifications failed (`verification.failed`).
     failed_checks: BTreeMap<String, usize>,
+    audit: audit::AuditFold,
     shown: HashMap<i64, Event>,
     diffs: BTreeMap<i64, Vec<DiffView>>,
     docs: docs::DocsFold,
@@ -1097,6 +1099,7 @@ impl Fold {
         self.state.apply(e);
         self.board.apply(&self.state, e);
         self.stamps.insert(e.seq, (e.ts, e.actor.clone()));
+        self.audit.apply(e, e.data.as_ref().unwrap_or(&Value::Null));
         if let (EventKind::VerificationFailed, Some(t)) = (e.kind(), &e.task) {
             *self.failed_checks.entry(t.clone()).or_default() += 1;
         }
@@ -1189,6 +1192,7 @@ impl Fold {
             timeline,
             capsule,
             members: card::members(&self.state, &self.failed_checks, words),
+            audit: self.audit.rules(words),
             evidence: evidence::tasks(&self.state, words),
             delivery: evidence::delivery(&self.state, words),
             live,
@@ -1251,6 +1255,8 @@ pub struct RunView {
     pub capsule: card::Pill,
     /// The team panel: each member's row.
     pub members: Vec<card::MemberLine>,
+    /// The audit page's system rules over the log, each kept or not.
+    pub audit: Vec<audit::Rule>,
     /// Each task's acceptance evidence, by its id.
     pub evidence: BTreeMap<String, evidence::TaskEvidence>,
     /// The latest delivery's evidence: the round's numbers and each task's row.

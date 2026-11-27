@@ -324,6 +324,8 @@ enum Snapshots {
                     // What the run's menu and card offer, as the server allows at the shown position.
                     "allowed": .object(r.shown.allowed.answers.mapValues { .bool($0["ok"].bool ?? false) }),
                     "resumeNote": JSON(r.shown.resumeNote),
+                    // The audit page's system rules, kept or not.
+                    "audit": JSON.array(r.state.audit.map { ["text": JSON($0.0), "ok": .bool($0.1), "note": JSON($0.2)] }),
                     // The run card's status and the team panel's rows, as drawn.
                     "capsule": JSON(r.shown.capsule.text),
                     "members": JSON.array(r.shown.members.map { ["id": JSON($0.id), "phase": JSON($0.phase.rawValue), "line": JSON($0.line), "stats": JSON($0.stats)] }),
