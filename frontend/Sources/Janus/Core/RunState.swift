@@ -352,6 +352,12 @@ struct RunState {
     var diffs: [Int: [ServedDiff]] = [:]
     /// The run's Markdown documents that exist.
     var docs: [RunDoc] = []
+    /// What can be done to the whole run now, as the server answers it.
+    var allowed = RunActions()
+    /// Nothing can be done in it any more: a stopped run the service no longer holds.
+    var readOnly = false
+    /// Above the run card while it stopped short and can go on.
+    var resumeNote: String?
     /// The newest event the server folded in.
     var seq = 0
     /// The events shown with it, the run's log up to the shown position (the app's own copy).
@@ -376,6 +382,9 @@ struct RunState {
         sessions = j["sessions"].object
         diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
         docs = j["docs"].array.map(RunDoc.init)
+        allowed = RunActions(answers: j["actions"].object)
+        readOnly = j["readOnly"].bool ?? false
+        resumeNote = j["resumeNote"].string
         seq = j["seq"].int ?? 0
         self.events = events
     }
@@ -392,6 +401,16 @@ struct RunState {
     /// The tasks that verify `task` independently; their conclusion is shown apart from the
     /// evidence the executor reported.
     func verifiers(of task: String) -> [TaskState] { orderedTasks.filter { $0.verifies == task } }
+}
+
+/// What can be done to the whole run now, as the server answers it (`backend/src/run_ops.rs`):
+/// each action by its `type` (`pause`, `resume`, `cancel`, `start`, `accept`, `resumeRun`,
+/// `delete`), and why not. At a replayed position nothing can be done.
+struct RunActions {
+    var answers: [String: JSON] = [:]
+    func ok(_ op: String) -> Bool { answers[op]?["ok"].bool ?? false }
+    /// Why `op` cannot be done now; empty when it can.
+    func why(_ op: String) -> String { answers[op]?["why"].str ?? "" }
 }
 
 // MARK: - Shared board

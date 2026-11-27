@@ -321,6 +321,9 @@ enum Snapshots {
                 let proposal: JSON = r.proposal?.json ?? .null
                 j["run"] = [
                     "id": JSON(r.id), "loaded": JSON(r.loaded), "live": JSON(r.live), "readOnly": .bool(r.readOnly), "page": JSON(String(describing: r.page)),
+                    // What the run's menu and card offer, as the server allows at the shown position.
+                    "allowed": .object(r.shown.allowed.answers.mapValues { .bool($0["ok"].bool ?? false) }),
+                    "resumeNote": JSON(r.shown.resumeNote),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     "proposal": proposal,
                     "proposalShown": .bool(r.proposal != nil),

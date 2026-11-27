@@ -48,7 +48,6 @@
 "%@ 轮" = "%@";
 "%@ 通过" = "%@ passed";
 "%@ 问负责人" = "%@ asked the lead";
-"%@ 也可以点右侧的 Agent，补充信息后再继续。" = "%@ Or open an Agent on the right, add details, then continue.";
 "%@尝试 %lld · %@%@%@" = "%@Attempt %lld · %@%@%@";
 "%@未核对，%@" = "%@not checked, %@";
 "%@没有新输出" = "No new output for %@";
@@ -209,7 +208,6 @@
 "总计含负责人；负责人和协作者分开列" = "Totals include the lead; lead and collaborators are listed separately";
 "任务被取消" = "Run cancelled";
 "任务记录" = "Run History";
-"任务还在进行，先停止任务再删除" = "Stop the run before deleting it";
 "会话" = "Sessions";
 "会话已结束" = "Session Ended";
 "会话选项" = "Session Options";
@@ -308,7 +306,6 @@
 "只读 · 当时的状态" = "Read-only · As it was then";
 "只读 · 这个任务已停止" = "Read-only · This run was stopped";
 "只读查看" = "Read-only";
-"可以从失败处继续。" = "You can resume from the failure.";
 "可以继续对话" = "Conversation can continue";
 "可以担任负责人" = "Can Be Lead";
 "可用" = "Ready";
@@ -801,7 +798,6 @@
 "缓存命中率" = "Cache Hit Rate";
 "缓存读取" = "Cache Read";
 "Janus 发出的子任务说明" = "Subtask brief from Janus";
-"Janus 服务重启，任务中断了。做完的保留，没做完的接着做。" = "The Janus service restarted and interrupted this run. Finished subtasks stay; the rest pick up where they stopped.";
 "编辑" = "Edit";
 "编辑 %@" = "Edit %@";
 "编辑 Skill" = "Edit Skill";

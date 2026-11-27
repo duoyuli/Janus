@@ -151,10 +151,10 @@ final class AppStore {
         if let r = try? await api.get("/api/runs"), r["runs"].array != runs { runs = r["runs"].array }
         await chatList.refresh()
         for pager in histories.values { await pager.refresh() }
-        if let r = try? await api.get("/api/runs?attention=1&limit=500"), r["runs"].array != attention { attention = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=\(RunKind.chat.rawValue)&attention=1&limit=500"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=\(RunKind.loop.rawValue)&attention=1&limit=500"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
-        if let r = try? await api.get("/api/runs?kind=\(RunKind.dream.rawValue)&attention=1&limit=500"), r["runs"].array != dreamAttention { dreamAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != attention { attention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=\(RunKind.chat.rawValue)&attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != chatAttention { chatAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=\(RunKind.loop.rawValue)&attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != loopAttention { loopAttention = r["runs"].array }
+        if let r = try? await api.get("/api/runs?kind=\(RunKind.dream.rawValue)&attention=1&limit=500&lang=\(L.serverLanguage)"), r["runs"].array != dreamAttention { dreamAttention = r["runs"].array }
         if let r = try? await api.get("/api/runs/workspaces"), r["workspaces"].array != runWorkspaces { runWorkspaces = r["workspaces"].array }
         // An open run waiting in the queue moves up when a run ahead of it starts or goes, which
         // writes nothing to its own log: read its place again.
@@ -565,12 +565,10 @@ final class AppStore {
             return
         }
         let row = runs.first { $0["id"].str == id }
-        // The open run's status comes from its event stream, which is fresher than the polled list.
-        let status = run?.id == id && run?.loaded == true
-            ? run?.state.run.status ?? .unknown
-            : row.map { RunStatus($0["status"].str) } ?? .unknown
-        if status.isActive {
-            show(L.text("任务还在进行，先停止任务再删除"))
+        // Whether the server lets it go: the open run's view is fresher than the listed row.
+        let delete = run?.id == id && run?.loaded == true ? run?.state.allowed.answers["delete"] : row?["delete"]
+        if let delete, delete["ok"].bool == false {
+            show(delete["why"].str)
             return
         }
         let title = L.goalTitle(row?["goal"].str ?? (run?.id == id ? run?.state.run.goal ?? "" : ""))

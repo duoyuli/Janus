@@ -25,6 +25,8 @@ pub(super) struct RunsQuery {
     /// `next` of the previous page.
     cursor: Option<String>,
     limit: Option<usize>,
+    /// `zh` or `en`, for what the service writes about each run; the app's language without.
+    lang: Option<String>,
 }
 
 /// Runs of one kind, newest first, a page at a time: goals (the default), chats (`?kind=chat`) or
@@ -54,9 +56,10 @@ pub(super) async fn list(State(app): State<Arc<App>>, Query(q): Query<RunsQuery>
         before,
         limit: q.limit.unwrap_or(50).clamp(1, 500),
     };
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
     let (runs, more) = app.db.runs_page(&page)?;
     let next = runs.last().filter(|_| more).map(|r| format!("{}:{}", r.created_at, r.id.as_str()));
-    reply(json!({ "runs": runs, "next": next }))
+    reply(json!({ "runs": app.listed(runs, lang), "next": next }))
 }
 
 /// Every workspace that goal runs were made in, as their snapshots name it, deleted ones included.

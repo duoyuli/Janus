@@ -5,6 +5,8 @@
 use super::App;
 use crate::db::{InboxMark, RunRow, RunsPage};
 use crate::lang::Lang;
+use crate::run_ops;
+use crate::run_ops::RunOp;
 use crate::run_view::{Candidate, Fold, InboxEntry, RunView, Words, fold, inbox_entries};
 use crate::status::{RunKind, RunStatus};
 use anyhow::Result;
@@ -23,24 +25,55 @@ pub struct Inbox {
     pub next_wake: Option<i64>,
 }
 
+/// One run as the run lists show it: its record, and whether it can be deleted now.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedRun {
+    #[serde(flatten)]
+    pub row: RunRow,
+    pub delete: run_ops::OpAnswer,
+}
+
 impl App {
+    /// `rows` as the run lists show them, written in `lang`.
+    // @project-doc docs/interfaces/20261031-http_api.md#run_list
+    pub fn listed(&self, rows: Vec<RunRow>, lang: Lang) -> Vec<ListedRun> {
+        rows.into_iter()
+            .map(|row| {
+                let facts = match self.run(&row.id) {
+                    Some(run) => self.live_facts(&run),
+                    None => self.stored_facts(&row),
+                };
+                let delete = run_ops::answer(&facts, RunOp::Delete, lang);
+                ListedRun { row, delete }
+            })
+            .collect()
+    }
+
     /// Run `id`'s view written in `lang`, up to and including seq `until` (all of it without);
     /// its conversations at the display level `detail`. `None` when there is no such run.
     pub fn run_view(&self, id: &str, until: Option<i64>, lang: Lang, detail: bool) -> Result<Option<RunView>> {
         let Some(row) = self.db.run(id)? else { return Ok(None) };
         let words = Words::of(lang, &row.config);
+        let held = self.run(id);
         // A replayed position has no live session to work or to be held.
-        let live = until.is_none() && self.run(id).is_some();
+        let live = until.is_none() && held.is_some();
+        let facts = match &held {
+            Some(run) => self.live_facts(run),
+            None => self.stored_facts(&row),
+        };
         let work = self.cfg.layout.run(row.kind, id).work;
         let show = |f: &Fold, replaying: bool| {
             let mut view = f.view(live, replaying, &words, detail);
             view.docs = f.docs(&work);
             view
         };
-        Ok(Some(match until {
+        let mut view = match until {
             Some(until) => show(&self.fold_until(id, until)?, true),
             None => self.views.current(id, |after| self.db.events(id, after), |f| show(f, false))?,
-        }))
+        };
+        view.actions = run_ops::answers(&facts, until.is_some(), lang);
+        Ok(Some(view))
     }
 
     /// Run `id`'s fold up to and including seq `until`.

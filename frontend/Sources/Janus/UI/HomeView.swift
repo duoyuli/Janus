@@ -459,7 +459,7 @@ struct RunRows: View {
                 .buttonStyle(.plain)
                 .contextMenu {
                     Button(L.text("删除任务…"), role: .destructive) { Task { await store.deleteRun(r["id"].str) } }
-                        .disabled(RunStatus(r["status"].str).isActive)
+                        .disabled(r["delete"]["ok"].bool != true)
                 }
                 .onAppear { if r == runs.last { atEnd?() } }
                 if r != runs.last { Divider() }

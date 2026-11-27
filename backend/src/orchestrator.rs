@@ -15,9 +15,10 @@
 use crate::acp::{AcpConn, Incoming};
 use crate::agents::{InstructionChannel, Role, Runtime, Workspace};
 use crate::db::ConfigKind;
-use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, VerificationRow};
+use crate::db::{ArtifactRow, AttemptUpdate, Db, Event, RunRow, VerificationRow};
 use crate::events::EventKind;
 use crate::evidence::{Check, Summary, TaskAcceptance, Verdict, Verification, effective_verdict};
+use crate::run_ops::{self, OpFacts, RunOp};
 use crate::seats::Asker;
 use crate::status::{AgentPhase, AttemptStatus, CommandState, RunKind, RunOrigin, RunStatus, TaskStatus};
 use crate::text::{clip, first_line, short_sha, span};

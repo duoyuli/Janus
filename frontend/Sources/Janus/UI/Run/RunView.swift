@@ -84,12 +84,12 @@ struct RunView: View {
                 }
                 ToolbarItem {
                     // One click removes a finished run; a run still working has to be stopped first.
-                    let active = run.state.run.status.isActive
+                    let allowed = run.state.allowed
                     Button { Task { await run.store.deleteRun(run.id) } } label: {
                         Label(L.text("删除任务"), systemImage: "trash")
                     }
-                    .disabled(!run.loaded || active)
-                    .help(!run.loaded ? L.text("正在读取任务") : active ? L.text("任务还在进行，先停止任务再删除") : L.text("删掉这个任务和它的全部记录、产物，删了就找不回来"))
+                    .disabled(!run.loaded || !allowed.ok("delete"))
+                    .help(!run.loaded ? L.text("正在读取任务") : !allowed.ok("delete") ? allowed.why("delete") : L.text("删掉这个任务和它的全部记录、产物，删了就找不回来"))
                     .accessibilityLabel(L.text("删除任务"))
                 }
             }
@@ -332,11 +332,13 @@ struct RunCard: View {
                 }
             }
             if r.status == .failed { Note(text: r.error, tone: .red) }
-            if r.status.canResume && !run.isReplaying {
+            if let note = st.resumeNote {
                 HStack {
-                    Text(verbatim: L.text("\(r.status == .interrupted ? L.text("Janus 服务重启，任务中断了。做完的保留，没做完的接着做。") : L.text("可以从失败处继续。")) 也可以点右侧的 Agent，补充信息后再继续。")).font(.callout).foregroundStyle(.secondary)
+                    Text(verbatim: note).font(.callout).foregroundStyle(.secondary)
                     Spacer()
                     Button(L.text("从中断处继续")) { Task { await run.act(.resumeRun) } }.buttonStyle(.primary)
+                        .disabled(!st.allowed.ok("resumeRun"))
+                        .help(st.allowed.why("resumeRun"))
                 }
                 .padding(10)
                 .background(Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
@@ -372,21 +374,21 @@ struct RunCard: View {
         }
     }
 
-    /// Pause and stop, only while the run is live and still going. Team, workspace and start time
-    /// are on the 团队与权限 page; the wall-clock time is in the summary line.
+    /// Pause and stop, as the server allows them (a live run still going; stopping only before the
+    /// first delivery, whose result is out already). Team, workspace and start time are on the
+    /// 团队与权限 page; the wall-clock time is in the summary line.
     @ViewBuilder private var actions: some View {
         let r = st.run
-        if run.canAct && !r.status.isFinished {
+        let pause = st.allowed.ok(r.paused ? "resume" : "pause"), stop = st.allowed.ok("cancel")
+        if pause || stop {
             HStack(spacing: 8) {
-                if r.status == .running || r.paused {
+                if pause {
                     Button { Task { await run.togglePause() } } label: {
                         Label(r.paused ? L.text("继续") : L.text("暂停"), systemImage: r.paused ? "play.fill" : "pause.fill")
                     }
                     .help(r.paused ? L.text("继续调度子任务（⇧⌘P）") : L.text("暂停：不再派新活，已开工的照常跑（⇧⌘P）"))
                 }
-                // A delivery's result is out already: stopping cannot take it back, so after one
-                // the lead's turn is interrupted from its conversation instead.
-                if st.result == nil {
+                if stop {
                     Button(L.text("停止…"), role: .destructive) { cancelRun(run) }.help(L.text("结束这个任务的所有会话"))
                 }
             }

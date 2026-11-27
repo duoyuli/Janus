@@ -23,7 +23,7 @@ pub(super) struct ViewQuery {
 }
 
 /// The language a request asks for, or the app's.
-fn lang_of(app: &App, lang: Option<&str>) -> Result<Lang, ApiError> {
+pub(super) fn lang_of(app: &App, lang: Option<&str>) -> Result<Lang, ApiError> {
     match lang {
         None => Ok(app.language()),
         Some(l) => Lang::parse(l).ok_or_else(|| ApiError::bad_request(format!("未知的语言：{l}"))),

@@ -2,6 +2,7 @@
 //! only starts or is cancelled; a paused run gives its slot away; the queue survives a restart.
 
 use super::*;
+use crate::lang::Lang;
 
 async fn new_run(app: &Arc<App>, goal: &str) -> String {
     app.create_run(NewRun { goal: goal.into(), workspace: "ws".into(), ..Default::default() }).await.unwrap()
@@ -52,7 +53,18 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     );
     assert_eq!(app.db.queued_runs().unwrap(), [second.clone(), third.clone()], "oldest first");
 
-    // A queued run can only start now or be cancelled.
+    // A queued run can only start now or be cancelled, and the clients read the same rule from
+    // its view; the run at work is paused or stopped, not deleted.
+    let ok = |run: &str| -> Vec<&'static str> {
+        let view = app.run_view(run, None, Lang::En).unwrap().unwrap();
+        view.actions.iter().filter(|(_, a)| a.ok).map(|(op, _)| *op).collect()
+    };
+    assert_eq!(ok(&second), ["cancel", "delete", "start"]);
+    assert_eq!(ok(&first), ["cancel", "pause", "resume"]);
+    let view = app.run_view(&first, None, Lang::En).unwrap().unwrap();
+    assert_eq!(view.actions["delete"].why.as_deref(), Some("This run is still at work; stop it before deleting it"));
+    let listed = app.listed(vec![app.db.run(&first).unwrap().unwrap()], Lang::Zh);
+    assert!(!listed[0].delete.ok, "the run list says the same");
     let talk = app.request_action(&second, &req(json!({ "type": "message", "text": "你好" }))).await;
     assert!(matches!(talk, Err(Refused::Conflict(_))), "a queued run has no one to talk to");
     app.request_action(&third, &req(json!({ "type": "cancel" }))).await.map_err(|e| format!("{e:?}")).unwrap();

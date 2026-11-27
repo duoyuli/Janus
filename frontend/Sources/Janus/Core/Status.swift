@@ -17,8 +17,6 @@ enum RunStatus: String {
     var isActive: Bool { self == .planning || self == .running }
     /// Nothing more happens unless the person acts.
     var isFinished: Bool { [.delivered, .accepted, .cancelled, .failed, .interrupted].contains(self) }
-    /// The run stopped short and can be continued where it was.
-    var canResume: Bool { self == .interrupted || self == .failed }
     /// The goal is done; the lead's session reopens as a conversation.
     var isDone: Bool { self == .delivered || self == .accepted }
 

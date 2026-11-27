@@ -225,7 +225,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     for s in runs { #expect(RunStatus(s) != .unknown, "\(s)") }
     #expect(RunStatus("idle") == .unknown)
     #expect(Set(runs.map(RunStatus.init).filter(\.isActive)) == [.planning, .running])
-    #expect(Set(runs.map(RunStatus.init).filter(\.canResume)) == [.interrupted, .failed])
 }
 
 @Test func suggestedLinesAreAppendedToTheSharedMaterial() {

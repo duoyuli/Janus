@@ -1148,7 +1148,26 @@ impl Fold {
             |seq: i64, i: usize| self.diffs.get(&seq).and_then(|c| c.get(i)).map_or((0, 0), |c| (c.added, c.removed));
         let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail };
         let sessions = sessions::sessions(&self.state, live, replaying, &drawn);
-        RunView { state: self.state.clone(), board, review, sessions, diffs: self.diffs.clone(), docs: vec![], live }
+        let status = self.state.run.status;
+        let read_only = !live && status == Some(RunStatus::Cancelled);
+        let resume_note = match status {
+            _ if replaying => None,
+            Some(RunStatus::Interrupted) => Some(words.resume_note(true)),
+            Some(RunStatus::Failed) => Some(words.resume_note(false)),
+            _ => None,
+        };
+        RunView {
+            state: self.state.clone(),
+            board,
+            review,
+            sessions,
+            diffs: self.diffs.clone(),
+            docs: vec![],
+            live,
+            actions: BTreeMap::new(),
+            read_only,
+            resume_note,
+        }
     }
 
     /// Only what the inbox reads: the person's open items and the latest delivery's review,
@@ -1200,6 +1219,14 @@ pub struct RunView {
     pub docs: Vec<docs::Doc>,
     /// The run is in the service's memory.
     pub live: bool,
+    /// What can be done to the whole run now, by `RunOp` (`run_ops::answers`); filled in by the
+    /// service, which knows its memory of the run.
+    pub actions: BTreeMap<&'static str, crate::run_ops::OpAnswer>,
+    /// Nothing can be done in it any more: a stopped run the service no longer holds.
+    pub read_only: bool,
+    /// Above the run card while it stopped short and can go on: what happened and what to do.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resume_note: Option<String>,
 }
 
 /// The folds of the runs someone asked about, each kept at the newest event it has seen, so the

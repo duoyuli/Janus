@@ -43,6 +43,25 @@ impl Words {
         self.lang.pick("；", " · ")
     }
 
+    /// Above the run card of a run that stopped short: a restart interrupted it (`interrupted`),
+    /// or it failed; either way it goes on from where it stopped.
+    pub fn resume_note(&self, interrupted: bool) -> String {
+        let l = self.lang;
+        let what = if interrupted {
+            l.pick(
+                "Janus 服务重启，任务中断了。做完的保留，没做完的接着做。",
+                "The Janus service restarted and interrupted this run. Finished subtasks stay; the rest pick up where they stopped.",
+            )
+        } else {
+            l.pick("可以从失败处继续。", "You can resume from the failure.")
+        };
+        tr!(
+            l,
+            "{what} 也可以点右侧的 Agent，补充信息后再继续。",
+            "{what} Or open an Agent on the right, add details, then continue."
+        )
+    }
+
     /// The board's facts in words.
     pub fn board(&self, f: &mut BoardFacts, st: &RunState) {
         for o in &mut f.open {

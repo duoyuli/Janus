@@ -62,7 +62,7 @@ final class RunPager {
     }
 
     private func path(limit: Int, cursor: String?) -> String {
-        var p = "/api/runs?\(query)&limit=\(min(limit, 500))"
+        var p = "/api/runs?\(query)&limit=\(min(limit, 500))&lang=\(L.serverLanguage)"
         if let cursor { p += "&cursor=\(cursor.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? cursor)" }
         return p
     }

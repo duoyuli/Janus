@@ -4,7 +4,7 @@ import json
 import threading
 
 from lib import drawn, wait
-from scenarios import scenario, task
+from scenarios import same_actions, scenario, task
 
 
 @scenario("restart", own=True)
@@ -53,7 +53,11 @@ def restart(ctx, c):
         c(not ctx.api("GET", f"/api/runs/{paused.id}")["live"], "等你继续的 Run 不在内存中运行")
         code, _ = paused.act_error("pause")
         c(code == 409, "中断的 Run 不能执行要求它正在运行的操作（409）")
-        ctx.ui(c, paused.id, lambda r, s: r["status"] == "interrupted", "应用重新连上服务，显示暂停的 Run 已中断", pages=("board",))
+        st = ctx.ui(c, paused.id, lambda r, s: r["status"] == "interrupted", "应用重新连上服务，显示暂停的 Run 已中断", pages=("board",))
+        if st:
+            ok = same_actions(ctx, c, st, paused.id, "中断的 Run ")
+            c(ok["resumeRun"] and not ok["pause"] and not ok["cancel"] and st["run"]["resumeNote"],
+              "中断的 Run 可以从中断处继续，不能暂停或停止，运行卡片上写着怎样继续")
         paused.act("resumeRun")
         resumed = paused.wait_event("run.recovered")
         c(resumed["actor"] == "user" and not resumed["data"].get("auto"), "你点「从中断处继续」后它接着做")
@@ -100,6 +104,9 @@ def restart(ctx, c):
             c(not st["run"]["live"] and rv["stage"] == "awaiting" and rv["actions"] and not st["run"]["readOnly"],
               f"应用：重启前交付、不在服务内存里的 Run 仍等你验收，给出「验收」和「让负责人改…」，不标只读"
               f"（live {st['run']['live']}，阶段 {rv['stage']}，按钮 {rv['actions']}，只读 {st['run']['readOnly']}）")
+            ok = same_actions(ctx, c, st, done.id, "重启前交付的 Run ")
+            c(ok["accept"] and ok["resumeRun"] and not ok["cancel"] and ok["delete"],
+              "重启前交付的 Run 能验收、能继续（服务端允许交付过的 Run 继续），不能停止，可以删除")
             # Replaying it shows the lead's session read-only: a draft typed there stays and is not sent.
             shot = f"{done.id}-replay-draft"
             ctx.app.do(f"open run:{done.id}", "page replay:3", "draft agent:lead 回放时写的草稿", f"shot {shot}")

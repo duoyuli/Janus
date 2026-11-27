@@ -56,7 +56,7 @@ final class RunModel {
     /// Nothing can be done in it any more: a stopped run the service no longer holds. Any other run
     /// takes an action without being live (a delivered one is accepted or messaged, an interrupted
     /// one resumed, a queued one started).
-    var readOnly: Bool { !live && state.run.status == .cancelled }
+    var readOnly: Bool { state.readOnly }
 
     /// Whether the run card's wall-clock time must advance every second: the server says this run
     /// is live, it is not a replayed position, and the run is still going. A finished, replayed or

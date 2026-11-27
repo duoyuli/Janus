@@ -252,5 +252,15 @@ def jsonl(text):
     return [json.loads(line) for line in text.splitlines() if line.strip()]
 
 
+def same_actions(ctx, c, st, run_id, what):
+    """The run menu and card offer what the server's view allows (`actions`), and the note above
+    the card is the server's, item by item."""
+    view = ctx.api("GET", f"/api/runs/{run_id}/view")
+    served = {k: v["ok"] for k, v in view["actions"].items()}
+    c(st["run"]["allowed"] == served and st["run"]["resumeNote"] == view.get("resumeNote"),
+      f"应用：{what}能做的操作和运行卡片上的提示与服务端一致（应用 {st['run']['allowed']}，服务端 {served}）")
+    return served
+
+
 # The scenario modules register themselves on import, in this order.
 from scenarios import setup, journeys, review, decisions, failures, controls, sessions, chats, roles, skills, adapters, worktrees, queue, seats, loops, memory, host_env, devices, restart, app_server, language, real  # noqa: E402,F401

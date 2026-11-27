@@ -88,7 +88,7 @@ extension AppStore {
     func dispatched(by loop: String, before: String? = nil) async -> (runs: [JSON], next: String?) {
         guard !loop.isEmpty else { return ([], nil) }
         let cursor = before.map { "&cursor=\(API.q($0))" } ?? ""
-        let r = try? await api.get("/api/runs?loop=\(API.q(loop))&limit=100\(cursor)")
+        let r = try? await api.get("/api/runs?loop=\(API.q(loop))&limit=100&lang=\(L.serverLanguage)\(cursor)")
         return (r?["runs"].array ?? [], r?["next"].string)
     }
 }

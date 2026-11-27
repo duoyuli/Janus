@@ -577,9 +577,7 @@ impl App {
         let _turn = self.gates.revival.lock().await;
         let row = self.db.run(run_id)?;
         let Some(row) = row else { return Err(Refused::NotFound) };
-        if row.kind.delivers() && row.status.is_active() {
-            return Err(Refused::Conflict("任务还在进行，先停止任务再删除".into()));
-        }
+        run_ops::allowed(&self.stored_facts(&row), RunOp::Delete)?;
         // A queued run is taken off the queue first, so it cannot start while it is deleted.
         if row.status == RunStatus::Queued && !self.leave_queue_for_delete(run_id)? {
             return Err(Refused::Conflict("任务刚刚开始，先停止任务再删除".into()));

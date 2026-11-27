@@ -116,6 +116,19 @@ pub(super) enum Decision {
 }
 
 impl RunAction {
+    /// The action on the whole run it is, which `run_ops::allowed` answers.
+    fn op(&self) -> Option<RunOp> {
+        match self {
+            RunAction::Pause => Some(RunOp::Pause),
+            RunAction::Resume => Some(RunOp::Resume),
+            RunAction::Start => Some(RunOp::Start),
+            RunAction::Cancel => Some(RunOp::Cancel),
+            RunAction::Accept => Some(RunOp::Accept),
+            RunAction::ResumeRun => Some(RunOp::ResumeRun),
+            _ => None,
+        }
+    }
+
     /// The action's name, as `type` spells it, for messages and the command record.
     fn name(&self) -> &'static str {
         match self {
@@ -219,63 +232,42 @@ impl App {
         }
         let action = &req.action;
         let run = match self.run(run_id) {
-            // The run is live (a failed driver removes its run, see `launch`): nothing to resume.
-            Some(_) if matches!(action, RunAction::ResumeRun) => {
-                return Err(Refused::Conflict("这个任务正在进行，不需要从中断处继续".into()));
-            }
+            // The service holds it: `action` asks the rule with what the service knows.
             Some(run) => run,
             None => {
-                let row = self.db.run(run_id)?;
-                let stored = row.as_ref().map(|r| r.status);
-                let run_kind = row.as_ref().map(|r| r.kind).unwrap_or_default();
-                match stored {
-                    // A queued run has nothing live yet: it can only start now or be cancelled.
-                    Some(RunStatus::Queued) => {
-                        return match action {
-                            RunAction::Start => self.start_now(run_id),
-                            RunAction::Cancel => self.cancel_queued(run_id),
-                            _ => Err(Refused::Conflict("这个任务还在排队：可以立即开始，或者取消".into())),
-                        };
-                    }
+                let Some(row) = self.db.run(run_id)? else { return Err(Refused::NotFound) };
+                let facts = self.stored_facts(&row);
+                if let Some(op) = action.op() {
+                    run_ops::allowed(&facts, op)?;
+                }
+                match action {
+                    RunAction::Start => return self.start_now(run_id),
+                    RunAction::Cancel => return self.cancel_queued(run_id),
                     // One that could not start has no snapshot to continue from: it queues again.
-                    Some(RunStatus::Failed) if self.never_started(run_id)? => {
-                        return match action {
-                            RunAction::ResumeRun => {
-                                self.requeue(run_id, "重新排队：上次没能开始")?;
-                                self.pump();
-                                Ok(())
-                            }
-                            _ => Err(Refused::Conflict("这个任务没能开始：点「从中断处继续」重新排队".into())),
-                        };
+                    RunAction::ResumeRun if facts.never_started => {
+                        self.requeue(run_id, "重新排队：上次没能开始")?;
+                        self.pump();
+                        return Ok(());
                     }
-                    // It just left the queue and is being set up.
-                    Some(RunStatus::Planning) if run_kind.delivers() => {
-                        return Err(Refused::Conflict("这个任务正在开始，稍后再试".into()));
-                    }
-                    _ => match action {
-                        // Acceptance needs no live agents, so it also works for runs delivered before a restart.
-                        RunAction::Accept => match self.accept_archived(run_id).await? {
-                            None => return Ok(()),
-                            // A message brought it back meanwhile: it is accepted as a live run.
-                            Some(run) => run,
-                        },
-                        RunAction::ResumeRun => return Ok(self.resume_run(run_id).await.map(|_| ())?),
-                        // Talking to an agent brings an interrupted run back first, and so does
-                        // answering a Loop's question: they outlive its session.
-                        RunAction::Message { .. } => self.resume_run(run_id).await?,
-                        RunAction::Answer { .. } if run_kind.questions_outlive_session() => {
-                            self.resume_run(run_id).await?
-                        }
-                        _ => {
-                            return Err(Refused::Conflict(match stored {
-                                Some(RunStatus::Interrupted | RunStatus::Failed) => {
-                                    "这个任务已经中断：先点「从中断处继续」，或者给某个 Agent 发消息".into()
-                                }
-                                _ => "这个任务已经不在进行，没有人在等这个操作：要补充什么，直接给某个 Agent 发消息"
-                                    .into(),
-                            }));
-                        }
+                    RunAction::ResumeRun => return Ok(self.resume_run(run_id).await.map(|_| ())?),
+                    // Acceptance needs no live agents, so it also works for runs delivered before a restart.
+                    RunAction::Accept => match self.accept_archived(run_id).await? {
+                        None => return Ok(()),
+                        // A message brought it back meanwhile: it is accepted as a live run.
+                        Some(run) => run,
                     },
+                    _ => {
+                        run_ops::gate(&facts)?;
+                        match action {
+                            // Talking to an agent brings an interrupted run back first, and so does
+                            // answering a Loop's question: they outlive its session.
+                            RunAction::Message { .. } => self.resume_run(run_id).await?,
+                            RunAction::Answer { .. } if row.kind.questions_outlive_session() => {
+                                self.resume_run(run_id).await?
+                            }
+                            _ => return Err(run_ops::not_going(&facts).into()),
+                        }
+                    }
                 }
             }
         };
@@ -313,6 +305,9 @@ impl App {
 
     // @project-doc docs/interfaces/20261031-http_api.md#run_actions
     pub fn action(self: &Arc<Self>, run: &Arc<Run>, action: &RunAction) -> Result<()> {
+        if let Some(op) = action.op() {
+            run_ops::allowed(&self.live_facts(run), op)?;
+        }
         match action {
             RunAction::Answer { key, task, answer, note } => self.answer(run, key, task, answer, note),
             RunAction::Approve { key, task, agent, allow, option, label } => {
@@ -349,10 +344,6 @@ impl App {
                     Decision::Input { action: *action, content },
                 )
             }
-            // A Loop's clock is paused on the Loop, and its session is stopped by deleting the Loop.
-            RunAction::Pause | RunAction::Resume | RunAction::Cancel if !run.kind.stopped_on_run_page() => {
-                bail!("值班在值班页暂停或删除，不能当作任务暂停或停止");
-            }
             RunAction::Pause | RunAction::Resume => self.pause(run, matches!(action, RunAction::Pause)),
             RunAction::Cancel => self.cancel(run),
             RunAction::Message { text, images, to } => {
@@ -384,8 +375,8 @@ impl App {
             RunAction::Release(to) => self.send_steer(run, &to.agent, &to.task, Steer::Release),
             RunAction::Finish(to) => self.send_steer(run, &to.agent, &to.task, Steer::Finish),
             RunAction::Accept => self.accept_live(run),
-            RunAction::Start => bail!("只有排队中的任务可以立即开始"),
-            RunAction::ResumeRun => bail!("这个任务正在进行，不需要从中断处继续"),
+            // The rule above refuses both for a live run.
+            RunAction::Start | RunAction::ResumeRun => unreachable!("a live run neither starts nor resumes"),
         }
     }
 
@@ -456,19 +447,8 @@ impl App {
         Ok(())
     }
 
+    /// Stop a live run the rule lets stop (`run_ops::allowed`).
     fn cancel(&self, run: &Run) -> Result<()> {
-        // A delivery already put its result on the person's branch (or in their folder):
-        // stopping would only end the lead's conversation and call the run cancelled.
-        // @project-doc docs/domains/20261031-run_lifecycle.md#user_actions
-        if self.last_delivery_seq(&run.id) > 0 {
-            bail!(
-                "这个任务已经交付过，结果已经在你的分支或目录里，停止撤不回它。要停下负责人这一轮，就打断它；不想要这个结果，让负责人回退。"
-            );
-        }
-        let status = run.st.lock().unwrap().status;
-        if !matches!(status, RunStatus::Planning | RunStatus::Running) {
-            bail!("任务现在是「{status}」，不能停止");
-        }
         let conns: Vec<Arc<AcpConn>> = {
             let mut st = run.st.lock().unwrap();
             st.pending.clear();
@@ -487,25 +467,9 @@ impl App {
     }
 
     /// The person accepts a run that is live (its lead's conversation open).
+    /// Accept a live run the rule lets accept (`run_ops::allowed`): delivered, its lead resting
+    /// and nothing waiting on the person.
     fn accept_live(&self, run: &Run) -> Result<()> {
-        // Only a delivered run has results to accept; accepting earlier would be undone by the
-        // scheduler the moment it next ran.
-        let (status, busy, asking) = {
-            let st = run.st.lock().unwrap();
-            (st.status, st.lead.in_turn, !st.pending.is_empty())
-        };
-        if status != RunStatus::Delivered {
-            bail!("任务现在是「{status}」，只有已交付的任务 可以验收");
-        }
-        // A delivery the lead is still working on, or one that waits on the person's answer, is
-        // not the result to accept yet.
-        // @project-doc docs/domains/20261031-run_lifecycle.md#delivery_conditions
-        if busy {
-            bail!("负责人还在处理你交代的事，等它这一轮结束后再验收");
-        }
-        if asking {
-            bail!("还有等你回答的请求，先处理它们再验收");
-        }
         // The lead's conversation stays open and works in the worktree, so it stays; the next
         // start removes it once nothing works there (`recover`).
         let (text, data) = self.accept_worktree(&run.id, run.worktree.as_ref(), &run.base_ref, &run.goal, false)?;
@@ -532,9 +496,33 @@ impl App {
         Ok(None)
     }
 
-    /// A goal run that left the queue but never got its snapshot (`config.team`).
-    fn never_started(&self, run_id: &str) -> Result<bool> {
-        Ok(self.db.run(run_id)?.is_some_and(|r| r.kind.delivers() && r.config["team"].is_null()))
+    /// What the run-action rule reads about a run the service holds: its memory of it.
+    pub(crate) fn live_facts(&self, run: &Run) -> OpFacts {
+        let delivered = self.last_delivery_seq(&run.id) > 0;
+        let st = run.st.lock().unwrap();
+        OpFacts {
+            status: st.status,
+            kind: run.kind,
+            live: true,
+            delivered,
+            never_started: false,
+            lead_busy: st.lead.in_turn,
+            asking: !st.pending.is_empty(),
+        }
+    }
+
+    /// What the run-action rule reads about a run the service does not hold: its record.
+    pub(crate) fn stored_facts(&self, row: &RunRow) -> OpFacts {
+        OpFacts {
+            status: row.status,
+            kind: row.kind,
+            live: false,
+            delivered: self.last_delivery_seq(&row.id) > 0,
+            // A goal run that left the queue but never got its snapshot (`config.team`).
+            never_started: never_started(row),
+            lead_busy: false,
+            asking: false,
+        }
     }
 
     /// After a restart nothing is running: close orphaned attempts and mark their runs interrupted.
@@ -998,7 +986,7 @@ impl App {
         }
         for run_id in self.db.unfinished_runs()? {
             // Taken off the queue but not set up yet: it goes back in its place.
-            if self.never_started(&run_id)? {
+            if self.db.run(&run_id)?.is_some_and(|r| never_started(&r)) {
                 self.requeue(&run_id, "服务重启时这个任务还在准备，重新排队")?;
                 continue;
             }
@@ -1082,9 +1070,25 @@ pub enum Refused {
 }
 
 impl From<anyhow::Error> for Refused {
+    /// A refusal of the run-action rule keeps its kind: the run's state refuses (409), or the
+    /// request does (400).
     fn from(err: anyhow::Error) -> Refused {
-        Refused::Invalid(err)
+        match err.downcast_ref::<run_ops::Why>() {
+            Some(why) if why.conflict() => Refused::Conflict(why.to_string()),
+            _ => Refused::Invalid(err),
+        }
     }
+}
+
+impl From<run_ops::Why> for Refused {
+    fn from(why: run_ops::Why) -> Refused {
+        anyhow::Error::new(why).into()
+    }
+}
+
+/// A goal run that left the queue but never got its snapshot (`config.team`).
+fn never_started(row: &RunRow) -> bool {
+    row.kind.delivers() && row.config["team"].is_null()
 }
 
 /// Whether the person's message `id` reached its agent according to the events after it: joined

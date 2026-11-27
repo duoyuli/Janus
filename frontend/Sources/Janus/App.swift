@@ -174,13 +174,14 @@ struct JanusCommands: Commands {
         }
         CommandMenu(L.text("任务")) {
             let r = run?.state.run
-            let active = onGoal && run?.canAct == true && r.map { !$0.status.isFinished } == true
+            // What the server allows at the shown position (a replayed one allows nothing).
+            let allowed = run?.shown.allowed ?? RunActions()
             Button(r?.paused == true ? L.text("继续") : L.text("暂停")) { Task { await run?.togglePause() } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
-                .disabled(!active || !(r?.status == .running || r?.paused == true))
+                .disabled(!(onGoal && allowed.ok(r?.paused == true ? "resume" : "pause")))
             Button(L.text("从中断处继续")) { Task { await run?.act(.resumeRun) } }
-                .disabled(!(onGoal && run?.canAct == true && r?.status.canResume == true))
-            Button(L.text("停止任务…")) { if let run { cancelRun(run) } }.disabled(!active)
+                .disabled(!(onGoal && allowed.ok("resumeRun")))
+            Button(L.text("停止任务…")) { if let run { cancelRun(run) } }.disabled(!(onGoal && allowed.ok("cancel")))
             Button(run?.isChat == true && onRun ? L.text("删除对话…") : run?.isLoop == true && onRun ? L.text("删除值班…") : L.text("删除任务…"), role: .destructive) {
                 if let run {
                     if run.isLoop, let loop = run.store.loop(ofRun: run.id) {
@@ -190,8 +191,8 @@ struct JanusCommands: Commands {
                     }
                 }
             }
-            // A chat or a Loop goes even while it talks; a goal is stopped first.
-            .disabled(!(onRun && run?.loaded == true && (run?.isChat == true || run?.isLoop == true || !(run?.state.run.status.isActive ?? true))))
+            // As the server allows: a chat or a Loop goes even while it talks; a goal is stopped first.
+            .disabled(!(onRun && run?.loaded == true && run?.state.allowed.ok("delete") == true))
             Divider()
             Button(L.text("复制交付摘要")) { run?.copySummary() }.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(!onRun || run?.state.result == nil)
             Button(L.text("回到实时")) { run?.replay = nil }.disabled(!(run?.isReplaying ?? false))

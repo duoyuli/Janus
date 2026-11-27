@@ -24,6 +24,7 @@ mod library;
 mod migrations;
 mod orchestrator;
 mod prices;
+mod run_ops;
 mod run_view;
 mod schedule;
 mod seats;
