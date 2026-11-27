@@ -149,3 +149,29 @@ fn a_stat_line_counts_what_went_well_and_what_did_not() {
         "Last 5 runs: Subtasks: 3 · Passed first time: 33% · Verification failures: 1"
     );
 }
+
+/// The editor's draft: it may lead once bound to an Agent, and each control shows the draft's value
+/// or, left open, the default the server marks (Codex: Full access), not the agent's current mode.
+#[test]
+fn a_draft_shows_its_controls_and_whether_it_may_lead() {
+    let conns = vec![json!({ "id": "cx", "options": { "controls": [
+        { "id": "mode", "type": "select", "permission": true, "current": "agent", "default": "agent-full-access" },
+        { "id": "verbose", "type": "boolean", "permission": false, "default": false },
+    ] } })];
+    let open = role_draft(&json!({ "connection": "cx", "session": {} }), &conns, Zh);
+    assert_eq!((open["canLead"].as_bool(), open["controlsRead"].as_bool()), (Some(true), Some(true)));
+    assert_eq!(open["permissions"][0]["value"], "agent-full-access");
+    assert_eq!(open["others"][0]["id"], "verbose");
+    let chosen =
+        role_draft(&json!({ "connection": "cx", "session": { "mode": "agent", "verbose": true } }), &conns, En);
+    assert_eq!(
+        (chosen["permissions"][0]["value"].as_str(), chosen["others"][0]["value"].as_bool()),
+        (Some("agent"), Some(true))
+    );
+    let unbound = role_draft(&json!({ "connection": "" }), &conns, Zh);
+    assert_eq!(
+        (unbound["canLead"].as_bool(), unbound["leadNote"].as_str()),
+        (Some(false), Some("绑定 Agent 后才能担任负责人"))
+    );
+    assert!(unbound["permissions"].as_array().unwrap().is_empty());
+}

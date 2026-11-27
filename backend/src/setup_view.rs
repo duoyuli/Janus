@@ -296,3 +296,32 @@ pub fn stat_line(x: &Value, runs: i64, lang: Lang) -> Option<String> {
     let parts = parts.join(" · ");
     Some(tr!(lang, "最近 {runs} 个任务：{parts}", "Last {runs} runs: {parts}"))
 }
+
+/// What the digital employee editor shows of the draft being edited (`POST /api/roles/draft`):
+/// whether it may lead (it is bound to an Agent: Codex and Claude Code both pursue goals with
+/// /goal) and the line under that switch, and its Agent's session controls split into permission
+/// modes and other options, each with the value the draft gives it (the control's default when the
+/// draft leaves it open).
+pub fn role_draft(draft: &Value, connections: &[Value], lang: Lang) -> Value {
+    let c = connections.iter().find(|c| c["id"] == draft["connection"] && !s(&draft["connection"]).is_empty());
+    let with_value = |x: &&Value| {
+        let mut x = (*x).clone();
+        let chosen = &draft["session"][s(&x["id"])];
+        x["value"] = if chosen.is_null() { x["default"].clone() } else { chosen.clone() };
+        x
+    };
+    let all = c.map(controls).unwrap_or_default();
+    let permissions: Vec<Value> = all.iter().filter(|x| is_permission(x)).map(with_value).collect();
+    let others: Vec<Value> = all.iter().filter(|x| !is_permission(x)).map(with_value).collect();
+    json!({
+        "canLead": c.is_some(),
+        "leadNote": if c.is_some() {
+            lang.pick("用 /goal 推进目标，需要时编排协作者", "Use /goal to pursue the goal and coordinate collaborators as needed")
+        } else {
+            lang.pick("绑定 Agent 后才能担任负责人", "Bind an Agent before this employee can lead")
+        },
+        "controlsRead": c.is_some_and(|c| !c["options"]["controls"].is_null()),
+        "permissions": permissions,
+        "others": others,
+    })
+}

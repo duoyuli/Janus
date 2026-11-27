@@ -170,18 +170,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     ])
 }
 
-/// A role that leaves the mode open takes the default the server marks (Codex: Full access), not
-/// the agent's current mode; the role editor shows that value.
-@Test func anOpenModeShowsTheDefault() {
-    let mode: JSON = ["id": "mode", "type": "select", "permission": true, "current": "agent", "default": "agent-full-access",
-                      "options": [["value": "agent", "name": "Auto review"], ["value": "agent-full-access", "name": "Full access"]]]
-    #expect(Setup.value([:], mode) == "agent-full-access")
-    #expect(Setup.value(["mode": "agent"], mode) == "agent")
-}
-
-/// The scheduler's seven states plus the six the app derives for display are each a case of
-/// `TaskStatus` (a new one needs a case, its label and a line in docs/domains/20261031-run_lifecycle.md);
-/// the run states are each a `RunStatus`, and nothing else is.
 @Test func everyStatusTheServerSendsIsACase() {
     let scheduler = ["pending", "running", "blocked", "succeeded", "failed", "cancelled", "skipped_by_decision"]
     let derived = ["ready", "assigned", "verifying", "verification_failed", "waiting_input", "waiting_approval"]

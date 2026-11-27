@@ -357,6 +357,17 @@ pub(super) async fn role_stats(State(app): State<Arc<App>>, Query(q): Query<Setu
     reply(stats)
 }
 
+/// What the digital employee editor shows of the draft it edits: whether it may lead, and its
+/// Agent's controls with the draft's values (`setup_view::role_draft`).
+pub(super) async fn role_draft(
+    State(app): State<Arc<App>>,
+    Query(q): Query<SetupQuery>,
+    Json(draft): Json<Value>,
+) -> ApiResult {
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    reply(crate::setup_view::role_draft(&draft, &app.connections()?, lang))
+}
+
 /// An agent's environment text with its auth's template brought in (`{text, kind, auth}`): the
 /// template's lines for variables the text does not set yet, after what is there.
 pub(super) async fn env_template(Json(body): Json<Value>) -> ApiResult {

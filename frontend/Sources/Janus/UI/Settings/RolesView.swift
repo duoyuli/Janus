@@ -124,6 +124,9 @@ struct RoleEditor: View {
     @Local private var r: JSON = [:]
     @Local private var saving = false
     @Local private var colors = false
+    /// What the service says of the draft: whether it may lead, and its Agent's controls with the
+    /// draft's values (`POST /api/roles/draft`).
+    @Local private var judged: JSON = .null
     /// The picture chosen here, saved with the role.
     @Local private var picture = PictureChange.unchanged
 
@@ -214,11 +217,11 @@ struct RoleEditor: View {
                     Toggle(isOn: Binding(get: { r["lead"].truthy }, set: { r["lead"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L.text("可以担任负责人"))
-                            Text(Setup.leadCapable(c) ? L.text("用 /goal 推进目标，需要时编排协作者") : L.text("绑定 Agent 后才能担任负责人")).font(.caption).foregroundStyle(.secondary)
+                            Text(judged["leadNote"].str).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .toggleStyle(.switch)
-                    .disabled(!Setup.leadCapable(c))
+                    .disabled(!judged["canLead"].truthy)
                     Toggle(isOn: Binding(get: { r["hires"].truthy }, set: { r["hires"] = JSON($0) })) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(L.text("可以在对话里提议数字员工"))
@@ -270,7 +273,7 @@ struct RoleEditor: View {
                         }
                     }
 
-                    section(L.text("权限"), trailing: Setup.controls(c).contains { $0["permission"].truthy } ? L.text("\(c?["name"].str ?? "") 的权限模式") : "")
+                    section(L.text("权限"), trailing: judged["permissions"].array.isEmpty ? "" : L.text("\(c?["name"].str ?? "") 的权限模式"))
                     permissions(c)
                     if c?["options"]["controls"].exists == true {
                         Text(L.text("要不要先问你，由 Agent 自己判断；它发来的审批、表单和链接都进「待处理」。")).font(.caption).foregroundStyle(.secondary)
@@ -292,6 +295,9 @@ struct RoleEditor: View {
         }
         .frame(minWidth: 620, idealWidth: 680, minHeight: 480, idealHeight: 760)
         .onAppear { r = original }
+        .task(id: "\(r["connection"].str)|\(r["session"])|\(c?["options"] ?? .null)") {
+            if let j = try? await store.api.post("/api/roles/draft?lang=\(L.serverLanguage)", r) { judged = j }
+        }
         .task { await store.loadLibrary() }
     }
 
@@ -361,10 +367,10 @@ struct RoleEditor: View {
             else if !c["options"]["controls"].exists {
                 HStack { Note(text: L.text("还没有读取 \(c["name"].str) 的权限模式。"), tone: .amber); Button(L.text("检查 Agent")) { Task { await store.testConnection(c["id"].str) } } }
             } else {
-                let perms = Setup.controls(c).filter { $0["permission"].truthy }
+                let perms = judged["permissions"].array
                 if perms.isEmpty { Note(text: L.text("\(c["name"].str) 没有权限模式：工具直接执行，不经审批，能改工作目录里的文件。")) }
                 ForEach(perms, id: \.self) { x in
-                    let v = Setup.value(r["session"], x)
+                    let v = x["value"]
                     if x["type"].str == "boolean" {
                         Toggle(isOn: Binding(get: { v.bool ?? false }, set: { setCtrl(x, JSON($0)) })) {
                             VStack(alignment: .leading, spacing: 1) { Text(x["name"].str); if x["desc"].truthy { Text(x["desc"].str).font(.caption).foregroundStyle(.secondary) } }
@@ -408,11 +414,11 @@ struct RoleEditor: View {
     }
 
     @ViewBuilder private func otherControls(_ c: JSON?) -> some View {
-        let rest = Setup.controls(c).filter { !$0["permission"].truthy }
+        let rest = judged["others"].array
         if !rest.isEmpty {
             section(L.text("会话选项"), trailing: L.text("\(c?["name"].str ?? "") 提供"))
             ForEach(rest, id: \.self) { x in
-                let v = Setup.value(r["session"], x)
+                let v = x["value"]
                 HStack {
                     VStack(alignment: .leading, spacing: 1) { Text(x["name"].str); if x["desc"].truthy { Text(x["desc"].str).font(.caption).foregroundStyle(.secondary) } }
                     Spacer()

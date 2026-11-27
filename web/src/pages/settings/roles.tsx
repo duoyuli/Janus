@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from "preact/hooks";
 import { api, type Json } from "../../lib/api.ts";
-import { t } from "../../lib/i18n.ts";
+import { serverLang, t } from "../../lib/i18n.ts";
 import { go, link } from "../../lib/router.ts";
 import { connections, loadSetup, roleGroups, roles, show } from "../../lib/store.ts";
 import { Avatar, Button, Card, initials, Menu, Note, Pill, Spinner } from "../../ui/kit.tsx";
@@ -175,10 +175,19 @@ function RoleForm({ id }: { id: string }) {
   const set = (k: string, v: unknown) => setR((d: Json) => ({ ...d, [k]: v }));
   const c = connections.value.find((x) => x.id === r.connection && r.connection);
   const opt = c?.options ?? {};
-  const controls: Json[] = opt.controls ?? [];
-  const perms = controls.filter((x) => x.permission);
-  const rest = controls.filter((x) => !x.permission);
-  const value = (x: Json) => (r.session?.[x.id] === undefined || r.session?.[x.id] === null ? x.default : r.session[x.id]);
+  // What the service says of the draft: whether it may lead, and its Agent's controls with the
+  // draft's values (`POST /api/roles/draft`), read again as the Agent or a control changes.
+  const [judged, setJudged] = useState<Json>({});
+  useEffect(() => {
+    let live = true;
+    api.post(`/api/roles/draft?lang=${serverLang()}`, r).then((j: Json) => live && setJudged(j), () => {});
+    return () => {
+      live = false;
+    };
+  }, [r.connection, JSON.stringify(r.session), JSON.stringify(opt)]);
+  const perms: Json[] = judged.permissions ?? [];
+  const rest: Json[] = judged.others ?? [];
+  const value = (x: Json) => x.value;
   /** Choosing the default drops the key, so the role follows the default if it changes. */
   const setCtrl = (x: Json, v: unknown) => {
     const s = { ...(r.session ?? {}) };
@@ -347,7 +356,7 @@ function RoleForm({ id }: { id: string }) {
             />
           </div>
         </Field>
-        <SwitchRow on={!!r.lead} disabled={!c} onChange={(v) => set("lead", v)} title={t`可以担任负责人`} sub={c ? t`用 /goal 推进目标，需要时编排协作者` : t`绑定 Agent 后才能担任负责人`} />
+        <SwitchRow on={!!r.lead} disabled={!judged.canLead} onChange={(v) => set("lead", v)} title={t`可以担任负责人`} sub={judged.leadNote} />
         <SwitchRow on={!!r.hires} onChange={(v) => set("hires", v)} title={t`可以在对话里提议数字员工`} sub={t`在对话里为你设计数字员工，你看过、勾选后才创建`} />
 
         <div class="h2">{t`指令`}</div>
@@ -395,7 +404,7 @@ function RoleForm({ id }: { id: string }) {
           <Note text={t`先选 Agent，权限选项由它自己声明。`} />
         ) : c.status === "testing" ? (
           <Note text={t`正在检查 ${c.name}，读取它的权限模式…`} />
-        ) : !opt.controls ? (
+        ) : !judged.controlsRead ? (
           <div class="wrap-row">
             <Note text={t`还没有读取 ${c.name} 的权限模式。`} tone="amber" />
             <Button onClick={() => void testConnection(c.id)}>{t`检查 Agent`}</Button>
