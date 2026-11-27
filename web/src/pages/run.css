@@ -119,10 +119,11 @@
 }
 
 @media (max-width: 640px) {
+  /* Exactly the screen between the top bar (45) and the tabs (56 kept free by .main): the
+     composer sits right above the tabs, nothing to scroll. */
   .conversation-page {
-    height: calc(100dvh - 56px - 64px - env(safe-area-inset-bottom));
-    padding-left: 0;
-    padding-right: 0;
+    height: calc(var(--vvh, 100dvh) - 45px - 56px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    padding: 8px 0 0;
     gap: 8px;
   }
 
@@ -151,6 +152,15 @@
 .loop-session > .session,
 .dream-session > .session {
   height: min(760px, calc(100dvh - 180px));
+}
+
+/* A phone: the conversation is one screen high between the top bar and the tabs, so scrolling the
+   page to it shows all of it, the composer above the tabs. */
+@media (max-width: 640px) {
+  .loop-session > .session,
+  .dream-session > .session {
+    height: calc(100dvh - 45px - 56px - env(safe-area-inset-bottom) - 16px);
+  }
 }
 
 .request-list {

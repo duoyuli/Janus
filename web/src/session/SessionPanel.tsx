@@ -51,7 +51,8 @@ export function SessionPanel({ run, sessionKey, title }: { run: RunModel; sessio
       <header class="session-head">
         <span class="session-title">{title}</span>
         <span class="grow" />
-        {info.open && live && !(info.human && info.idle) && <QuietNote last={lastTs(run, info)} />}
+        {/* Only while its turn runs (`busy`): a turn that ended waits for the person, it is not quiet. */}
+        {info.busy && <QuietNote last={lastTs(run, info)} />}
         <span class="density" title={t`详细：每次工具调用都显示；摘要：只看对话、请求和结果`}>
           <Segmented
             label={t`显示`}
@@ -149,27 +150,55 @@ function PlanStrip({ steps }: { steps: Json[] }) {
  * ones come as the person scrolls up to them. */
 function ChatList({ run, sessionKey, rows, docked, empty, preview }: { run: RunModel; sessionKey: string; rows: Row[]; docked: boolean; empty: boolean; preview: Json | undefined }) {
   const box = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
   const [count, setCount] = useState(PAGE);
   const [following, setFollowing] = useState(true);
   const [unseen, setUnseen] = useState(false);
+  // The same as `following`, for the observer below, which outlives renders.
+  const follow = useRef(true);
+  // When the view last scrolled itself: the scroll events right after are not the person's.
+  const ownScroll = useRef(0);
   const last = rows.at(-1)?.id ?? 0;
   const drawn = rows.slice(Math.max(0, rows.length - count));
-  const toEnd = () => {
+  const stick = () => {
     const el = box.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    ownScroll.current = performance.now();
+    el.scrollTop = el.scrollHeight;
+  };
+  const toEnd = () => {
+    follow.current = true;
+    stick();
     setFollowing(true);
     setUnseen(false);
   };
   // Opening a conversation lands on its newest row; so does sending a message.
   useLayoutEffect(toEnd, [sessionKey, run.sent.value]);
   useLayoutEffect(() => {
-    if (following) toEnd();
+    if (follow.current) stick();
     else setUnseen(true);
   }, [last, rows.length, preview?.text, preview?.thought]);
+  // Rows grow after they are drawn (Markdown, images, a turn opening, the view coming back after a
+  // send): while the person is at the bottom, the bottom stays in view.
+  useEffect(() => {
+    const el = inner.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (follow.current) stick();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const onScroll = () => {
     const el = box.current;
     if (!el) return;
     const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight <= 32;
+    // The view's own scrolling, and the content moving under it, is not the person leaving the end.
+    if (follow.current && performance.now() - ownScroll.current < 250) {
+      if (!atEnd) stick();
+      return;
+    }
+    follow.current = atEnd;
     setFollowing(atEnd);
     if (atEnd) setUnseen(false);
     // Near the top: draw the older rows, keeping the place.
@@ -184,13 +213,15 @@ function ChatList({ run, sessionKey, rows, docked, empty, preview }: { run: RunM
   return (
     <div class="chat-scroll-wrap">
       <div class="chat-scroll" ref={box} onScroll={onScroll}>
-        {empty && <div class="secondary">{t`开跑后，对话和工具调用会实时出现在这里`}</div>}
-        {drawn.map((r, i) => (
-          <div class="chat-row" data-row={r.id} data-kind={r.kind} style={{ paddingTop: `${i === 0 && drawn.length === rows.length ? 0 : gapPx(r.gap)}px` }}>
-            <RowView run={run} sessionKey={sessionKey} row={r} docked={docked} />
-          </div>
-        ))}
-        {preview && <LiveRow preview={preview} />}
+        <div ref={inner}>
+          {empty && <div class="secondary">{t`开跑后，对话和工具调用会实时出现在这里`}</div>}
+          {drawn.map((r, i) => (
+            <div class="chat-row" data-row={r.id} data-kind={r.kind} style={{ paddingTop: `${i === 0 && drawn.length === rows.length ? 0 : gapPx(r.gap)}px` }}>
+              <RowView run={run} sessionKey={sessionKey} row={r} docked={docked} />
+            </div>
+          ))}
+          {preview && <LiveRow preview={preview} />}
+        </div>
       </div>
       {!following && (
         <button type="button" class={"to-newest" + (unseen ? " unseen" : "")} onClick={toEnd} title={t`回到最新的消息，之后的新消息会继续显示在底部`}>
@@ -295,6 +326,14 @@ function Composer({ run, sessionKey, mode, placeholder }: { run: RunModel; sessi
   const field = useRef<HTMLTextAreaElement>(null);
   const enabled = !!mode.enabled;
 
+  // On a phone the field is one line that grows with its text (up to its CSS max-height).
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el || !matchMedia("(max-width: 640px)").matches) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight + 2}px`;
+  }, [draft]);
+
   // Only a command (`/` at the start) or a file (`@` starting the last word) asks the service, a
   // moment after the person stops typing.
   useEffect(() => {
@@ -395,11 +434,15 @@ function Composer({ run, sessionKey, mode, placeholder }: { run: RunModel; sessi
         </div>
       )}
       <ImageStrip images={images} onChange={(list) => run.setImages(sessionKey, list)} />
+      {/* A wide window: the field, then a line with the image button and the buttons. A phone: one
+          line, the image button, the field growing with its text, the buttons (session.css). */}
+      <div class="composer-line">
+      <div class="composer-attach">{enabled && <AddImages onPick={(files) => void addFiles(files)} />}</div>
       <div class="composer-box">
         <textarea
           ref={field}
           class="composer-field"
-          rows={2}
+          rows={matchMedia("(max-width: 640px)").matches ? 1 : 2}
           placeholder={placeholder}
           disabled={!enabled}
           value={draft}
@@ -420,8 +463,6 @@ function Composer({ run, sessionKey, mode, placeholder }: { run: RunModel; sessi
         {ghost && <div class="ghost caption">{ghost}</div>}
       </div>
       <div class="composer-buttons">
-        {enabled && <AddImages onPick={(files) => void addFiles(files)} />}
-        <span class="grow" />
         {(mode.buttons ?? []).map((b: Json) => (
           <Button
             kind={b.primary ? "primary" : "bordered"}
@@ -433,6 +474,7 @@ function Composer({ run, sessionKey, mode, placeholder }: { run: RunModel; sessi
             {b.label}
           </Button>
         ))}
+      </div>
       </div>
     </div>
   );

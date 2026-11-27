@@ -142,7 +142,8 @@ struct ChatCard: View {
             HStack {
                 Text(title).font(.headline)
                 Spacer()
-                if info.open && live && !(info.human && info.idle) { QuietNote(last: info.evs.last?.ts ?? 0) }
+                // Only while its turn runs: a turn that ended waits for the person, it is not quiet.
+                if info.busy { QuietNote(last: info.evs.last?.ts ?? 0) }
                 Picker(L.text("显示"), selection: $density) {
                     Text(L.text("详细")).tag(ChatDensity.detail)
                     Text(L.text("摘要")).tag(ChatDensity.summary)

@@ -17,3 +17,13 @@ effect(() => {
   if (a === "system") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", a);
 });
+
+// The height a phone shows right now (`--vvh`): a phone's keyboard covers the bottom of the page
+// without changing `100dvh`, so a page that fills the screen (a conversation) uses this instead,
+// and its composer stays above the keyboard.
+const vv = window.visualViewport;
+if (vv) {
+  const fit = () => document.documentElement.style.setProperty("--vvh", `${Math.round(vv.height)}px`);
+  vv.addEventListener("resize", fit);
+  fit();
+}
