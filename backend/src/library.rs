@@ -12,6 +12,7 @@ mod mcp;
 mod offers;
 mod quality;
 mod skill;
+mod skill_list;
 mod skill_router;
 mod sources;
 mod store;
@@ -591,12 +592,18 @@ impl App {
         let all = self.items()?;
         let notes = self.skill_notes(&all)?;
         let items: Vec<Value> = all.iter().map(|i| self.item_json(i, &sources, &notes)).collect::<Result<_>>()?;
+        let skills: Vec<&Item> = all.iter().filter(|i| i.kind() == ItemKind::Skill).collect();
+        let used: HashMap<String, u64> = notes.uses.iter().map(|(id, (n, _))| (id.clone(), *n)).collect();
+        let order = skill_list::catalog_order(&skills, &used);
+        let source_ids: Vec<String> = sources.iter().map(|s| s.id.clone()).collect();
+        let groups = skill_list::groups(&skills, &source_ids);
         let sources: Vec<Value> = sources.iter().map(|s| self.source_json(s)).collect::<Result<_>>()?;
         let catalog = if notes.listed { "list" } else { "search" };
         Ok(json!({
             "items": items,
             "sources": sources,
-            "skillRouter": { "catalog": catalog },
+            "skillRouter": { "catalog": catalog, "order": order },
+            "skillGroups": groups,
             "mcpRouter": { "code": self.code_mode() },
         }))
     }

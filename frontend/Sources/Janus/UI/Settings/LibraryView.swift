@@ -123,13 +123,13 @@ struct LibraryView: View {
     @ViewBuilder private var skillTab: some View {
         let skills = items(.skill)
         let searched = Library.searched(store.library)
-        RouterGuide(kind: .skill, names: Library.catalogOrder(skills).map { $0["name"].str }, now: skills.isEmpty
+        RouterGuide(kind: .skill, names: Library.catalogOrder(store.library, skills: skills).map { $0["name"].str }, now: skills.isEmpty
             ? L.text("还没有 Skill。加进来就全员可用。")
             : searched
             ? L.text("\(skills.count) 个 Skill 全员可用，经 janus-skills 按关键词搜索。")
             : L.text("\(skills.count) 个 Skill 全员可用，经 janus-skills 直接列出。"),
             searched: searched)
-        let groups = Library.skillGroups(skills, sources: store.librarySources)
+        let groups = Library.skillGroups(store.library, skills: skills)
         let shown = groups.filter { query.isEmpty || $0.items.contains(where: matches) }
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(L.text("已添加"), count: skills.count, caption: L.text("按来源分组")) {

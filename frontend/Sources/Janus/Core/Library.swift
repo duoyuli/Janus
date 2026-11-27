@@ -36,36 +36,26 @@ enum Library {
         return (L.text("\(what) \(set)/\(vars.count) 已设置"), set == vars.count)
     }
 
-    /// Skills grouped by where they came from: each GitHub source (in the order added, also before
-    /// anything is imported from it), then each local folder they were copied out of, then the ones
-    /// written in Janus.
-    static func skillGroups(_ skills: [JSON], sources: [JSON]) -> [SkillGroup] {
-        var groups = sources.map { SkillGroup(origin: .source($0["id"].str), items: []) }
-        var folders: [String: [JSON]] = [:]
-        var created: [JSON] = []
-        for s in skills {
-            let o = s["origin"]
-            switch o["type"].str {
-            case "git":
-                let id = o["source"].str
-                if let at = groups.firstIndex(where: { $0.origin == .source(id) }) { groups[at].items.append(s) }
-                else { groups.append(SkillGroup(origin: .source(id), items: [s])) }
-            case "folder": folders[(o["path"].str as NSString).deletingLastPathComponent, default: []].append(s)
-            default: created.append(s)
+    /// Skills grouped by where they came from, as the server folds them (`skillGroups` of
+    /// `GET /api/library`): each GitHub source, then each local folder, then the ones written in
+    /// Janus. A group names its skills by id; `skills` gives them.
+    static func skillGroups(_ library: JSON?, skills: [JSON]) -> [SkillGroup] {
+        (library?["skillGroups"].array ?? []).map { g in
+            let origin: SkillGroup.Origin = switch g["type"].str {
+            case "source": .source(g["source"].str)
+            case "folder": .folder(g["path"].str)
+            default: .created
             }
+            let items = g["items"].strings.compactMap { id in skills.first { $0["id"].str == id } }
+            return SkillGroup(origin: origin, items: items)
         }
-        groups += folders.keys.sorted().map { SkillGroup(origin: .folder($0), items: folders[$0] ?? []) }
-        if !created.isEmpty { groups.append(SkillGroup(origin: .created, items: created)) }
-        return groups
     }
 
-    /// The skills in the order the router's catalog lists them: the most read first, then by name.
+    /// The skills in the order the router's catalog lists them, as the server says
+    /// (`skillRouter.order`: the most read first, then by name).
     // @project-doc docs/domains/20261116-resource_library.md#skill_router
-    static func catalogOrder(_ skills: [JSON]) -> [JSON] {
-        skills.sorted {
-            let (a, b) = ($0["uses"]["sessions"].int ?? 0, $1["uses"]["sessions"].int ?? 0)
-            return a != b ? a > b : $0["name"].str < $1["name"].str
-        }
+    static func catalogOrder(_ library: JSON?, skills: [JSON]) -> [JSON] {
+        (library?["skillRouter"]["order"].strings ?? []).compactMap { id in skills.first { $0["id"].str == id } }
     }
 
     /// Whether the router's catalog is too large to list every skill, so the agent searches it

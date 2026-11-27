@@ -94,7 +94,7 @@ pub(super) fn write(router: &Path, items: &[&Item], uses: &HashMap<String, u64>,
         let entry = Entry { code: dir.join(super::SKILL_CODE).is_file(), ..Entry::read(item, &md) };
         entries.push((uses.get(&item.id).copied().unwrap_or(0), entry));
     }
-    entries.sort_by(|(a_uses, a), (b_uses, b)| b_uses.cmp(a_uses).then_with(|| a.name.cmp(&b.name)));
+    entries.sort_by(|(a_uses, a), (b_uses, b)| super::skill_list::by_use((*a_uses, &a.name), (*b_uses, &b.name)));
     let entries: Vec<Entry> = entries.into_iter().map(|(_, e)| e).collect();
     let (name, about, n) = (super::SKILL_ROUTER, description(&entries, lang), entries.len());
     let skills = router.join(".skills");
