@@ -22,6 +22,7 @@ mod runs;
 mod setup;
 mod streams;
 mod views;
+mod web;
 
 /// A refused request: its status and a message in the person's words
 /// (`docs/interfaces/20261031-http_api.md#errors`). Any `anyhow::Error` becomes a 400 with its
@@ -211,6 +212,8 @@ pub fn router(app: Arc<App>, via: Via) -> Router {
         .route("/mcp/{run}/{token}/task/{task}", post(streams::task_board).get(streams::no_stream))
         .route("/mcp/{run}/{token}/lead/tools", post(streams::lead_tools).get(streams::no_stream))
         .route("/mcp/{run}/{token}/task/{task}/tools", post(streams::task_tools).get(streams::no_stream))
+        // Every other path is the web client: its files, or its page.
+        .fallback(web::serve)
         // Goals and messages carry pasted images as base64 (10 images of up to 10 MB each).
         .layer(axum::extract::DefaultBodyLimit::max(160 * 1024 * 1024))
         .layer(axum::middleware::from_fn_with_state((app.clone(), via), devices::guard))
