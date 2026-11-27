@@ -31,8 +31,20 @@ private var screenLocked: Bool {
         let lines = JSON.object(Dictionary(uniqueKeysWithValues: events.filter { $0.type == .userMessage }.map { e in
             (String(e.seq), ["kind": "bubbles", "items": [["text": e.data["text"], "images": [], "via": "作为新一轮发送", "insert": false]]] as JSON)
         }))
+        // The rows the server lays the conversation out in (`run_view::turns`): the run's start as
+        // a section, then each message opening its turn, the turn's line, and the reply.
+        var rows: [JSON] = [["kind": "section", "id": 1, "seq": 1, "injected": [], "gap": "none"]]
+        for e in events where e.type == .userMessage {
+            let n = e.seq
+            rows.append(["kind": "item", "id": JSON(n), "seq": JSON(n), "turn": JSON(n), "fold": false, "gap": "round"])
+            guard events.contains(where: { $0.seq == n + 1 }) else { continue }
+            rows.append(["kind": "head", "id": JSON(-(n * 8 + 1)), "turn": JSON(n), "agent": "lead", "running": false, "open": .null,
+                         "start": JSON(n * 1000), "end": JSON((n + 1) * 1000), "stats": "", "summary": "工作了 1 秒", "gap": "block"])
+            rows.append(["kind": "text", "id": JSON(n + 1), "events": [JSON(n + 1)], "reply": true, "turn": JSON(n), "fold": false, "gap": "block"])
+        }
         let st = RunState(["run": ["status": "running", "goal": "长对话"], "lines": lines,
-                           "sessions": ["agent:lead": ["events": .array(events.map { JSON($0.seq) }), "open": true, "composer": "replay"]]], events: events)
+                           "sessions": ["agent:lead": ["events": .array(events.map { JSON($0.seq) }), "open": true, "composer": "replay",
+                                                       "rows": .array(rows)]]], events: events)
         return AnyView(ChatCard(run: run, st: st, title: "负责人", info: st.session(.agent("lead")), target: .agent("lead")).frame(width: 700, height: 600))
     }
     let host = NSHostingView(rootView: view())
@@ -69,6 +81,10 @@ private var screenLocked: Bool {
         repeat { await settle() } while gapBelow() >= 2 && Date() < deadline
     }
     await settleAtEnd()
+    // A swipe on a view with nothing to scroll is taken as a navigation swipe, whose tracking waits
+    // for gesture events that never come: fail here instead of hanging below.
+    try #require((chat.documentView?.frame.height ?? 0) > clip.bounds.height * 3,
+                 "the conversation must be much taller than its window (the fixture's rows were not drawn)")
     #expect(gapBelow() < 2, "a conversation opens at its newest item")
 
     // The person's own scrolling: one trackpad swipe of `dy` points (positive is up), sent as the
