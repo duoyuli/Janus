@@ -1,6 +1,6 @@
 # ADR：Agent 的环境变量在编辑器里全部显示，令牌也在
 
-- 状态：已采纳（accepted），记录于 2026-11-21。取代 [ADR：Claude Code 的自定义 API 用环境变量设置](20261120-claude_env_auth.md) 中「编辑时私有变量只显示名字」的部分。
+- 状态：已采纳（accepted），记录于 2026-11-21。取代 [ADR：Claude Code 的自定义 API 用环境变量设置](20261120-claude_env_auth.md) 中「编辑时私有变量只显示名字」的部分。第 2 条「只回答本机应用」已被 [ADR：MCP 的值和 Agent 的环境变量也给配对的设备](20261126-credentials_to_paired_devices.md) 取代：2026-11-26 起本机应用和配对的设备都能读。
 - 相关文档：[安全边界：凭据保存](../operations/20261031-security.md#secrets)、[Agent 环境变量](../domains/20261031-agents_and_roles.md#agent_env)、[HTTP API](../interfaces/20261031-http_api.md#setup)、[ADR：MCP 服务器的值在编辑器里能看能改](20261119-mcp_values_visible.md)。
 
 ## 背景

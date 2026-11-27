@@ -28,7 +28,7 @@
 - 角色的 Skill、MCP 和指令只在会话启动时注入，不写任何 Agent 的配置文件（隔离目录中的也不写），也不在提示词、负责人说明或协作者名单中暴露角色的 Skill 和 MCP，见 `docs/decisions/20261116-launch_time_resources.md`。
 - 权限完全由各 Agent 的原生模式决定，Janus 不另加读写开关或校验，见 `docs/decisions/20261031-agent_native_permissions.md`。
 - Janus 注入会话的说明只写协作机制（看板、编排、提问、交付）；怎样做事、怎样验证写在数字员工的指令里。两者都保持精简，一个机制只说一次，见 `docs/decisions/20261125-collaboration_only_injection.md`。需要 Agent 交回结构化的东西（结果、提问）时给工具，不在提示词里约定格式、从回复正文里解析，见 `docs/decisions/20261125-hand_in_with_tools.md`；负责人写给用户的交付报告不在此列，见 `docs/decisions/20261126-lead_report_in_prose.md`。
-- 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。例外只有两个，都只返回给本机应用：资源库 MCP 服务器的值（`GET /api/library/mcp/{id}/values`，见 `docs/decisions/20261119-mcp_values_visible.md`）和 Agent 的环境变量（`GET /api/connections/{id}/env`，见 `docs/decisions/20261121-agent_env_visible.md`）。
+- 凭据不写进代码、日志、文档、SQLite 或设置接口的返回值。例外只有两个，都只返回给本机应用和已配对的设备：资源库 MCP 服务器的值（`GET /api/library/mcp/{id}/values`，见 `docs/decisions/20261119-mcp_values_visible.md`）和 Agent 的环境变量（`GET /api/connections/{id}/env`，见 `docs/decisions/20261121-agent_env_visible.md`），配对见 `docs/decisions/20261126-credentials_to_paired_devices.md`。
 - 运行时不向仓库写任何文件。新的数据、依赖、配置或日志按 `docs/operations/20261031-deployment.md#new_files` 选位置，路径只经后端的 `Layout` 和应用的 `JanusHome` 取得，并更新同一文档的目录规范。
 - 改代码时同步更新相关文档。改名、删除功能或改变行为时，用旧名字全仓库检索，一并改掉界面文案、中英文 README、`docs/`、注释和脚本。中文文档遵循 tech-doc-style-chinese：中文与英文、数字之间加空格，引号用「」，一段一行。
 - 指令内容只写在本文件，`CLAUDE.md` 是指向它的符号链接；项目 skill 放在 `.agents/skills/`，`.claude/skills` 是指向它的符号链接。

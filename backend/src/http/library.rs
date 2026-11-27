@@ -1,11 +1,11 @@
 //! The resource library: skills, MCP servers and the Git sources they come from.
 // @project-doc docs/interfaces/20261031-http_api.md#library
 
-use super::{ApiError, ApiResult, Client, local_app_only, ok, reply};
+use super::{ApiError, ApiResult, ok, reply};
 use crate::library::Item;
 use crate::orchestrator::App;
 use axum::Json;
-use axum::extract::{Extension, Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, State};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -24,15 +24,10 @@ pub(super) async fn item(State(app): State<Arc<App>>, UrlPath(id): UrlPath<Strin
     reply(app.item_view(&id)?)
 }
 
-/// A server's saved values, for the editor. They go only to a client on this machine that isn't
-/// a web page: see `from_local_app`.
+/// A server's saved values, for the editor: to the app on this Mac and to paired devices, the only
+/// clients `devices::guard` lets reach any route.
 // @project-doc docs/operations/20261031-security.md#secrets
-pub(super) async fn mcp_values(
-    State(app): State<Arc<App>>,
-    UrlPath(id): UrlPath<String>,
-    Extension(client): Extension<Client>,
-) -> ApiResult {
-    local_app_only(&client, "MCP 的值")?;
+pub(super) async fn mcp_values(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     reply(app.mcp_values_view(&id)?)
 }
 

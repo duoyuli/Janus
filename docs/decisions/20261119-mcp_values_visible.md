@@ -1,6 +1,6 @@
 # ADR：MCP 服务器的值在编辑器里能看能改
 
-- 状态：已采纳（accepted），记录于 2026-11-19。
+- 状态：已采纳（accepted），记录于 2026-11-19。第 2 条「只回答本机的应用」已被 [ADR：MCP 的值和 Agent 的环境变量也给配对的设备](20261126-credentials_to_paired_devices.md) 取代：2026-11-26 起本机应用和配对的设备都能读。
 - 相关文档：[安全边界](../operations/20261031-security.md#secrets)、[资源库](../domains/20261116-resource_library.md#mcp)、[HTTP API](../interfaces/20261031-http_api.md#library)、[ADR：每个 Agent 使用独立的配置目录](20261031-isolated_agent_homes.md)。
 
 ## 背景

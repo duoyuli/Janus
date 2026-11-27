@@ -149,14 +149,9 @@ pub(super) async fn login_connection(State(app): State<Arc<App>>, UrlPath(id): U
 }
 
 /// An agent's environment with every value, private ones included, for the editor. Like MCP
-/// values, it goes only to a client on this machine that isn't a web page: see `from_local_app`.
+/// values, it goes to the app on this Mac and to paired devices only (`devices::guard`).
 // @project-doc docs/operations/20261031-security.md#secrets
-pub(super) async fn connection_env(
-    State(app): State<Arc<App>>,
-    UrlPath(id): UrlPath<String>,
-    Extension(client): Extension<Client>,
-) -> ApiResult {
-    local_app_only(&client, "Agent 的环境变量")?;
+pub(super) async fn connection_env(State(app): State<Arc<App>>, UrlPath(id): UrlPath<String>) -> ApiResult {
     reply(app.connection_env(&id)?)
 }
 

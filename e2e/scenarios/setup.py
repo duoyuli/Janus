@@ -83,14 +83,14 @@ def setup(ctx, c):
     c(ctx.api("GET", env_url)["env"]["ANTHROPIC_AUTH_TOKEN"] == SECRET, "Agent 编辑器从本机读到保存的令牌")
     for headers, why in (({"Origin": "https://evil.example"}, "网页发来的请求"), ({"Host": "evil.example"}, "改绑到本机的域名")):
         code, text = ctx.api_error("GET", env_url, headers=headers)
-        # Without a device cookie such a request is not let in at all (401); a paired device is refused (403).
-        c(code in (401, 403) and SECRET not in text, f"{why}读不到 Agent 的环境变量（{code}）")
+        # Only the app and paired devices get in; without a device cookie it is 401.
+        c(code == 401 and SECRET not in text, f"{why}读不到 Agent 的环境变量（{code}）")
     values = f"/api/library/mcp/{mcp['id']}/values"
     c(ctx.api("GET", values) == {"values": {"E2E_TOKEN": SECRET}}, "MCP 编辑器从本机读到保存的值")
     for headers, why in (({"Origin": "https://evil.example"}, "网页发来的请求"), ({"Host": "evil.example"}, "改绑到本机的域名"),
                          ({"Sec-Fetch-Site": "same-origin"}, "浏览器发来的请求")):
         code, text = ctx.api_error("GET", values, headers=headers)
-        c(code in (401, 403) and SECRET not in text, f"{why}读不到 MCP 的值（{code}）")
+        c(code == 401 and SECRET not in text, f"{why}读不到 MCP 的值（{code}）")
     c(ctx.api("GET", f"/api/library/items/{skill['id']}")["content"].startswith("---"), "Skill 保存了 SKILL.md 全文")
     c("reach" not in skill and "reach" not in mcp, "资源没有「给谁用」：每项都给所有数字员工")
     # A command server: served by each run's MCP router, not handed to sessions.

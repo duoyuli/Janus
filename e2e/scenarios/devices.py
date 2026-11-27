@@ -63,7 +63,14 @@ def devices(ctx, c):
     mine = browser(ctx, "GET", "/api/inbox", cookie=token)
     c(mine.keys() == ctx.api("GET", "/api/inbox").keys() and len(mine["open"]) == len(ctx.api("GET", "/api/inbox")["open"]),
       "带 cookie 的浏览器读到的收件箱和本机应用读到的一样")
-    c(refused(lambda: browser(ctx, "GET", "/api/connections/x/env", cookie=token)) == 403, "配对的浏览器也读不到 Agent 的环境变量")
+    ctx.api("POST", "/api/setup/connections", {"id": "devices-claude", "kind": "claude", "name": "devices claude",
+                                                 "auth": "apikey", "envText": "export ANTHROPIC_AUTH_TOKEN=devices-secret"})
+    env = "/api/connections/devices-claude/env"
+    theirs = browser(ctx, "GET", env, cookie=token)
+    c(theirs == ctx.api("GET", env) and theirs["env"].get("ANTHROPIC_AUTH_TOKEN") == "devices-secret",
+      "配对的浏览器在 Agent 编辑器里读到的环境变量和本机应用的一样，令牌也在")
+    c(refused(lambda: browser(ctx, "GET", env)) == 401, "没有配对的浏览器读不到 Agent 的环境变量")
+    c(refused(lambda: browser(ctx, "GET", "/api/host-env", cookie=token)) == 403, "本机环境只给本机应用，配对的浏览器也读不到")
     c(refused(lambda: http(ctx.addr, "POST", "/api/inbox/marks", {"key": "x/y"},
                            headers={"Origin": "https://evil.example", "Cookie": f"janus_device={token}"})) == 403,
       "别的网站借浏览器的 cookie 发来的修改被拒")
@@ -95,7 +102,8 @@ def devices(ctx, c):
         c(drawn(ctx.app.picture("devices-lan")), "应用：打开手机访问后的二维码画出来了（devices-lan.png）")
 
     ctx.api("DELETE", f"/api/devices/{me['id']}")
-    c(refused(lambda: browser(ctx, "GET", "/api/inbox", cookie=token)) == 401, "取消配对后 cookie 立即失效")
+    c(refused(lambda: browser(ctx, "GET", "/api/inbox", cookie=token)) == 401
+      and refused(lambda: browser(ctx, "GET", env, cookie=token)) == 401, "取消配对后 cookie 立即失效，也读不到凭据")
     off = ctx.api("PUT", "/api/lan-access", {"enabled": False})
     c(not off["enabled"] and not off["listening"], "关掉手机访问")
     wait(lambda: not wildcard_taken(port), "局域网上不再监听", 10)

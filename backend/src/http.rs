@@ -88,8 +88,9 @@ fn ok() -> ApiResult {
 /// A request from a program on this machine rather than a web page: the Host is a loopback name
 /// (a page that rebinds its own domain to 127.0.0.1 still sends that domain), and there is no
 /// `Origin` or `Sec-Fetch-Site` (browsers add them to a page's requests; the app sends neither).
-/// What only the app may read (MCP values, an agent's environment) goes only to such a client.
-// @project-doc docs/operations/20261031-security.md#secrets
+/// Such a request needs no device cookie (`devices::guard`), and only it may do what decides who
+/// gets in or what agents reach (`local_app_only`).
+// @project-doc docs/operations/20261031-security.md#paired_devices
 fn from_local_app(headers: &HeaderMap) -> bool {
     let host = headers.get(header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("");
     let name = if host.starts_with('[') {
@@ -118,7 +119,8 @@ pub enum Client {
     Device(String),
 }
 
-/// Refuse what only the app on this Mac may read or do to any other client, paired devices too.
+/// Refuse to any other client, paired devices too, what only the app on this Mac may do: make a
+/// pairing code, turn phone access on or off, read or change what of the home folder agents reach.
 fn local_app_only(client: &Client, what: &str) -> Result<(), ApiError> {
     match client {
         Client::App => Ok(()),
@@ -227,10 +229,10 @@ mod tests {
         h
     }
 
-    /// MCP values go to the app on this machine; a web page, or a page that rebinds its own
-    /// domain to the loopback address, is refused.
+    /// The app on this machine is told apart from a web page, and from a page that rebinds its own
+    /// domain to the loopback address.
     #[test]
-    fn values_go_only_to_a_local_app() {
+    fn the_local_app_is_told_apart_from_a_page() {
         for host in ["127.0.0.1:7878", "localhost:7878", "[::1]:7878", "127.0.0.1"] {
             assert!(super::from_local_app(&headers(&[("host", host)])), "{host}");
         }

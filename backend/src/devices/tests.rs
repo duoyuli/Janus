@@ -251,14 +251,13 @@ async fn the_network_listener_asks_everyone_for_a_cookie() {
     assert!(!token.is_empty(), "a phone pairs over the network");
     let phone = |req: reqwest::RequestBuilder| req.header("cookie", format!("janus_device={token}"));
     assert_eq!(status(phone(http().get(&inbox))).await, StatusCode::OK);
-    for what in ["/api/library/mcp/m1/values", "/api/connections/c1/env", "/api/host-env"] {
-        assert_eq!(status(phone(http().get(format!("{lan}{what}")))).await, StatusCode::FORBIDDEN, "{what}");
-        assert_eq!(
-            status(page(http().get(format!("{local}{what}")), &local, Some(&token))).await,
-            StatusCode::FORBIDDEN,
-            "{what} on this Mac"
-        );
-    }
+    // What decides who gets in or what agents reach stays with the app.
+    assert_eq!(status(phone(http().get(format!("{lan}/api/host-env")))).await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        status(page(http().get(format!("{local}/api/host-env")), &local, Some(&token))).await,
+        StatusCode::FORBIDDEN,
+        "on this Mac too"
+    );
     let r = phone(http().put(format!("{lan}/api/lan-access")))
         .json_body(&json!({ "enabled": false }))
         .send()
@@ -323,4 +322,66 @@ async fn the_switch_opens_and_closes_the_network_listener() {
     assert!(freed.is_ok(), "the network listener is gone");
     let off: Value = http().get(format!("{base}/api/lan-access")).send().await.unwrap().read().await;
     assert_eq!(off["listening"], false);
+}
+
+/// The editors' credentials (MCP values, an agent's environment) go to the app and to paired
+/// devices, on this Mac and over the network; never to an unpaired page, a made-up cookie or an
+/// unpaired device's.
+#[tokio::test]
+async fn paired_devices_read_the_editors_credentials() {
+    let (app, local) = served("credentials", Via::Local).await;
+    app.pretend_lan_listening();
+    let lan = serve(&app, Via::Lan).await;
+    let conn = crate::agents::test_connection("c1", "codex", "codex", json!({ "env": { "E2E_NAME": "e2e-value" } }));
+    app.db.put_config(crate::db::ConfigKind::Connection, "c1", &conn, 1).unwrap();
+    let env = "/api/connections/c1/env";
+    let values = "/api/library/mcp/nope/values";
+    assert_eq!(http().get(format!("{local}{env}")).send().await.unwrap().read().await["env"]["E2E_NAME"], "e2e-value");
+
+    let (_, token) = claim(&local, &code(&local).await).await;
+    let mine = page(http().get(format!("{local}{env}")), &local, Some(&token)).send().await.unwrap();
+    assert_eq!(mine.status(), StatusCode::OK);
+    assert_eq!(mine.read().await["env"]["E2E_NAME"], "e2e-value", "a paired browser on this Mac");
+    let phone =
+        http().get(format!("{lan}{env}")).header("cookie", format!("janus_device={token}")).send().await.unwrap();
+    assert_eq!(phone.read().await["env"]["E2E_NAME"], "e2e-value", "a paired phone");
+    // The values route lets a paired device through to the library, which knows no such server.
+    let r = page(http().get(format!("{local}{values}")), &local, Some(&token)).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST, "{}", r.text().await.unwrap());
+
+    for what in [env, values] {
+        assert_eq!(
+            status(page(http().get(format!("{local}{what}")), &local, None)).await,
+            StatusCode::UNAUTHORIZED,
+            "{what}"
+        );
+        assert_eq!(
+            status(page(http().get(format!("{local}{what}")), &local, Some(&"f".repeat(64)))).await,
+            StatusCode::UNAUTHORIZED,
+            "{what} with a made-up cookie"
+        );
+        assert_eq!(
+            status(http().get(format!("{lan}{what}"))).await,
+            StatusCode::UNAUTHORIZED,
+            "{what} unpaired on the network"
+        );
+        let rebound =
+            http().get(format!("{local}{what}")).header("host", "evil.example").header("origin", "http://evil.example");
+        assert_eq!(status(rebound).await, StatusCode::UNAUTHORIZED, "{what} from a rebound domain");
+    }
+    let id = page(http().get(format!("{local}/api/devices/me")), &local, Some(&token))
+        .send()
+        .await
+        .unwrap()
+        .read()
+        .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    app.revoke_device(&id).unwrap();
+    assert_eq!(
+        status(page(http().get(format!("{local}{env}")), &local, Some(&token))).await,
+        StatusCode::UNAUTHORIZED,
+        "an unpaired device"
+    );
 }
