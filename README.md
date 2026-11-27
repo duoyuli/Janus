@@ -72,7 +72,7 @@ The delivery puts the lead agent's conclusion first, then counts what was run an
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/delivery-en-dark.png">
-    <img src="docs/assets/screenshots/delivery-en-light.png" width="880" alt="A delivered run in Janus: four of four subtasks done, eight of eight criteria met, six checked by running and two by reading, and two items to look at, one from the lead agent and one from Janus">
+    <img src="docs/assets/screenshots/delivery-en-light.png" width="880" alt="A delivered run in Janus: the lead agent mentions you in the group to accept it, the delivery card says what changed and how each subtask's criteria were checked, and the four finished subtasks are listed beside it">
   </picture>
 </p>
 <p align="center"><sub>A delivery: the conclusion, how the criteria were checked, and what to look at, labeled by who raised it.</sub></p>
@@ -81,15 +81,15 @@ The delivery puts the lead agent's conclusion first, then counts what was run an
 
 The lead agent settles technical choices and trade-offs itself. Approvals, decisions the lead agent hands to you, and deliveries waiting for acceptance reach your inbox, from every workspace. Choices are answered in place, what nobody is blocked on can wait until later, and anything can be ignored.
 
-You can step into any agent's session at any time to steer it or take over. The session shows the agent's plan, its thinking, each tool call and how much of its context is used.
+Each run is a group chat. How the lead agent hands out work, who starts what, what comes back, what gets reworked and what gets stuck all appear in the group as they happen; the back and forth between a collaborator and the lead agent stays in that subtask's topic. What needs you mentions you in the group, and you handle it there. You can open any collaborator's work log at any time to steer it or take over. It shows the agent's plan, its thinking, each tool call and how much of its context is used.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/session-en-dark.png">
-    <img src="docs/assets/screenshots/session-en-light.png" width="880" alt="The session of a subtask in Janus: an independent verification at work, with its plan two thirds done, a test run in progress, and buttons to steer or take over">
+    <img src="docs/assets/screenshots/session-en-light.png" width="880" alt="A run's group in Janus: the developer has handed in two subtasks, and the bottom of the group says who is running what; beside it, the work log of the QA engineer doing an independent verification, with its plan two thirds done, a test run in progress, and buttons to steer or take over">
   </picture>
 </p>
-<p align="center"><sub>A collaborator agent at work on an independent verification. Steer it, or take over.</sub></p>
+<p align="center"><sub>A run's group, with a collaborator agent's work log beside it: an independent verification at work. Steer it, or take over.</sub></p>
 
 ### From a run to a Loop
 

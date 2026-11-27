@@ -71,7 +71,7 @@ flowchart LR
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/delivery-zh-dark.png">
-    <img src="docs/assets/screenshots/delivery-zh-light.png" width="880" alt="Janus 里一个已交付的任务：4 个子任务全部完成，8 条验收标准全部达到，其中 6 条运行验证、2 条检查，需要你看的有 2 件，一件来自负责人 Agent，一件来自 Janus">
+    <img src="docs/assets/screenshots/delivery-zh-light.png" width="880" alt="Janus 里一个已交付的任务：负责人在群里 @你 验收，交付卡片写着改了什么、每个子任务的验收标准怎样核对，右边列着 4 个已完成的子任务">
   </picture>
 </p>
 <p align="center"><sub>一次交付：结论、验收标准是怎么核对的、需要你看的事（标明是谁提出的），以及改了什么。</sub></p>
@@ -80,15 +80,15 @@ flowchart LR
 
 技术选型和取舍由负责人 Agent 自己定。审批、负责人 Agent 交给你的决定、等验收的交付，都从各个工作区汇总到收件箱。选择题直接在收件箱里回答，没有人在等的可以稍后再看，不想管的可以忽略。
 
-你随时可以进入任何一个 Agent 的会话插话或接管。会话里能看到 Agent 的计划、思考、每一次工具调用和上下文用了多少。
+每个任务就是一个群。负责人怎样派活、谁开了工、交了什么、哪里返工、哪里卡住，都按时间出现在群里；组员和负责人之间的来回留在每个子任务的话题里，不在群里刷屏。等你处理的事在群里 @你，就地处理。你随时可以打开任何一名协作者的工作记录插话或接管，里面能看到它的计划、思考、每一次工具调用和上下文用了多少。
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/session-zh-dark.png">
-    <img src="docs/assets/screenshots/session-zh-light.png" width="880" alt="Janus 里一个子任务的会话：独立验证正在进行，计划完成了三分之二，测试正在运行，下方是插话和接管的按钮">
+    <img src="docs/assets/screenshots/session-zh-light.png" width="880" alt="Janus 里一个任务的群：研发工程师交了两个子任务的结果，群底部写着谁正在跑什么命令；右边打开了正在做独立验证的质量工程师的工作记录，计划完成了三分之二，测试正在运行，下方是插话和接管的按钮">
   </picture>
 </p>
-<p align="center"><sub>一名协作者 Agent 正在做独立验证。可以插话，也可以接管。</sub></p>
+<p align="center"><sub>任务的群，右边是一名协作者 Agent 的工作记录：它正在做独立验证，可以插话，也可以接管。</sub></p>
 
 ### 从任务到值班
 
