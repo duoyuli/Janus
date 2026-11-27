@@ -120,3 +120,24 @@ test("an approval and a form wait above the composer and are answered there", as
     .toBe(true);
   await expect.poll(async () => (await session(page, "task:T3"))?.requests).toEqual([]);
 });
+
+test("a page keeps one event stream, its run's events riding on it", async ({ page }) => {
+  // A browser holds six connections to the host: two streams a page used them up with three pages open.
+  await page.addInitScript(() => {
+    const O = window.EventSource;
+    const open: EventSource[] = [];
+    (window as any).__openStreams = () => open.filter((e) => e.readyState !== 2).map((e) => e.url.replace(location.origin, ""));
+    (window as any).EventSource = function (url: string, init?: EventSourceInit) {
+      const e = new O(url, init);
+      open.push(e);
+      return e;
+    };
+    (window as any).EventSource.prototype = O.prototype;
+  });
+  await page.goto(`/runs/${data.chat}`);
+  await expect(page.locator(".chat-text", { hasText: "回复：你好" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__openStreams())).toEqual([expect.stringMatching(new RegExp(`^/api/stream\\?run=${data.chat}&`))]);
+  // Leaving the run, the stream goes back to the lists only.
+  await page.evaluate(() => { history.pushState({}, "", "/inbox"); dispatchEvent(new PopStateEvent("popstate")); });
+  await expect.poll(() => page.evaluate(() => (window as any).__openStreams())).toEqual(["/api/stream"]);
+});

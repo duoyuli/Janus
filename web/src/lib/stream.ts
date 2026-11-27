@@ -3,9 +3,13 @@
 // a notice says what changed, and only that is read again. Notices that arrive together are read
 // once, 300 ms later. When the stream opens, lags or ends, everything is read once; it reconnects.
 // Pages that need more (a run's own page, a Loop) add their own handlers with `onNotice`.
+// A run page's events ride on the same stream (`followRun`, `?run=`): a browser keeps at most six
+// connections to one host, and two streams per page used them up with a few pages open, so every
+// other request waited (docs/architecture/20261126-web.md#one_stream).
 
 import { signal } from "@preact/signals";
-import { api, type ApiError, type Json, unpaired } from "./api.ts";
+import { api, type ApiError, type Json, query, unpaired } from "./api.ts";
+import { serverLang } from "./i18n.ts";
 import { attention, chats, loadInbox, loadLoops, loadMemories, loadRuns, loadSetup, memories, readAll, runs } from "./store.ts";
 
 /** The stream is open now. */
@@ -43,11 +47,40 @@ function listChanges(type: string, run: string): boolean {
   return !attention.value.some((r) => r.id === run) && !chat && !runs.value.some((r) => r.id === run);
 }
 
+/** The run a page follows on this stream: its events and live frames, as its own stream sends them. */
+export interface RunFollower {
+  run: string;
+  /** Where the stream starts sending the run's events again when it (re)opens. */
+  after: () => number;
+  /** The stream (re)opened: the run's events come again from `after()`, previews anew. */
+  opened: () => void;
+  event: (e: Json) => void;
+  live: (frame: Json) => void;
+  /** Some of the run's events were missed: read it whole again. */
+  lagged: () => void;
+}
+
+let follower: RunFollower | null = null;
+
+/** Follow run `f.run` on the one stream (it reopens carrying it); returns the way to stop. A page
+ * follows one run at a time: a later call takes the place of an earlier one. */
+export function followRun(f: RunFollower): () => void {
+  follower = f;
+  follow();
+  return () => {
+    if (follower !== f) return;
+    follower = null;
+    if (source) follow();
+  };
+}
+
 let source: EventSource | null = null;
 
 export function follow() {
   source?.close();
-  const s = new EventSource("/api/stream", { withCredentials: true });
+  const f = follower;
+  const url = f ? `/api/stream${query({ run: f.run, after: f.after(), lang: serverLang() })}` : "/api/stream";
+  const s = new EventSource(url, { withCredentials: true });
   source = s;
   const on = (name: string, f: (data: Json) => void) =>
     s.addEventListener(name, (ev) => {
@@ -62,9 +95,16 @@ export function follow() {
     });
   on("ready", () => {
     connected.value = true;
+    f?.opened();
     void readAll();
   });
-  on("lagged", () => void readAll());
+  on("lagged", () => {
+    void readAll();
+    f?.lagged();
+  });
+  // The followed run's own events (unnamed) and previews.
+  s.onmessage = (ev) => f?.event(JSON.parse(ev.data));
+  s.addEventListener("live", (ev) => f?.live(JSON.parse((ev as MessageEvent).data)));
   on("run", (n) => {
     note(true);
     // A run a Loop dispatched changed: that Loop's counts did too.

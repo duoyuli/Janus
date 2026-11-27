@@ -1,5 +1,5 @@
 // One open run, as the Mac app's `RunModel` holds it: its events (read once, then followed on the
-// run's own stream), the view and the usage ledger the service works out from them
+// page's one stream, which carries this run: `lib/stream.ts` `followRun`), the view and the usage ledger the service works out from them
 // (`GET /api/runs/{id}/view`, `/usage`) at the shown position (a replayed one asks with `until`),
 // the live previews the stream sends, and what the person has in hand: drafts, pasted images, the
 // rows they opened or folded, the options they picked. Nothing here is worked out from events
@@ -12,6 +12,7 @@ import { load, save } from "../lib/prefs.ts";
 import { show } from "../lib/store.ts";
 import type { PickedImage } from "../ui/form.tsx";
 import { randomId } from "../lib/plain-http.ts";
+import { followRun } from "../lib/stream.ts";
 
 /** How much of an agent's work a conversation shows; one choice for every conversation on this browser. */
 export type Density = "summary" | "detail";
@@ -62,7 +63,8 @@ export class RunModel {
   readonly sent = signal(0);
   /** How the page shows another conversation of the run (a session's card opens it), when it can. */
   openSession: ((key: string) => void) | null = null;
-  private source: EventSource | null = null;
+  private unfollow: (() => void) | null = null;
+  private restarting = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private closed = false;
   private loading = 0;
@@ -77,7 +79,6 @@ export class RunModel {
 
   /** Read the run and its events, its view, then follow its stream. */
   async start() {
-    this.source?.close();
     const d = await api.get(this.path);
     this.run.value = d.run;
     this.events.value = d.events ?? [];
@@ -103,7 +104,8 @@ export class RunModel {
 
   stop() {
     this.closed = true;
-    this.source?.close();
+    this.unfollow?.();
+    this.unfollow = null;
     clearTimeout(this.timer);
   }
 
@@ -134,45 +136,51 @@ export class RunModel {
     this.timer = setTimeout(() => void this.loadView().catch(() => {}), 150);
   }
 
+  /** Follow the run on the page's one stream from its last event: a browser keeps six
+   * connections to a host, so a run page opens no stream of its own
+   * (docs/architecture/20261126-web.md#one_stream). */
   private follow() {
     if (this.closed) return;
-    const after = this.events.value.at(-1)?.seq ?? 0;
-    const s = new EventSource(`${this.path}/stream${query({ after, lang: serverLang() })}`, { withCredentials: true });
-    this.source = s;
-    // The stream starts again from here and sends each preview anew.
-    this.preview.value = {};
-    s.onmessage = (ev) => {
-      const e = JSON.parse(ev.data);
-      const list = this.events.value;
-      const last = list.at(-1)?.seq ?? 0;
-      if (e.seq <= last) return;
-      // A gap means something was missed: read the whole run again.
-      if (e.seq !== last + 1) {
-        s.close();
-        void this.start().catch(() => {});
-        return;
-      }
-      this.events.value = [...list, e];
-      this.scheduleView();
-    };
-    s.addEventListener("live", (ev) => {
-      const f = JSON.parse((ev as MessageEvent).data);
-      const next = { ...this.preview.value };
-      for (const [k, p] of Object.entries(f.previews ?? {})) {
-        if (p === null) delete next[k];
-        else next[k] = p;
-      }
-      this.preview.value = next;
+    this.unfollow = followRun({
+      run: this.id,
+      after: () => this.events.value.at(-1)?.seq ?? 0,
+      // The stream starts again from `after` and sends each preview anew.
+      opened: () => {
+        this.preview.value = {};
+      },
+      event: (e) => {
+        const list = this.events.value;
+        const last = list.at(-1)?.seq ?? 0;
+        if (e.seq <= last || this.restarting) return;
+        // A gap means something was missed: read the whole run again.
+        if (e.seq !== last + 1) {
+          this.restart();
+          return;
+        }
+        this.events.value = [...list, e];
+        this.scheduleView();
+      },
+      live: (f) => {
+        const next = { ...this.preview.value };
+        for (const [k, p] of Object.entries(f.previews ?? {})) {
+          if (p === null) delete next[k];
+          else next[k] = p;
+        }
+        this.preview.value = next;
+      },
+      lagged: () => this.restart(),
     });
-    s.addEventListener("lagged", () => {
-      s.close();
-      void this.start();
-    });
-    s.onerror = () => {
-      s.close();
-      if (this.source !== s || this.closed) return;
-      setTimeout(() => this.follow(), 2000);
-    };
+  }
+
+  /** Read the run whole again, once at a time, and follow it from there. */
+  private restart() {
+    if (this.restarting) return;
+    this.restarting = true;
+    void this.start()
+      .catch(() => {})
+      .finally(() => {
+        this.restarting = false;
+      });
   }
 
   /** A person's action (docs/interfaces/20261031-http_api.md#run_actions): de-duplicated by
