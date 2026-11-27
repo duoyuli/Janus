@@ -65,6 +65,9 @@ async fn goal_runs_wait_for_a_free_slot_in_order() {
     assert_eq!(view.actions["delete"].why.as_deref(), Some("This run is still at work; stop it before deleting it"));
     let listed = app.listed(vec![app.db.run(&first).unwrap().unwrap()], Lang::Zh);
     assert!(!listed[0].delete.ok, "the run list says the same");
+    let queued = app.listed(vec![app.db.run(&second).unwrap().unwrap()], Lang::En);
+    assert_eq!((queued[0].title.as_str(), queued[0].label.text.as_str()), ("第二个", "Queued · #1"));
+    assert_eq!(app.listed(vec![app.db.run(&first).unwrap().unwrap()], Lang::Zh)[0].label.text, "干活中");
     let talk = app.request_action(&second, &req(json!({ "type": "message", "text": "你好" }))).await;
     assert!(matches!(talk, Err(Refused::Conflict(_))), "a queued run has no one to talk to");
     app.request_action(&third, &req(json!({ "type": "cancel" }))).await.map_err(|e| format!("{e:?}")).unwrap();

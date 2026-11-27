@@ -36,7 +36,7 @@ struct RunView: View {
                 }
             }
         }
-        .navigationTitle(run.isChat ? run.chatTitle : run.isDream ? L.text("整理团队记忆") : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : L.goalTitle(run.state.run.goal.isEmpty ? run.runJSON["goal"].str : run.state.run.goal))
+        .navigationTitle(run.isChat ? run.chatTitle : run.isDream ? L.text("整理团队记忆") : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : run.state.title)
         .navigationSubtitle(run.isChat || run.isLoop || run.isDream || !run.readOnly ? "" : L.text("只读 · 这个任务已停止"))
         .toolbar {
             if run.isLoop || run.isDream {
@@ -140,7 +140,7 @@ struct QueuedView: View {
                         Pill(run.queuePosition.map { L.text("排队中 · 第 \($0) 位") } ?? L.text("排队中"), .gray)
                         Spacer()
                     }
-                    Text(L.goalTitle(run.state.run.goal)).font(.display(.title2)).textSelection(.enabled)
+                    Text(run.state.title).font(.display(.title2)).textSelection(.enabled)
                     if run.state.run.goal.contains("\n") {
                         Text(run.state.run.goal).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
@@ -208,7 +208,7 @@ extension RunModel {
     func copySummary() {
         guard let r = state.result else { return }
         let d = Delivery(r)
-        var lines: [String] = [L.text("已完成：\(L.goalTitle(state.run.goal))")]
+        var lines: [String] = [L.text("已完成：\(state.title)")]
         if state.deliveries.count > 1 { lines.append(L.text("第 \(d.n) 次交付")) }
         if !d.headline.isEmpty { lines.append(d.headline) }
         let signals = state.review?.signals ?? []
@@ -361,7 +361,7 @@ struct RunCard: View {
     /// and any images attached to the goal.
     @ViewBuilder private var heading: some View {
         let r = st.run
-        let title = L.goalTitle(r.goal)
+        let title = st.title
         let long = r.goal.trimmingCharacters(in: .whitespacesAndNewlines) != title
         let s = status
         VStack(alignment: .leading, spacing: 6) {

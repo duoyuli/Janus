@@ -100,18 +100,6 @@ enum L {
     /// Home-relative path for display.
     static func tilde(_ p: String) -> String { homeDir.replacing(in: p, with: "~/") }
     private static let homeDir = regex(#"^/(?:Users|home)/[^/]+/"#)
-    /// Markdown marks dropped, for previews cut to a length.
-    static func plain(_ t: String) -> String {
-        headingMarks.replacing(in: emphasis.replacing(in: link.replacing(in: t, with: "$1"), with: ""), with: "")
-    }
-    private static let link = regex(#"\[([^\]\n]+)\]\([^)\s]+\)"#)
-    private static let emphasis = regex(#"\*\*|`"#)
-    private static let headingMarks = regex(#"(?m)^#+\s*"#)
-    /// A goal can be a long pasted brief; lists and headers show its first line.
-    static func goalTitle(_ g: String) -> String {
-        let first = g.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
-        return plain(first).trimmingCharacters(in: .whitespaces)
-    }
     /// Paths inside the workspace written relative to it, as the agent's own interface shows them.
     static func inWorkspace(_ text: String, _ cwd: String) -> String {
         guard !cwd.isEmpty else { return text }

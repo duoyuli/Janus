@@ -13,6 +13,13 @@ fn team() -> Value {
 }
 
 #[test]
+fn a_goal_is_titled_by_its_first_line_without_markdown() {
+    assert_eq!(goal_title("\n  ## 给 **divide** 加 `保护`，见 [文档](docs/a.md)\n细节"), "给 divide 加 保护，见 文档");
+    assert_eq!(goal_title(""), "");
+    assert_eq!(plain("[不是链接](有 空格) 和 [x]"), "[不是链接](有 空格) 和 [x]");
+}
+
+#[test]
 fn the_card_says_the_first_state_that_applies() {
     let mut log = goal_run();
     let v = log.view();

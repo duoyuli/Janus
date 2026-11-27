@@ -350,11 +350,10 @@ struct PastWorkspaceView: View {
     }
 }
 
-/// How a run's row names its state: a queued one also says where it is in the queue.
+/// How a run's row names its state, as the server words it (a chat in session or ended, a queued
+/// run with its place in the queue).
 func runLabel(_ r: JSON) -> (String, Tone) {
-    let status = RunStatus(r["status"].str)
-    if status == .queued, let n = r["queuePosition"].int { return (L.text("排队中 · 第 \(n) 位"), .gray) }
-    return status.listLabel
+    (r["label"]["text"].str, Tone(rawValue: r["label"]["tone"].str) ?? .gray)
 }
 
 /// A Loop's own mark, wherever the Loop itself is shown (its row, its page): a tinted tile, so
@@ -411,7 +410,7 @@ struct WaitingRows: View {
                             Text(l["title"].str).lineLimit(1)
                             Text(L.text("值班")).font(.caption).foregroundStyle(.secondary)
                         } else {
-                            Text(L.goalTitle(w.run["goal"].str)).lineLimit(1)
+                            Text(w.run["title"].str).lineLimit(1)
                             LoopMark(store: store, run: w.run)
                         }
                         Spacer(minLength: 12)
@@ -446,7 +445,7 @@ struct RunRows: View {
                 let (l, t) = waiting > 0 ? (L.text("待处理"), Tone.amber) : runLabel(r)
                 Button { store.open(.run(r["id"].str)) } label: {
                     HStack(spacing: 8) {
-                        Text(L.goalTitle(r["goal"].str)).lineLimit(1)
+                        Text(r["title"].str).lineLimit(1)
                         LoopMark(store: store, run: r)
                         Spacer(minLength: 12)
                         if dated { Text(L.dateTime(r["createdAt"].double ?? 0)).font(.caption).foregroundStyle(.secondary) }

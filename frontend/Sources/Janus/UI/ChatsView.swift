@@ -149,18 +149,6 @@ private struct RoleChoice: View {
 }
 
 /// A chat is talking while its session is open; otherwise the next message reopens it.
-enum ChatRowStatus {
-    static func label(_ s: RunStatus) -> (String, Tone) {
-        s.isActive ? (L.text("会话中"), .blue) : (L.text("已结束"), .gray)
-    }
-
-    /// A chat is listed by its first message; before there is one, by who it is with.
-    static func title(_ chat: JSON) -> String {
-        let goal = chat["goal"].str
-        return goal.isEmpty ? L.text("和 \(chat["config"]["team"][0]["name"].str) 的新对话") : L.goalTitle(goal)
-    }
-}
-
 /// An open chat: the employee, where it works, and the conversation, which is the same session
 /// view as the lead's on the workbench.
 // @project-doc docs/domains/20261120-chats.md#chat_app
@@ -230,10 +218,6 @@ extension RunModel {
         if proposal != open { proposal = open }
     }
 
-    /// A chat's title: its first message as soon as it is sent (the list's copy follows on the next
-    /// refresh), otherwise who it is with.
-    var chatTitle: String {
-        if let first = state.events.first(where: { $0.type == .userMessage }) { return L.goalTitle(first.data["text"].str) }
-        return ChatRowStatus.title(runJSON)
-    }
+    /// A chat's title, as the server names it: its first message, otherwise who it is with.
+    var chatTitle: String { state.title }
 }

@@ -7,7 +7,7 @@ use crate::db::{InboxMark, RunRow, RunsPage};
 use crate::lang::Lang;
 use crate::run_ops;
 use crate::run_ops::RunOp;
-use crate::run_view::{Candidate, Fold, InboxEntry, RunView, Words, fold, inbox_entries};
+use crate::run_view::{Candidate, Fold, InboxEntry, Pill, RunView, Words, fold, inbox_entries, row_label, row_title};
 use crate::status::{RunKind, RunStatus};
 use anyhow::Result;
 use serde::Serialize;
@@ -31,6 +31,10 @@ pub struct Inbox {
 pub struct ListedRun {
     #[serde(flatten)]
     pub row: RunRow,
+    /// What it is called in the lists.
+    pub title: String,
+    /// Its state in a word or two.
+    pub label: Pill,
     pub delete: run_ops::OpAnswer,
 }
 
@@ -45,7 +49,7 @@ impl App {
                     None => self.stored_facts(&row),
                 };
                 let delete = run_ops::answer(&facts, RunOp::Delete, lang);
-                ListedRun { row, delete }
+                ListedRun { title: row_title(&row, lang), label: row_label(&row, lang), row, delete }
             })
             .collect()
     }
@@ -73,6 +77,7 @@ impl App {
             None => self.views.current(id, |after| self.db.events(id, after), |f| show(f, false))?,
         };
         view.actions = run_ops::answers(&facts, until.is_some(), lang);
+        view.title = row_title(&row, lang);
         Ok(Some(view))
     }
 

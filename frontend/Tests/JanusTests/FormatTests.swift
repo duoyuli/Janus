@@ -131,6 +131,5 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
 /// Patterns compiled once behave like the string methods they replace.
 @Test func compiledPatternsMatchTheStringMethods() {
     #expect(L.tilde("/Users/someone/work/a.md") == "~/work/a.md" && L.tilde("/opt/a.md") == "/opt/a.md")
-    #expect(L.goalTitle("## 做 **一件** [事](/tmp/x.md)\n第二行") == "做 一件 事")
     #expect(MD.inline("看 `a.md` 和 **重点**").characters.count == "看 a.md 和 重点".count)
 }

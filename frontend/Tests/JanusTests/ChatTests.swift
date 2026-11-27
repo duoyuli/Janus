@@ -13,19 +13,6 @@ private struct ChatLog {
     }
 }
 
-/// A chat is listed by its first message, by who it is with before.
-@Test func aNewChatIsListedByWhoItIsWith() {
-    #expect(ChatRowStatus.title(["goal": "", "config": ["team": [["name": "研究员"]]]]) == L.text("和 \("研究员") 的新对话"))
-    #expect(ChatRowStatus.title(["goal": "看看这个报错\n细节", "config": ["team": [["name": "研究员"]]]]) == "看看这个报错")
-}
-
-/// The recent chats say whether a chat's session is open; a closed one is not a run to resume.
-@Test func chatRowsSayWhetherTheSessionIsOpen() {
-    #expect(ChatRowStatus.label(.interrupted) == (L.text("已结束"), .gray))
-    #expect(ChatRowStatus.label(.failed) == (L.text("已结束"), .gray))
-    #expect(ChatRowStatus.label(.running) == (L.text("会话中"), .blue))
-}
-
 /// A chat that proposed nothing (the server answers `null`) shows no proposal; `nil` written as
 /// a JSON literal would have become `JSON.null` and shown「提议了 0 位数字员工」.
 @Test func noProposalShowsNoBanner() {

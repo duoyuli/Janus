@@ -480,7 +480,7 @@ struct LoopView: View {
                                     let (l, t) = runLabel(r)
                                     Button { run.store.open(.run(r["id"].str)) } label: {
                                         VStack(alignment: .leading, spacing: 3) {
-                                            Text(L.goalTitle(r["goal"].str)).lineLimit(2).multilineTextAlignment(.leading)
+                                            Text(r["title"].str).lineLimit(2).multilineTextAlignment(.leading)
                                             HStack(spacing: 6) {
                                                 Text(r["dispatchKey"].str).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                                                 Spacer()

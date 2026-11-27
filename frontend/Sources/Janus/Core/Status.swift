@@ -19,21 +19,6 @@ enum RunStatus: String {
     var isFinished: Bool { [.delivered, .accepted, .cancelled, .failed, .interrupted].contains(self) }
     /// The goal is done; the lead's session reopens as a conversation.
     var isDone: Bool { self == .delivered || self == .accepted }
-
-    /// How the run lists name it.
-    var listLabel: (String, Tone) {
-        switch self {
-        case .queued: return (L.text("排队中"), .gray)
-        case .planning: return (L.text("负责人上岗中"), .blue)
-        case .running: return (L.text("干活中"), .blue)
-        case .delivered: return (L.text("已交付"), .green)
-        case .accepted: return (L.text("已验收"), .green)
-        case .failed: return (L.text("失败"), .red)
-        case .cancelled: return (L.text("已停止"), .gray)
-        case .interrupted: return (L.text("已中断"), .gray)
-        case .unknown: return (L.text("未知"), .gray)
-        }
-    }
 }
 
 /// A task as the app shows it: the scheduler's states (`backend/src/status.rs`, `TaskStatus`)

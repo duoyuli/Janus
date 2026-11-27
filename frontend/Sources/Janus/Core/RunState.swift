@@ -367,6 +367,8 @@ struct RunState {
     var delivery: DeliveryEvidence?
     /// What can be done to the whole run now, as the server answers it.
     var allowed = RunActions()
+    /// What the run is called, as the lists call it.
+    var title = ""
     /// Nothing can be done in it any more: a stopped run the service no longer holds.
     var readOnly = false
     /// Above the run card while it stopped short and can go on.
@@ -403,6 +405,7 @@ struct RunState {
         delivery = j["delivery"].isNull ? nil : DeliveryEvidence(j["delivery"])
         allowed = RunActions(answers: j["actions"].object)
         readOnly = j["readOnly"].bool ?? false
+        title = j["title"].str
         resumeNote = j["resumeNote"].string
         seq = j["seq"].int ?? 0
         self.events = events

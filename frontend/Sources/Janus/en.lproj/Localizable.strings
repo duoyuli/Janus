@@ -409,7 +409,6 @@
 "工具" = "Tool";
 "已中断" = "Interrupted";
 "已中断，可以从中断处继续" = "Interrupted and ready to resume";
-"已交付" = "Delivered";
 "已从中断处继续" = "Resumed the interrupted run";
 "已刷新 %@，下个任务起生效" = "Refreshed %@ · applies from the next run";
 "已保存 %@" = "Saved %@";
@@ -835,7 +834,6 @@
 "负责人取消 %@" = "Lead cancelled %@";
 "负责人取消了这个子任务" = "The lead cancelled this subtask";
 "负责人可能卡住了" = "The lead may be stuck";
-"负责人上岗中" = "Lead getting started";
 "负责人在等这个决定期间，会继续做不依赖它的工作。" = "The lead will continue work that does not depend on this decision.";
 "负责人建议" = "Lead’s recommendation";
 "负责人建议写入共享资料" = "Lead’s Suggestions for Shared Context";
@@ -1231,7 +1229,6 @@
 
 "新对话：选一名数字员工单独对话（⌥⌘N）" = "New chat: talk with one digital employee (⌥⌘N)";
 "和 %@ 的对话，%@" = "Chat with %1$@, %2$@";
-"和 %@ 的新对话" = "New chat with %@";
 "和 %@ 开始对话" = "Start a chat with %@";
 "正在打开" = "Opening";
 

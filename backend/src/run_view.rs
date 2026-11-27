@@ -37,6 +37,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
 pub use board::BoardFacts;
+pub use card::{Pill, row_label, row_title};
 pub use inbox::{Candidate, InboxEntry, inbox_entries};
 pub use review::Review;
 pub use words::Words;
@@ -1197,6 +1198,7 @@ impl Fold {
             delivery: evidence::delivery(&self.state, words),
             live,
             actions: BTreeMap::new(),
+            title: String::new(),
             read_only,
             resume_note,
         }
@@ -1266,6 +1268,9 @@ pub struct RunView {
     /// What can be done to the whole run now, by `RunOp` (`run_ops::answers`); filled in by the
     /// service, which knows its memory of the run.
     pub actions: BTreeMap<&'static str, crate::run_ops::OpAnswer>,
+    /// What the run is called, as the lists call it (`card::row_title`); filled in by the service,
+    /// which has its record.
+    pub title: String,
     /// Nothing can be done in it any more: a stopped run the service no longer holds.
     pub read_only: bool,
     /// Above the run card while it stopped short and can go on: what happened and what to do.
@@ -1393,6 +1398,13 @@ fn plain(t: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// A goal as lists and headers show it: its first line with any text, without Markdown marks (a
+/// goal can be a long pasted brief).
+pub fn goal_title(g: &str) -> String {
+    let first = g.split('\n').map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    plain(first).trim().to_string()
 }
 
 /// A message's text without the lines that name its attached images.

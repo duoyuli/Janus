@@ -32,7 +32,7 @@ struct ChatItem: View {
         case .runCreated where RunKind(d["kind"].str) == .dream:
             divider(L.text("整理团队记忆 · \(L.dateTime(e.ts))"))
         case .runCreated:
-            divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
+            divider(L.text("目标 · \(st.title)"))
             if let git = note?.git {
                 Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }

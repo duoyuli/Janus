@@ -7,7 +7,8 @@ struct InboxEntry: Identifiable, Equatable {
     /// `<run id>/<what>`: stable while the request is open, so a snooze sticks to it.
     let key: String
     let run: String
-    let goal: String
+    /// What its run is called in the lists.
+    let runTitle: String
     let workspace: String
     let title: String
     let text: String
@@ -31,7 +32,7 @@ struct InboxEntry: Identifiable, Equatable {
     init(_ j: JSON) {
         key = j["key"].str
         run = j["run"].str
-        goal = j["goal"].str
+        runTitle = j["runTitle"].str
         workspace = j["workspaceName"].str
         title = j["title"].str
         text = j["text"].str

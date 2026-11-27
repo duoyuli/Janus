@@ -75,11 +75,11 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(v.checks.first?.methodLabel == expectedCopy("命令", "Command"))
 }
 
-/// A queued run's row names its place in the queue; a queued run is neither at work nor finished.
-@Test func aQueuedRunIsListedByItsPlace() {
+/// A run's row shows the label the server wrote; a queued run is neither at work nor finished.
+@Test func aRunRowShowsTheServedLabel() {
     #expect(!RunStatus.queued.isActive && !RunStatus.queued.isFinished)
-    #expect(runLabel(["status": "queued", "queuePosition": 2]).0 == expectedCopy("排队中 · 第 2 位", "Queued · #2"))
-    #expect(runLabel(["status": "queued"]).0 == expectedCopy("排队中", "Queued"))
+    #expect(runLabel(["label": ["text": "排队中 · 第 2 位", "tone": "gray"]]) == ("排队中 · 第 2 位", .gray))
+    #expect(runLabel([:]).1 == .gray)
 }
 
 /// A Loop's schedule and phase read as the app shows them.
@@ -136,9 +136,7 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(!JSON.string("").truthy && JSON.string("x").truthy)
 }
 
-@Test func goalTitleAndPlainText() {
-    #expect(L.goalTitle("\n  **修复** `divide`\n第二行") == "修复 divide")
-    #expect(L.plain("见 [calc.py](/tmp/calc.py)") == "见 calc.py")
+@Test func homePathsReadWithATilde() {
     #expect(L.tilde("/Users/someone/repo") == "~/repo")
 }
 

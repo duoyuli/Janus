@@ -55,11 +55,11 @@ struct InboxView: View {
                     Card(padding: 4) {
                         if working.isEmpty { Text(L.text("没有在干活的任务")).foregroundStyle(.secondary).padding(10) }
                         ForEach(working, id: \.self) { r in
-                            let (label, tone) = RunStatus(r["status"].str).listLabel
+                            let (label, tone) = runLabel(r)
                             Button { store.open(.run(r["id"].str)) } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 1) {
-                                        Text(L.goalTitle(r["goal"].str)).lineLimit(1)
+                                        Text(r["title"].str).lineLimit(1)
                                         Text(workspaceName(r)).font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
@@ -183,7 +183,7 @@ struct InboxView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(e.title).font(.body.weight(.medium)).lineLimit(2)
             if !e.text.isEmpty { Text(e.text).font(.callout).foregroundStyle(.secondary).lineLimit(2) }
-            Text(verbatim: [e.workspace, L.goalTitle(e.goal), e.sub, e.ts > 0 ? L.ago(e.ts, now) : ""].filter { !$0.isEmpty }.joined(separator: " · "))
+            Text(verbatim: [e.workspace, e.runTitle, e.sub, e.ts > 0 ? L.ago(e.ts, now) : ""].filter { !$0.isEmpty }.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
     }

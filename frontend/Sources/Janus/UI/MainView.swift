@@ -159,8 +159,8 @@ struct Sidebar: View {
             let member = c["config"]["team"][0]
             let waiting = store.inbox.open.filter { $0.run == c["id"].str }.count
             let open = RunStatus(c["status"].str).isActive
-            let (label, _) = ChatRowStatus.label(RunStatus(c["status"].str))
-            SidebarItem(title: ChatRowStatus.title(c), selected: shown(c["id"].str), waiting: waiting, live: open,
+            let (label, _) = runLabel(c)
+            SidebarItem(title: c["title"].str, selected: shown(c["id"].str), waiting: waiting, live: open,
                         help: "\(member["name"].str) · \(label) · \(L.dateTime(c["createdAt"].double ?? 0))",
                         accessibility: L.text("和 \(member["name"].str) 的对话，\(label)"),
                         action: { store.open(.run(c["id"].str)) }) {

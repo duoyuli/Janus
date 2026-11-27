@@ -571,7 +571,7 @@ final class AppStore {
             show(delete["why"].str)
             return
         }
-        let title = L.goalTitle(row?["goal"].str ?? (run?.id == id ? run?.state.run.goal ?? "" : ""))
+        let title = row?["title"].string ?? (run?.id == id ? run?.state.title ?? "" : "")
         guard confirmDeleteRun(title) else { return }
         do {
             try await api.delete("/api/runs/\(id)")
@@ -594,7 +594,7 @@ final class AppStore {
     /// A chat goes with its directory; one still talking is stopped, there is nothing to stop first.
     private func deleteChat(_ row: JSON) async {
         let id = row["id"].str
-        guard confirmDeleteChat(ChatRowStatus.title(row), role: row["config"]["team"][0]["name"].str) else { return }
+        guard confirmDeleteChat(row["title"].str, role: row["config"]["team"][0]["name"].str) else { return }
         do {
             try await api.delete("/api/runs/\(id)")
         } catch {

@@ -67,7 +67,13 @@ impl App {
         let running = dreams.iter().find(|d| working(d));
         let last = dreams.iter().find(|d| !working(d));
         Ok(json!({
-            "memories": self.db.memories(workspace)?,
+            "memories": self.db.memories(workspace)?.into_iter().map(|m| {
+                // Where it came from, as the run lists call that run.
+                let title = m.run_goal.as_deref().map(crate::run_view::goal_title);
+                let mut v = json!(m);
+                v["runTitle"] = json!(title);
+                v
+            }).collect::<Vec<_>>(),
             "consolidation": {
                 "running": running.map(|d| d.id.clone()),
                 "last": last.map(|d| json!({ "run": d.id, "at": d.created_at, "status": d.status })),

@@ -42,7 +42,7 @@ import Testing
 
 /// Where a note came from, as the workspace page and its sheet say it.
 @Test func aNoteSaysWhoWroteItWhere() {
-    let byLead: JSON = ["who": "lead", "author": "PMO", "runGoal": "修复导出", "runStatus": "delivered", "updatedAt": 0]
+    let byLead: JSON = ["who": "lead", "author": "PMO", "runTitle": "修复导出", "runStatus": "delivered", "updatedAt": 0]
     #expect(MemoryText.source(byLead).hasPrefix("PMO · "))
     #expect(MemoryText.source(byLead).contains("修复导出"))
     let cancelled: JSON = ["who": "lead", "author": "PMO", "runGoal": "试试", "runStatus": "cancelled", "updatedAt": 0]

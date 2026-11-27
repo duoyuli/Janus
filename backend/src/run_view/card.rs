@@ -4,8 +4,11 @@
 
 use super::review::{Review, ReviewStage};
 use super::words::Words;
-use super::{RunState, TaskShown};
+use super::{RunState, TaskShown, goal_title};
+use crate::db::RunRow;
+use crate::lang::Lang;
 use crate::lang::tr;
+use crate::status::RunKind;
 use crate::status::{AgentPhase, RunStatus};
 use crate::wire::wire_enum;
 use serde::Serialize;
@@ -182,4 +185,41 @@ pub(super) fn members(st: &RunState, failed_checks: &BTreeMap<String, usize>, w:
             MemberLine { id: id.clone(), lead: *lead, phase, line, beat, stats: stats.flatten(), progress }
         })
         .collect()
+}
+
+/// What a run is called in the lists: its goal's first line; a chat by its first message, before
+/// there is one by who it is with.
+pub fn row_title(row: &RunRow, lang: Lang) -> String {
+    if row.kind == RunKind::Chat && row.goal.trim().is_empty() {
+        let name = super::text(&row.config["team"][0]["name"]);
+        return tr!(lang, "和 {name} 的新对话", "New chat with {name}");
+    }
+    goal_title(&row.goal)
+}
+
+/// A run's state as its row in the lists shows it: a chat is in session or ended; a queued run
+/// says where it is in the queue.
+pub fn row_label(row: &RunRow, lang: Lang) -> Pill {
+    let l = lang;
+    let pill = |text: &str, tone| Pill { text: text.into(), tone };
+    if row.kind == RunKind::Chat {
+        return if row.status.is_active() {
+            pill(l.pick("会话中", "In session"), Tone::Blue)
+        } else {
+            pill(l.pick("已结束", "Ended"), Tone::Gray)
+        };
+    }
+    match row.status {
+        RunStatus::Queued => match row.queue_position {
+            Some(n) => Pill { text: tr!(l, "排队中 · 第 {n} 位", "Queued · #{n}"), tone: Tone::Gray },
+            None => pill(l.pick("排队中", "Queued"), Tone::Gray),
+        },
+        RunStatus::Planning => pill(l.pick("负责人上岗中", "Lead getting started"), Tone::Blue),
+        RunStatus::Running => pill(l.pick("干活中", "Working"), Tone::Blue),
+        RunStatus::Delivered => pill(l.pick("已交付", "Delivered"), Tone::Green),
+        RunStatus::Accepted => pill(l.pick("已验收", "Accepted"), Tone::Green),
+        RunStatus::Failed => pill(l.pick("失败", "Failed"), Tone::Red),
+        RunStatus::Cancelled => pill(l.pick("已停止", "Stopped"), Tone::Gray),
+        RunStatus::Interrupted => pill(l.pick("已中断", "Interrupted"), Tone::Gray),
+    }
 }

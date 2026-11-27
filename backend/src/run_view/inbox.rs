@@ -21,6 +21,8 @@ pub struct InboxEntry {
     pub run: String,
     pub run_kind: RunKind,
     pub goal: String,
+    /// What the run is called in the lists (`card::row_title`).
+    pub run_title: String,
     /// The run's workspace, by id, and its name now (a chat's entries say they are a chat).
     pub workspace: String,
     pub workspace_name: String,
@@ -72,6 +74,7 @@ pub fn inbox_entries(c: &Candidate<'_>, asks: Option<&Asks>, words: &Words) -> V
         run: row.id.clone(),
         run_kind: row.kind,
         goal: row.goal.clone(),
+        run_title: super::row_title(row, words.lang),
         workspace: super::text(&row.config["workspace"]["id"]),
         workspace_name: c.workspace_name.clone(),
         kind: what.split('-').next().unwrap_or(what).to_string(),

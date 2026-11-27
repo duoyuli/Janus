@@ -65,7 +65,7 @@ enum MemoryText {
         let day = L.dateTime(m["updatedAt"].double ?? 0)
         if m["who"].str == "user" { return L.text("你 · \(day)") }
         if m["runStatus"].str == "cancelled" { return L.text("\(m["author"].str) · 来自已取消的任务 · \(day)") }
-        let goal = m["runGoal"].string.map { L.goalTitle($0) } ?? L.text("已删除的任务")
+        let goal = m["runTitle"].string ?? L.text("已删除的任务")
         return L.text("\(m["author"].str) · \(goal) · \(day)")
     }
 

@@ -29,7 +29,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let requests = fresh.map { e in
             let c = UNMutableNotificationContent()
             c.title = e.title
-            c.body = [L.goalTitle(e.goal), e.text].filter { !$0.isEmpty }.joined(separator: " · ")
+            c.body = [e.runTitle, e.text].filter { !$0.isEmpty }.joined(separator: " · ")
             c.sound = .default
             c.userInfo = ["run": e.run]
             return UNNotificationRequest(identifier: e.key, content: c, trigger: nil)
