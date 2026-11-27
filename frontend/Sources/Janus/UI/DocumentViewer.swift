@@ -2,6 +2,48 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Where a document window reads its file. A run's documents and what they link to, and an
+/// adapter's log, come from the service (`GET /api/runs/{id}/doc`, `/doc/asset`,
+/// `/api/adapters/{id}/log`), as any client reads them; only a file the person picked on this Mac
+/// is read from the disk.
+enum DocSource {
+    /// One of the run's Markdown documents or artifacts.
+    case run(API, run: String)
+    /// A file a run's document links to (`doc`).
+    case linked(API, run: String, doc: String)
+    /// An adapter's install log (`path` is only its name for the window).
+    case adapterLog(API, id: String)
+    /// A file the person chose on this Mac.
+    case local
+
+    /// What reads `path` from this source.
+    func read(_ path: String) async throws -> String {
+        switch self {
+        case .run(let api, let run): return try await api.text("/api/runs/\(run)/doc?path=\(API.q(path))")
+        case .linked(let api, let run, let doc): return try await api.text("/api/runs/\(run)/doc/asset?doc=\(API.q(doc))&path=\(API.q(path))")
+        case .adapterLog(let api, let id): return try await api.text("/api/adapters/\(API.q(id))/log")
+        case .local: return try String(contentsOfFile: path, encoding: .utf8)
+        }
+    }
+
+    /// Where a link in document `doc` read from here leads: the same run, through the document.
+    func linked(from doc: String) -> DocSource {
+        switch self {
+        case .run(let api, let run), .linked(let api, let run, _): return .linked(api, run: run, doc: doc)
+        case .adapterLog, .local: return .local
+        }
+    }
+
+    /// The pictures a document read from here shows, by their path, read the same way.
+    func image(doc: String) -> (@Sendable (String) async -> Data?)? {
+        switch self {
+        case .run(let api, let run), .linked(let api, let run, _):
+            return { path in try? await api.data("/api/runs/\(run)/doc/asset?doc=\(API.q(doc))&path=\(API.q(path))") }
+        case .adapterLog, .local: return nil
+        }
+    }
+}
+
 /// A window showing a file the team produced: an artifact, a deliverable, a document an agent
 /// wrote. Markdown is rendered; everything else is shown as text. One window per file: opening
 /// it again brings that window forward and reads the file again.
@@ -10,11 +52,11 @@ enum ArtifactWindow {
     @MainActor private static var windows: [String: NSWindow] = [:]
 
     @MainActor
-    static func open(run: RunModel, path: String, title: String) { open(path: path, title: title, api: run.api) }
+    static func open(run: RunModel, path: String, title: String) { open(path: path, title: title, source: .run(run.api, run: run.id)) }
 
     @MainActor
-    static func open(path: String, title: String? = nil, api: API? = nil) {
-        let view = ArtifactView(api: api, path: path)
+    static func open(path: String, title: String? = nil, source: DocSource = .local) {
+        let view = ArtifactView(from: source, path: path)
         if let w = windows[path] {
             w.contentView = NSHostingView(rootView: view)
             w.makeKeyAndOrderFront(nil)
@@ -45,14 +87,15 @@ enum ArtifactWindow {
 }
 
 struct ArtifactView: View {
-    let api: API?
+    /// Where the file is read from.
+    let from: DocSource
     let path: String
     @Local private var text: String?
     @Local private var error: String?
     @Local private var source = false
     @Local private var generation = 0
 
-    private var markdown: Bool { RunDocs.isMarkdown(path) }
+    private var markdown: Bool { DocLinks.isMarkdown(path) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,7 +125,7 @@ struct ArtifactView: View {
             Divider()
             if let text {
                 if markdown && !source {
-                    MarkdownDocumentView(text: text, file: URL(fileURLWithPath: path))
+                    MarkdownDocumentView(text: text, file: URL(fileURLWithPath: path), source: from)
                 } else {
                     ScrollView([.vertical, .horizontal]) {
                         Text(text).font(.system(size: 12, design: .monospaced)).textSelection(.enabled).padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -99,19 +142,22 @@ struct ArtifactView: View {
     }
 
     private func load() async {
-        // The app runs as this user: read the file directly. Paths the app cannot read go
-        // through the server, which serves only Janus's artifacts directory.
-        if let t = try? String(contentsOfFile: path, encoding: .utf8) { text = t; error = nil; return }
-        guard let api else { error = L.text("读不了这个文件"); return }
-        do { text = try await api.text("/api/file?path=\(API.q(path))"); error = nil } catch { self.error = error.localizedDescription }
+        do { text = try await from.read(path); error = nil } catch { self.error = error.localizedDescription }
     }
 }
 
 /// Links in rendered Markdown and in agent prose: a local Markdown file opens in Janus, a
 /// `#heading` in the same document scrolls to it, anything else goes to the system.
 enum DocLinks {
+    /// A Markdown file, by its name: rendered rather than shown as text.
+    static func isMarkdown(_ path: String) -> Bool {
+        ["md", "markdown"].contains((path as NSString).pathExtension.lowercased())
+    }
+
+    /// A link clicked in a document (`doc`, read from `source`) or in a run's prose (`source` the
+    /// run): another Markdown file opens in Janus, read the same way.
     @MainActor
-    static func handle(_ url: URL, from doc: URL? = nil, scrollTo: ((String) -> Void)? = nil) -> OpenURLAction.Result {
+    static func handle(_ url: URL, from doc: URL? = nil, source: DocSource = .local, scrollTo: ((String) -> Void)? = nil) -> OpenURLAction.Result {
         let url = url.absoluteURL
         guard url.isFileURL else { return .systemAction }
         let path = url.standardizedFileURL.path
@@ -119,8 +165,8 @@ enum DocLinks {
             scrollTo?(MDDoc.slug(f))
             return .handled
         }
-        if RunDocs.isMarkdown(path) {
-            ArtifactWindow.open(path: path)
+        if isMarkdown(path) {
+            ArtifactWindow.open(path: path, source: doc.map { source.linked(from: $0.path) } ?? source)
             return .handled
         }
         if FileManager.default.fileExists(atPath: path) {
@@ -135,10 +181,12 @@ enum DocLinks {
 struct MarkdownDocumentView: View {
     let nodes: [MDDoc.Node]
     let file: URL?
+    let source: DocSource
 
-    init(text: String, file: URL?) {
+    init(text: String, file: URL?, source: DocSource = .local) {
         nodes = MDDoc.parse(text)
         self.file = file
+        self.source = source
     }
 
     var body: some View {
@@ -151,8 +199,9 @@ struct MarkdownDocumentView: View {
                     .textSelection(.enabled)
             }
             .environment(\.openURL, OpenURLAction { url in
-                DocLinks.handle(url, from: file) { id in withAnimation { proxy.scrollTo(id, anchor: .top) } }
+                DocLinks.handle(url, from: file, source: source) { id in withAnimation { proxy.scrollTo(id, anchor: .top) } }
             })
+            .environment(\.docImages, file.flatMap { source.image(doc: $0.path) })
         }
         .background(Color.card)
     }

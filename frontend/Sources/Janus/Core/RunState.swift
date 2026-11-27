@@ -78,8 +78,6 @@ struct Artifact: Hashable {
     var isDiff: Bool { kind == "git_diff" || ofRun }
     /// The whole run's diff: everything accepting brings back, the lead's own edits included.
     var ofRun: Bool { kind == "run_diff" }
-    /// What its review is about, in the message to the agent (Janus talks to agents in Chinese).
-    var subject: String { ofRun ? "整个任务的改动" : "\(task) 的改动" }
 }
 
 struct Question {
@@ -350,6 +348,10 @@ struct RunState {
     var review: ServedReview?
     /// Each conversation as the server serves it, by `SessionTarget.label` (`RunState.session`).
     var sessions: [String: JSON] = [:]
+    /// The file changes the conversations' events carry, by event seq, in their order there.
+    var diffs: [Int: [ServedDiff]] = [:]
+    /// The run's Markdown documents that exist.
+    var docs: [RunDoc] = []
     /// The newest event the server folded in.
     var seq = 0
     /// The events shown with it, the run's log up to the shown position (the app's own copy).
@@ -372,6 +374,8 @@ struct RunState {
         board = BoardFacts(j["board"])
         review = j["review"].isNull ? nil : ServedReview(j["review"])
         sessions = j["sessions"].object
+        diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
+        docs = j["docs"].array.map(RunDoc.init)
         seq = j["seq"].int ?? 0
         self.events = events
     }

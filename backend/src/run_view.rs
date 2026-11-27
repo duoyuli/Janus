@@ -10,16 +10,22 @@
 //! the app writes them in the person's language.
 // @project-doc docs/architecture/20261031-frontend.md#event_derivation
 
+mod aside;
 mod board;
+pub mod docs;
 mod inbox;
+pub mod preview;
 mod review;
 mod sessions;
+pub mod suggest;
 #[cfg(test)]
 mod tests;
+mod turns;
 mod words;
 
 use crate::db::Event;
 use crate::events::EventKind;
+use crate::lang::Lang;
 use crate::status::{AgentPhase, RunKind, RunStatus};
 use crate::wire::wire_enum;
 use serde::Serialize;
@@ -1046,17 +1052,81 @@ impl RunState {
     }
 }
 
-/// Everything one fold keeps: the run's state and what the board needs besides it.
+/// Everything one fold keeps: the run's state, what the board needs besides it, the events the
+/// conversations show, the lines each of their changes shows, and the run's Markdown files.
 #[derive(Clone, Default)]
 pub struct Fold {
     pub state: RunState,
     board: board::BoardFold,
+    shown: HashMap<i64, Event>,
+    diffs: BTreeMap<i64, Vec<DiffView>>,
+    docs: docs::DocsFold,
+}
+
+/// One file change an event carries (a tool call's edit, the edit an approval asks about), as it
+/// reads.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct DiffView {
+    pub path: String,
+    /// Lines added and removed over the change.
+    pub added: usize,
+    pub removed: usize,
+    /// The changed lines with three lines of context.
+    pub lines: Vec<crate::diff::Mark>,
 }
 
 impl Fold {
     pub fn apply(&mut self, e: &Event) {
         self.state.apply(e);
         self.board.apply(&self.state, e);
+        let null = Value::Null;
+        let d = e.data.as_ref().unwrap_or(&null);
+        self.docs.apply(e, d);
+        if sessions::in_conversation(e, d) {
+            // A tool call's edits are its `diffs` (`old`, `new`); an approval's are the diffs in the
+            // content of the call it asks about (`oldText`, `newText`).
+            let approval = e.kind() == EventKind::ApprovalRequested;
+            let (old, new) = if approval { ("oldText", "newText") } else { ("old", "new") };
+            let items: Vec<&Value> = if approval {
+                list(&d["content"]).iter().filter(|c| c["type"] == "diff").collect()
+            } else {
+                list(&d["diffs"]).iter().collect()
+            };
+            let changes: Vec<DiffView> = items
+                .into_iter()
+                .map(|x| {
+                    let (a, b) = (text(&x[old]), text(&x[new]));
+                    let (added, removed) = crate::diff::line_counts(&a, &b);
+                    DiffView { path: text(&x["path"]), added, removed, lines: crate::diff::inline(&a, &b) }
+                })
+                .collect();
+            if !changes.is_empty() {
+                self.diffs.insert(e.seq, changes);
+            }
+            self.shown.insert(e.seq, e.clone());
+        }
+    }
+
+    /// The run's Markdown files that exist now (`docs`); `work` is where its worktree is or was.
+    pub fn docs(&self, work: &std::path::Path) -> Vec<docs::Doc> {
+        let run = &self.state.run;
+        let exists = |p: &str| std::path::Path::new(p).exists();
+        let moved = docs::Moved::of(&run.cwd, &run.repo, work, exists);
+        self.docs.existing(&run.cwd, moved.as_ref(), exists)
+    }
+
+    /// The suggestions for a draft in conversation `key` (`suggest`); `files` finds the workspace
+    /// files matching what follows `@`.
+    pub fn suggest(
+        &self,
+        key: &str,
+        draft: &str,
+        lang: Lang,
+        files: impl FnOnce(&str) -> Vec<String>,
+    ) -> suggest::Suggestions {
+        let seqs = self.state.sessions.events_of(key);
+        let evs: Vec<&Event> = seqs.iter().filter_map(|s| self.shown.get(s)).collect();
+        suggest::suggestions(&aside::commands(&evs), draft, lang, files)
     }
 
     /// The newest event folded in.
@@ -1067,15 +1137,18 @@ impl Fold {
     /// What the run page shows, written in `words`. `live`: the run is in the service's memory;
     /// without it no lead session is there to work or to be held, whatever the last events said.
     /// `replaying`: a past position, where nothing can be sent.
-    pub fn view(&self, live: bool, replaying: bool, words: &Words) -> RunView {
+    pub fn view(&self, live: bool, replaying: bool, words: &Words, detail: bool) -> RunView {
         let mut board = self.board.facts(&self.state);
         words.board(&mut board, &self.state);
         let mut review = review::review(&self.state, live);
         for s in review.iter_mut().flat_map(|r| r.signals.iter_mut()) {
             words.signal(s);
         }
-        let sessions = sessions::sessions(&self.state, live, replaying);
-        RunView { state: self.state.clone(), board, review, sessions, live }
+        let counts =
+            |seq: i64, i: usize| self.diffs.get(&seq).and_then(|c| c.get(i)).map_or((0, 0), |c| (c.added, c.removed));
+        let drawn = sessions::Drawn { events: &self.shown, counts: &counts, lang: words.lang, detail };
+        let sessions = sessions::sessions(&self.state, live, replaying, &drawn);
+        RunView { state: self.state.clone(), board, review, sessions, diffs: self.diffs.clone(), docs: vec![], live }
     }
 
     /// Only what the inbox reads: the person's open items and the latest delivery's review,
@@ -1121,6 +1194,10 @@ pub struct RunView {
     pub review: Option<Review>,
     /// Each conversation's events and what its composer offers, by `task:<id>` or `agent:<id>`.
     pub sessions: std::collections::BTreeMap<String, sessions::SessionView>,
+    /// The file changes the conversations' events carry, by event seq, in their order there.
+    pub diffs: BTreeMap<i64, Vec<DiffView>>,
+    /// The run's Markdown files that exist (`docs`).
+    pub docs: Vec<docs::Doc>,
     /// The run is in the service's memory.
     pub live: bool,
 }

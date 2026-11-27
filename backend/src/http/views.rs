@@ -17,6 +17,9 @@ pub(super) struct ViewQuery {
     until: Option<i64>,
     /// `zh` or `en`; the app's language without.
     lang: Option<String>,
+    /// `1`: the conversations at the detail level, every tool call shown.
+    #[serde(default)]
+    detail: u8,
 }
 
 /// The language a request asks for, or the app's.
@@ -35,10 +38,36 @@ pub(super) async fn run(
     Query(q): Query<ViewQuery>,
 ) -> ApiResult {
     let lang = lang_of(&app, q.lang.as_deref())?;
-    match app.run_view(&id, q.until, lang)? {
+    match app.run_view(&id, q.until, lang, q.detail == 1)? {
         Some(view) => reply(json!(view)),
         None => Err(ApiError::not_found("任务不存在")),
     }
+}
+
+#[derive(Deserialize)]
+pub(super) struct SuggestQuery {
+    /// The conversation: `task:<id>` or `agent:<id>`.
+    key: String,
+    #[serde(default)]
+    draft: String,
+    lang: Option<String>,
+}
+
+/// What the composer of conversation `key` offers for `draft`: the agent's slash commands after
+/// `/`, the workspace's files after `@`, each with the draft it leaves; and a picked command's
+/// arguments.
+// @project-doc docs/interfaces/20261031-http_api.md#run_suggest
+pub(super) async fn suggest(
+    State(app): State<Arc<App>>,
+    UrlPath(id): UrlPath<String>,
+    Query(q): Query<SuggestQuery>,
+) -> ApiResult {
+    let lang = lang_of(&app, q.lang.as_deref())?;
+    let row = app.db.run(&id)?.ok_or_else(|| ApiError::not_found("任务不存在"))?;
+    let cwd = std::path::PathBuf::from(&row.cwd);
+    let files = |q: &str| crate::acp_view::workspace_files(&cwd, q, 20);
+    let s = app.with_fold(&id, None, |f| f.suggest(&q.key, &q.draft, lang, files))?.unwrap_or_default();
+    reply(json!(s))
 }
 
 #[derive(Deserialize)]

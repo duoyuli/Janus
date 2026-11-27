@@ -12,6 +12,7 @@ mod chats;
 mod collaboration;
 mod delivery;
 mod evidence;
+mod files;
 mod lead;
 mod library_router;
 mod live;

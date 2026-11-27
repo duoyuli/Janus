@@ -1,10 +1,12 @@
 //! The fold over a run's events, as the app's derivation tests had it: tasks, agents, requests,
 //! messages, deliveries; the board, the review and the inbox are in the submodules.
 
+mod aside;
 mod board;
 mod inbox;
 mod review;
 mod sessions;
+mod turns;
 
 use super::*;
 use crate::lang::Lang;
@@ -73,11 +75,11 @@ impl Log {
 
     /// The view as the person reads it in Chinese, members named by their ids.
     pub(super) fn view(&self) -> RunView {
-        fold(&self.events).view(true, false, &Words::of(Lang::Zh, &json!({})))
+        fold(&self.events).view(true, false, &Words::of(Lang::Zh, &json!({})), false)
     }
 
     pub(super) fn view_in(&self, lang: Lang, live: bool, config: &Value) -> RunView {
-        fold(&self.events).view(live, false, &Words::of(lang, config))
+        fold(&self.events).view(live, false, &Words::of(lang, config), false)
     }
 
     pub(super) fn last_ts(&self) -> i64 {
@@ -601,6 +603,7 @@ fn a_kept_fold_brought_up_to_date_equals_a_fresh_one() {
     assert_eq!(first.seq(), 2);
     let all = views.current("r1", |after| Ok(log.events[after as usize..].to_vec()), Fold::clone).unwrap();
     assert_eq!(all.seq(), log.events.len() as i64);
-    let fresh = serde_json::to_value(fold(&log.events).view(true, false, &Words::of(Lang::Zh, &json!({})))).unwrap();
-    assert_eq!(serde_json::to_value(all.view(true, false, &Words::of(Lang::Zh, &json!({})))).unwrap(), fresh);
+    let fresh =
+        serde_json::to_value(fold(&log.events).view(true, false, &Words::of(Lang::Zh, &json!({})), false)).unwrap();
+    assert_eq!(serde_json::to_value(all.view(true, false, &Words::of(Lang::Zh, &json!({})), false)).unwrap(), fresh);
 }

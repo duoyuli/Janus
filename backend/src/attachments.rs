@@ -24,7 +24,7 @@ pub const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 const MARKER: &str = "[Image ";
 
 /// The image type, from the file's first bytes. The declared type is not trusted.
-fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some(("image/png", "png"))
     } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {

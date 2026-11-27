@@ -4,7 +4,7 @@ import SwiftUI
 /// to one line once every step is done.
 // @project-doc docs/architecture/20261031-frontend.md#session_view
 struct PlanStrip: View {
-    let steps: [SessionView.Step]
+    let steps: [Conversation.Step]
     @Local private var open = true
 
     var body: some View {
@@ -49,15 +49,7 @@ struct PlanStrip: View {
 /// What the suggestions above a composer offer now and which one the keys are on. The composer
 /// hands it the arrows, Tab, ↩ and Esc while it is open (`ComposerNav`).
 @Observable final class SuggestionPicker {
-    struct Row: Equatable {
-        let pick: SessionView.Asking
-        let label: String
-        let detail: String
-        /// The heading above this row, when it starts a group.
-        var group: String?
-    }
-
-    var rows: [Row] = []
+    var rows: [Conversation.Suggestions.Row] = []
     var index = 0
     /// The draft the person closed the list on: it stays closed until the draft changes.
     var closedAt: String?
@@ -70,25 +62,25 @@ struct PlanStrip: View {
         switch nav {
         case .up: index = (index + rows.count - 1) % rows.count
         case .down: index = (index + 1) % rows.count
-        case .accept: draft.wrappedValue = SessionView.complete(draft.wrappedValue, with: rows[min(index, rows.count - 1)].pick)
+        case .accept: draft.wrappedValue = rows[min(index, rows.count - 1)].completion
         case .dismiss: closedAt = draft.wrappedValue
         }
         return true
     }
 }
 
-/// Above the composer while typing: the agent's slash commands after `/`, workspace files after `@`.
-/// ↑ ↓ move, Tab or ↩ takes one, Esc closes the list; a click takes one too.
+/// Above the composer while typing: the agent's slash commands after `/`, workspace files after `@`,
+/// as the server offers them for the draft (`GET /api/runs/{id}/suggest`). ↑ ↓ move, Tab or ↩
+/// takes one, Esc closes the list; a click takes one too.
 struct Suggestions: View {
     let run: RunModel
+    let target: SessionTarget
     @Binding var draft: String
-    let commands: [SessionView.Command]
     let picker: SuggestionPicker
-    @Local private var files: [String] = []
 
     var body: some View {
-        let asking = SessionView.asking(draft)
-        let rows = Self.rows(asking, commands: commands, files: files)
+        // Only what was offered for this very draft: an answer for an earlier one is stale.
+        let rows = run.suggestions[target].flatMap { $0.draft == draft ? $0.rows : nil } ?? []
         let open = !rows.isEmpty && picker.closedAt != draft
         VStack(alignment: .leading, spacing: 0) {
             if open {
@@ -99,7 +91,7 @@ struct Suggestions: View {
                                 if let g = r.group {
                                     Text(g).font(.caption2.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 10).padding(.top, i == 0 ? 6 : 10).padding(.bottom, 2)
                                 }
-                                Button { draft = SessionView.complete(draft, with: r.pick) } label: {
+                                Button { draft = r.completion } label: {
                                     HStack(spacing: 10) {
                                         Text(r.label).font(.system(.callout, design: .monospaced)).lineLimit(1)
                                         Text(r.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -129,33 +121,6 @@ struct Suggestions: View {
             picker.index = 0
         }
         .onChange(of: draft) { if picker.closedAt != nil && picker.closedAt != draft { picker.closedAt = nil } }
-        .task(id: asking) {
-            guard case .file(let q) = asking else { files = []; return }
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            let r = try? await run.api.get("/api/runs/\(run.id)/files?q=\(API.q(q))")
-            files = r?["files"].strings ?? []
-        }
-    }
-
-    /// The rows for what is being typed: commands ranked (`SessionView.rank`), grouped by where
-    /// they come from while nothing follows `/` yet; files as the service found them.
-    static func rows(_ asking: SessionView.Asking?, commands: [SessionView.Command], files: [String]) -> [SuggestionPicker.Row] {
-        switch asking {
-        case .command(let q):
-            let ranked = SessionView.rank(commands, q).prefix(50)
-            var rows: [SuggestionPicker.Row] = []
-            var last: Bool?
-            for c in ranked {
-                let detail = [c.description, c.hint.isEmpty ? "" : L.text("参数：\(c.hint)")].filter { !$0.isEmpty }.joined(separator: " · ")
-                // Headings only for the whole list: once something is typed, the best match leads.
-                let group = q.isEmpty && commands.contains(where: \.skill) && c.skill != last ? (c.skill ? L.text("Skill") : L.text("Agent 命令")) : nil
-                last = c.skill
-                rows.append(.init(pick: .command(c.name), label: "/\(c.name)", detail: detail, group: group))
-            }
-            return rows
-        case .file: return files.prefix(8).map { .init(pick: .file($0), label: "@\($0)", detail: "") }
-        case nil: return []
-        }
     }
 }
 
@@ -164,7 +129,7 @@ struct Suggestions: View {
 struct SessionControls: View {
     let run: RunModel
     let target: SessionTarget
-    let controls: [SessionView.Control]
+    let controls: [Conversation.Control]
 
     var body: some View {
         HStack(spacing: 8) {
@@ -176,7 +141,7 @@ struct SessionControls: View {
                         }
                     }
                 } label: {
-                    Text(verbatim: L.text("\(c.name)：\(c.options.first { $0.value == c.current }?.name ?? c.current)")).font(.caption)
+                    Text(verbatim: c.label).font(.caption)
                 }
                 .menuStyle(.borderlessButton).fixedSize()
                 .help(L.text("切换这个会话的\(c.name)，立即生效"))
@@ -184,57 +149,39 @@ struct SessionControls: View {
         }
     }
 
-    private func set(_ c: SessionView.Control, _ value: String) {
+    private func set(_ c: Conversation.Control, _ value: String) {
         guard value != c.current else { return }
         Task { await run.act(.control(target, id: c.id, value: value, via: c.via)) }
     }
 }
 
-/// A file change a tool call reported, as removed and added lines.
+/// A file change an event carries, as removed and added lines with a little context, as the
+/// server worked them out (`ServedDiff`).
 struct InlineDiff: View {
     let path: String
-    let old: String
-    let new: String
+    let lines: [(mark: String, text: String)]
 
     var body: some View {
-        let lines = Self.lines(old: old, new: new)
         VStack(alignment: .leading, spacing: 0) {
             Text(path).font(.system(size: 11, design: .monospaced).weight(.semibold)).padding(.horizontal, 8).padding(.vertical, 4)
-            ForEach(Array(lines.prefix(400).enumerated()), id: \.offset) { _, l in
-                Text(verbatim: "\(l.0)\(l.1)")
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
+                Text(verbatim: "\(l.mark)\(l.text)")
                     .font(.system(size: 11, design: .monospaced))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 8)
-                    .background((l.0 == "+" ? Tone.green.color : l.0 == "-" ? Tone.red.color : .clear).opacity(0.1))
+                    .background((l.mark == "+" ? Tone.green.color : l.mark == "-" ? Tone.red.color : .clear).opacity(0.1))
             }
         }
         .background(Color.soft, in: RoundedRectangle(cornerRadius: 6))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .textSelection(.enabled)
     }
-
-    /// Changed lines with three lines of context around them, the rest left out.
-    static func lines(old: String, new: String) -> [(String, String)] {
-        let a = old.components(separatedBy: "\n"), b = new.components(separatedBy: "\n")
-        let diff = b.difference(from: a)
-        var removed = Set<Int>(), inserted = Set<Int>()
-        for c in diff { switch c { case .remove(let o, _, _): removed.insert(o); case .insert(let o, _, _): inserted.insert(o) } }
-        var out: [(String, String)] = []
-        var i = 0, j = 0
-        while i < a.count || j < b.count {
-            if i < a.count, removed.contains(i) { out.append(("-", a[i])); i += 1 }
-            else if j < b.count, inserted.contains(j) { out.append(("+", b[j])); j += 1 }
-            else { if j < b.count { out.append((" ", b[j])) }; i += 1; j += 1 }
-        }
-        let changed = out.indices.filter { out[$0].0 != " " }
-        return out.indices.filter { k in changed.contains { abs($0 - k) <= 3 } }.map { out[$0] }
-    }
 }
 
 /// This session's context in the composer's row, as a ring and a number: how full it is, or the
 /// last turn's tokens when the agent does not say. Its own numbers, apart from the run's total.
 struct ContextMeter: View {
-    let usage: SessionView.Usage
+    let usage: Conversation.Usage
 
     var body: some View {
         let u = usage
@@ -245,14 +192,12 @@ struct ContextMeter: View {
                     Circle().trim(from: 0, to: CGFloat(p) / 100).stroke(p >= 80 ? Tone.amber.color : Color.secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round)).rotationEffect(.degrees(-90))
                 }
                 .frame(width: 12, height: 12)
-                Text(verbatim: "\(p)%")
-            } else {
-                Text(verbatim: "\(usageCompact(u.tokens ?? u.used ?? 0)) tokens")
             }
+            Text(verbatim: u.meter)
         }
         .font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
-        .help(([u.labels].compactMap { $0 } + [u.used.map { L.text("上下文已用 \(usageCompact($0))") }, u.size.map { L.text("共 \(usageCompact($0))") }].compactMap { $0 }).joined(separator: " · ") + L.text("\n本会话的数字不计入任务累计用量"))
+        .help(u.help)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(u.labels ?? "")
+        .accessibilityLabel(u.labels)
     }
 }

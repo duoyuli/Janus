@@ -76,9 +76,10 @@ final class RunModel {
     private var replayedSeq: Int? { replay.map { n in events.prefix(n).last?.seq ?? 0 } }
 
     /// Read what the server works out at the shown position: the run's view
-    /// (`GET /api/runs/{id}/view`, in the app's language) and its usage ledger. Asked when the run
-    /// is read, after each burst of new events, when the replay position moves and when the
-    /// language changes; an answer for a position no longer shown is dropped.
+    /// (`GET /api/runs/{id}/view`, in the app's language, its conversations at the display level
+    /// chosen) and its usage ledger. Asked when the run is read, after each burst of new events,
+    /// when the replay position moves, when the language or the display level changes; an answer
+    /// for a position no longer shown is dropped.
     // @project-doc docs/architecture/20261031-frontend.md#event_derivation
     func loadServed() {
         let until = replayedSeq
@@ -87,7 +88,8 @@ final class RunModel {
         viewTask = Task { [weak self] in
             guard let self else { return }
             let at = until.map { "&until=\($0)" } ?? ""
-            guard let j = try? await self.api.get("/api/runs/\(self.id)/view?lang=\(L.serverLanguage)\(at)"),
+            let detail = ChatDensity.current == .detail ? "&detail=1" : ""
+            guard let j = try? await self.api.get("/api/runs/\(self.id)/view?lang=\(L.serverLanguage)\(at)\(detail)"),
                   !Task.isCancelled, self.replayedSeq == until else { return }
             if let until {
                 self.replayState = RunState(j, events: self.events.filter { $0.seq <= until })
@@ -95,7 +97,6 @@ final class RunModel {
             }
             let before = self.state.run.status
             self.state = RunState(j, events: self.events)
-            self.findDocuments()
             // The sidebar lists run statuses; refresh it when this one's changes.
             if self.state.run.status != before { await self.store.loadRuns() }
             // The server holds the run now but this page read it when it did not (a run that left
@@ -116,7 +117,12 @@ final class RunModel {
     var picks: [String: String] = [:]
     var notes: [String: String] = [:]
     var forms: [String: JSON] = [:]
-    var sessionDrafts: [SessionTarget: String] = [:]
+    /// Each composer's draft; a change asks the server what the composer offers for it.
+    var sessionDrafts: [SessionTarget: String] = [:] {
+        didSet {
+            for (target, draft) in sessionDrafts where oldValue[target] != draft { suggest(target, draft: draft) }
+        }
+    }
     /// Images pasted into each session's composer, by the same key as the drafts.
     var sessionImages: [SessionTarget: [PastedImage]] = [:]
     // Board view state
@@ -144,17 +150,18 @@ final class RunModel {
     var auditActor = ""
     var highlight: Int?
 
-    /// The run's Markdown files that exist, for the 文档 menu. Found again with each served view, not
-    /// on every event: checking the files on each draw of the toolbar slowed busy runs down.
-    private(set) var documents: [RunDocs.Doc] = []
+    /// The run's Markdown files that exist, for the 文档 menu, as the server lists them.
+    var documents: [RunDoc] { state.docs }
 
-    /// What the run's sessions are writing and running right now, before it is on record.
-    var preview = ChatLive.State()
+    /// What each conversation's session is writing and running right now, before it is on record,
+    /// by `SessionTarget.label`, as the run's stream sends it.
+    var preview: [String: LivePreview] = [:]
+
+    /// What each composer offers for its draft, as the server answered.
+    var suggestions: [SessionTarget: Conversation.Suggestions] = [:]
 
     @ObservationIgnored private var streamTask: Task<Void, Never>?
-    /// Markdown files found in the events so far, and how many events were scanned.
-    @ObservationIgnored private var docScan: [String: RunDocs.Doc] = [:]
-    @ObservationIgnored private var docScanned = 0
+    @ObservationIgnored private var suggestTasks: [SessionTarget: Task<Void, Never>] = [:]
     @ObservationIgnored private var batchTask: Task<Void, Never>?
     @ObservationIgnored private var viewTask: Task<Void, Never>?
     @ObservationIgnored private var usageTask: Task<Void, Never>?
@@ -187,9 +194,8 @@ final class RunModel {
             let data = try await api.get("/api/runs/\(id)")
             runJSON = data["run"]
             events = data["events"].array.map(Event.init)
-            preview = ChatLive.State(events)
-            docScan = [:]
-            docScanned = 0
+            // The stream starts again from here and sends each preview anew.
+            preview = [:]
             // A batch scheduled before this read would land on the events it replaced.
             batchTask?.cancel()
             batchTask = nil
@@ -227,7 +233,7 @@ final class RunModel {
                         self.reload()
                         return
                     case .named("live", let f):
-                        self.preview.apply(f)
+                        for (key, p) in f["previews"].object { self.preview[key] = p.isNull ? nil : LivePreview(p) }
                     case .named: continue
                     case .event(let j):
                         let e = Event(j)
@@ -236,7 +242,6 @@ final class RunModel {
                         // A gap means something was missed: read the whole run again.
                         if e.seq != last + 1 { self.reload(); return }
                         self.events.append(e)
-                        if [.agentMessage, .agentThought, .toolCall].contains(e.type) { self.preview.recorded(e) }
                         self.scheduleLoad()
                     }
                 }
@@ -248,15 +253,18 @@ final class RunModel {
         }
     }
 
-    /// Scans only the events not seen yet, then keeps the candidates that exist now.
-    private func findDocuments() {
-        if docScanned < events.count {
-            let moved = RunDocs.Moved.of(cwd: state.run.cwd, repo: state.run.repo, run: id)
-            RunDocs.scan(events[docScanned...], cwd: state.run.cwd, moved: moved, into: &docScan)
-            docScanned = events.count
+    /// Ask what the composer of `target` offers for `draft` (`GET /api/runs/{id}/suggest`), a
+    /// moment after the person stops typing; a newer draft cancels the ask before.
+    private func suggest(_ target: SessionTarget, draft: String) {
+        suggestTasks[target]?.cancel()
+        guard !draft.isEmpty else { suggestions[target] = nil; return }
+        suggestTasks[target] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 120_000_000)
+            guard let self, !Task.isCancelled,
+                  let j = try? await self.api.get("/api/runs/\(self.id)/suggest?key=\(API.q(target.label))&draft=\(API.q(draft))&lang=\(L.serverLanguage)"),
+                  !Task.isCancelled else { return }
+            self.suggestions[target] = Conversation.Suggestions(j, draft: draft)
         }
-        let found = RunDocs.existing(docScan)
-        if found != documents { documents = found }
     }
 
     /// Read the whole run again from outside the stream task: `read` cancels `streamTask`, so

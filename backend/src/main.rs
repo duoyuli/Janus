@@ -10,6 +10,7 @@ mod config;
 mod data_shape;
 mod db;
 mod devices;
+mod diff;
 mod events;
 mod evidence;
 mod front_matter;

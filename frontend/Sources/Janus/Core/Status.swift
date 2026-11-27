@@ -176,17 +176,13 @@ enum MessageDelivery: String, CaseIterable {
 
     init?(_ raw: String) { self.init(rawValue: raw) }
 
-    /// Still to reach the agent: waiting for the turn to end, or for its next session.
-    var waits: Bool { self == .queued || self == .next }
 
-    /// How the tray above the composer shows a message still on its way; nil once it is in a turn.
-    var trayLabel: (String, Tone)? {
+    /// The tone of the tray's badge for a message still on its way (the server words the badge).
+    var trayTone: Tone {
         switch self {
-        case .pending: return (L.text("发送中…"), .blue)
-        case .queued: return (L.text("排队 · 这一轮结束后发送"), .amber)
-        case .next: return (L.text("留言 · 下次会话带给它"), .gray)
-        case .interrupt: return (L.text("正在打断这一轮，马上送达"), .blue)
-        case .steer, .prompt: return nil
+        case .pending, .interrupt: return .blue
+        case .queued: return .amber
+        case .next, .steer, .prompt: return .gray
         }
     }
 }

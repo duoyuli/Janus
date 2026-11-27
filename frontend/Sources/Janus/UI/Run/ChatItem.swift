@@ -10,32 +10,8 @@ struct ChatItem: View {
     /// A waiting request is answered above the composer: here it is one line.
     var docked = false
 
-    /// Items that render nothing (messages shown where they were routed, unknown messages).
-    static func visible(_ e: Event, st: RunState) -> Bool {
-        switch e.type {
-        case .userMessage: return !e.data["id"].exists
-        // A Loop has no goal to open its session with; each wake is marked where it starts.
-        case .runCreated: return RunKind(e.data["kind"].str) != .loop
-        // Shown beside the conversation (plan, controls, commands, usage), not in it.
-        case .agentPlan, .sessionControls, .sessionCommands, .sessionUsage: return false
-        // Stepping on another task's files says more than "both edited it": show only that.
-        case .taskConflict:
-            guard !e.data["owned"].truthy else { return true }
-            let pair: Set<String> = [e.task ?? "", e.data["other"].str]
-            let paths = Set(e.data["paths"].strings)
-            return !st.events.contains { x in
-                x.type == .taskConflict && x.data["owned"].truthy && [x.task ?? "", x.data["other"].str] == pair && paths.isSubset(of: Set(x.data["paths"].strings))
-            }
-        case .messageRouted:
-            guard st.msgs[e.data["id"].str] != nil else { return false }
-            return [.steer, .prompt].contains(MessageDelivery(e.data["delivery"].str))
-        // A steered message is shown where it was inserted; applying it only updates that bubble.
-        case .messageDelivered:
-            guard e.data["ids"].exists else { return true }
-            return e.data["ids"].strings.contains { st.msgs[$0].map { $0.delivery != .steer } ?? false }
-        default: return true
-        }
-    }
+    /// What the server says about a section's opening event: an attempt's note and where it works.
+    var note: Conversation.Note? = nil
 
     var body: some View {
         let d = e.data
@@ -43,9 +19,9 @@ struct ChatItem: View {
         case .attemptStarted:
             VStack(alignment: .leading, spacing: 4) {
                 Divider()
-                Text(verbatim: L.text("\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(SessionView.attemptNote(d, task: e.task))"))
+                Text(verbatim: L.text("\(e.task.map { "\($0) · " } ?? "")尝试 \(e.attempt ?? 0) · \(d["runtime"].str)\(d["config"]["model"].truthy ? " · \(d["config"]["model"].str)" : "")\(note?.note ?? "")"))
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                if let git = SessionView.gitNote(d["git"]) {
+                if let git = note?.git {
                     Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 DisclosureGroup(L.text("Janus 发出的子任务说明")) { CodeBlock(text: d["prompt"].str, maxHeight: 360) }.font(.caption)
@@ -57,10 +33,10 @@ struct ChatItem: View {
             divider(L.text("整理团队记忆 · \(L.dateTime(e.ts))"))
         case .runCreated:
             divider(L.text("目标 · \(L.goalTitle(d["goal"].str))"))
-            if let git = SessionView.runGitNote(d) {
+            if let git = note?.git {
                 Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
             }
-            StoredImages(paths: Attach.paths(d), size: 56)
+            StoredImages(run: run, paths: Attach.paths(d), size: 56)
         case .agentMessage:
             TextRow(events: [e] + more, reply: true)
         case .agentThought:
@@ -183,7 +159,7 @@ struct ChatItem: View {
             Spacer(minLength: 60)
             VStack(alignment: .trailing, spacing: 4) {
                 if insert { Text("↪ " + via).font(.caption.weight(.semibold)).foregroundStyle(Color.accent) }
-                StoredImages(paths: images)
+                StoredImages(run: run, paths: images)
                 if !words.isEmpty { Text(words).textSelection(.enabled) }
                 if !insert && !via.isEmpty { Text(via).font(.caption).foregroundStyle(.secondary) }
             }
@@ -212,20 +188,12 @@ struct ToolRow: View {
     /// The run's directory, so paths inside it read as relative ones.
     let cwd: String
 
-    static func hidden(_ e: Event, done: Set<String>) -> Bool {
-        let d = e.data
-        // Codex names them `mcp.janus.*`, Claude Code `mcp__janus__*`; Janus's own record is the one shown.
-        let mcp = { (s: String) in s.hasPrefix("mcp.janus.") || s.hasPrefix("mcp__janus__") }
-        let echo = [.toolCall, .toolStarted].contains(e.type) && !d["tool"].str.hasPrefix("janus.") && (mcp(e.text) || mcp(d["tool"].str) || d["input"].str.hasPrefix("{\"arguments\""))
-        return echo || (e.type == .toolStarted && done.contains("\(e.actor):\(d["callId"].str)"))
-    }
-
     var body: some View {
         let d = e.data
         let board = d["tool"].str.hasPrefix("janus.")
         let running = e.type == .toolStarted
         // A call still running shows its newest frame: a title the agent filled in later, its output so far.
-        let live = running ? run.preview.tool(actor: e.actor, task: e.task, id: d["callId"].str) : nil
+        let live = running ? run.preview[e.task.map { "task:" + $0 } ?? "agent:" + e.actor]?.tools[d["callId"].str] : nil
         let output = L.inWorkspace(live?.output ?? d["output"].str, cwd)
         let input = live.map { $0.input.isEmpty ? $0.title : $0.input } ?? (d["input"].truthy ? d["input"].str : e.text)
         let failed = d["status"].str == "failed"
@@ -235,8 +203,8 @@ struct ToolRow: View {
         VStack(alignment: .leading, spacing: 4) {
             DisclosureGroup {
                 CodeBlock(text: full + (output.isEmpty ? "" : "\n\n→ \(output)"), maxHeight: 300)
-                ForEach(Array(d["diffs"].array.enumerated()), id: \.offset) { _, x in
-                    InlineDiff(path: L.tilde(x["path"].str), old: x["old"].str, new: x["new"].str)
+                ForEach(Array((run.shown.diffs[e.seq] ?? []).enumerated()), id: \.offset) { _, x in
+                    InlineDiff(path: L.tilde(x.path), lines: x.lines)
                 }
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
@@ -264,7 +232,7 @@ struct ToolRow: View {
             }
             // A running command's output so far: its last lines, as its own terminal ends.
             if running, !output.isEmpty {
-                let (tail, cut) = ChatTurns.tail(output)
+                let (tail, cut) = Self.tail(output)
                 VStack(alignment: .leading, spacing: 2) {
                     if cut { Text(L.text("更早的输出没有显示")).font(.caption2).foregroundStyle(.tertiary) }
                     Text(verbatim: tail).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(16)
@@ -277,10 +245,32 @@ struct ToolRow: View {
         }
     }
 
+    /// How a tool call reads in one line: a verb for its kind, running or done.
+    static func verb(_ kind: String, running: Bool) -> String {
+        switch kind {
+        case "execute": return running ? L.text("正在运行") : L.text("运行")
+        case "read": return running ? L.text("正在读") : L.text("读")
+        case "edit": return running ? L.text("正在改") : L.text("改")
+        case "delete": return running ? L.text("正在删除") : L.text("删除")
+        case "move": return running ? L.text("正在移动") : L.text("移动")
+        case "search": return running ? L.text("正在搜索") : L.text("搜索")
+        case "fetch": return running ? L.text("正在获取") : L.text("获取")
+        case "think": return running ? L.text("正在思考") : L.text("思考")
+        default: return ""
+        }
+    }
+
+    /// The last `lines` lines of a tool's output, and whether earlier ones were left out.
+    static func tail(_ output: String, lines: Int = 16) -> (String, Bool) {
+        let all = output.components(separatedBy: "\n")
+        guard all.count > lines else { return (output, false) }
+        return (all.suffix(lines).joined(separator: "\n"), true)
+    }
+
     /// A call in one line: a verb for its kind and what it worked on, the command itself for a
     /// command and the file's name for a file. Unknown kinds read as their own title.
     static func label(kind: String, input: String, title: String, running: Bool, cwd: String) -> (verb: String, what: String, mono: Bool) {
-        let verb = ChatTurns.verb(kind, running: running)
+        let verb = Self.verb(kind, running: running)
         let path = L.inWorkspace(input, cwd)
         switch kind {
         case "execute": return (verb, input.components(separatedBy: "\n").first ?? input, true)

@@ -177,13 +177,13 @@ struct ApprovalAsk: View {
         let agent = item.agent ?? st.tasks[item.task ?? ""]?.agent ?? ""
         let d = item.d
         let opts = st.actions(of: item)
-        let diffs = d["content"].array.filter { $0["type"].str == "diff" }
+        let diffs = st.diffs[item.seq] ?? []
         let operation = d["title"].truthy ? d["title"].str : L.text("执行操作")
         let title = L.text("「\(run.who(agent).name)」等你拍板：\(operation)")
         return AskShell(run: run, st: st, item: item, pill: L.text("审批"), tone: .red, agent: agent, title: title, foot: d["policy"].truthy ? [(L.text("原因"), d["policy"].str)] : []) {
             if d["command"].truthy && d["command"] != d["title"] { CodeBlock(text: "$ \(L.inWorkspace(d["command"].str, st.run.cwd))") }
             ForEach(diffs.indices, id: \.self) { i in
-                InlineDiff(path: L.inWorkspace(diffs[i]["path"].str, st.run.cwd), old: diffs[i]["oldText"].str, new: diffs[i]["newText"].str)
+                InlineDiff(path: L.inWorkspace(diffs[i].path, st.run.cwd), lines: diffs[i].lines)
             }
         } controls: {
             HStack {

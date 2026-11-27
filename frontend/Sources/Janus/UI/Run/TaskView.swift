@@ -28,6 +28,8 @@ struct TaskView: View {
         // passed stays with `task.succeeded` / `verification.*`.
         let summary = EvidenceSummary(accept: t.accept, checks: t.checks)
         let verifiers = st.verifiers(of: t.id)
+        let session = st.session(.task(t.id))
+        let notes = session.notes
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
@@ -41,21 +43,21 @@ struct TaskView: View {
                         if !t.desc.isEmpty { Text(t.desc).foregroundStyle(.secondary).textSelection(.enabled) }
                         let structure = [t.owns.isEmpty ? nil : L.text("负责 \(t.owns.joined(separator: L.text("、")))"), t.verifies.isEmpty ? nil : L.text("独立验证 \(t.verifies)")].compactMap { $0 }
                         if !structure.isEmpty { Text(verbatim: structure.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-                        if let git = SessionView.taskGitNote(st, t.id) { Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                        if let git = session.git { Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
                     Spacer()
                     Button(L.text("在审计日志中查看")) { run.auditCat = "all"; run.auditTask = t.id; run.auditActor = ""; run.highlight = nil; run.show(.audit) }
                 }
                 AdaptiveColumns(side: 330) {
                     VStack(alignment: .leading, spacing: 14) {
-                        ChatCard(run: run, st: st, title: L.text("会话"), info: st.session(.task(t.id)), target: .task(t.id))
+                        ChatCard(run: run, st: st, title: L.text("会话"), info: session, target: .task(t.id))
                             .frame(height: 560)
                         // The full trace is long and repeats the audit log; it stays folded until asked for.
                         if !evs.isEmpty {
                             Card {
                                 DisclosureGroup {
                                     // Lazy: a long task has hundreds of events, built only as they scroll into view.
-                                    LazyVStack(alignment: .leading, spacing: 8) { ForEach(evs) { e in TimelineRow(run: run, e: e) } }.padding(.top, 6)
+                                    LazyVStack(alignment: .leading, spacing: 8) { ForEach(evs) { e in TimelineRow(run: run, e: e, note: notes[e.seq]) } }.padding(.top, 6)
                                 } label: {
                                     HStack { Text(L.text("执行轨迹")).font(.headline); Text(verbatim: L.text("\(evs.count) 条事件")).font(.caption).foregroundStyle(.secondary) }
                                 }
@@ -188,15 +190,17 @@ struct TaskView: View {
 struct TimelineRow: View {
     let run: RunModel
     let e: Event
+    /// What the server says about an attempt's start: its note and where it works.
+    var note: Conversation.Note?
 
     var body: some View {
         let d = e.data
         if e.type == .attemptStarted {
             HStack(spacing: 10) {
                 Text(verbatim: L.text("尝试 \(e.attempt ?? 0)")).fontWeight(.semibold)
-                Text(verbatim: "\(d["runtime"].str)\(SessionView.attemptNote(d, task: e.task))").foregroundStyle(.secondary)
+                Text(verbatim: "\(d["runtime"].str)\(note?.note ?? "")").foregroundStyle(.secondary)
                 Text(L.short(d["session"].str, 40)).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                let place = SessionView.gitNote(d["git"]) ?? d["workspace"].str
+                let place = note?.git ?? d["workspace"].str
                 Text(verbatim: place).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(place)
                 Spacer()
                 SeqButton(seq: e.seq, run: run)

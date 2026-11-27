@@ -20,7 +20,8 @@ enum SessionTarget: Hashable {
 }
 
 /// One conversation as the server works it out (`backend/src/run_view/sessions.rs`): the events it
-/// shows, whether its session is open, whose turn it is, and what its composer offers.
+/// shows, whether its session is open, whose turn it is, what its composer offers, its rows in
+/// turns and what sits beside it (`Conversation`).
 // @project-doc docs/architecture/20261031-frontend.md#session_view
 struct SessionInfo {
     var evs: [Event]
@@ -33,6 +34,20 @@ struct SessionInfo {
     /// A chat with one digital employee: sending reopens it whenever its session is gone.
     var chat: Bool
     var composer: SessionComposer
+    /// Its newest turn runs: the session works on its own or on the person's message.
+    var busy: Bool
+    /// The rows as served (`Conversation.rows` applies the person's clicks).
+    var rows: JSON
+    var plan: [Conversation.Step]
+    var controls: [Conversation.Control]
+    var usage: Conversation.Usage?
+    /// A task's latest attempt's Git facts in one line.
+    var git: String?
+    /// What each section's opening event says about its session, by seq.
+    var notes: [Int: Conversation.Note]
+    var pending: [Conversation.Pending]
+    /// Keys of its approvals and forms waiting on the person, oldest first.
+    var requests: [String]
 
     init(_ j: JSON, events: [Event]) {
         let seqs = Set(j["events"].array.compactMap(\.int))
@@ -43,6 +58,15 @@ struct SessionInfo {
         converse = j["converse"].bool ?? false
         chat = j["chat"].bool ?? false
         composer = SessionComposer(served: j["composer"].str, idle: idle)
+        busy = j["busy"].bool ?? false
+        rows = j["rows"]
+        plan = j["plan"].array.map { Conversation.Step(content: $0["content"].str, status: $0["status"].str) }
+        controls = j["controls"].array.map(Conversation.Control.init)
+        usage = j["usage"].isNull ? nil : Conversation.Usage(j["usage"])
+        git = j["git"].string
+        notes = Dictionary(j["notes"].object.compactMap { k, v in Int(k).map { ($0, Conversation.Note(note: v["note"].str, git: v["git"].string)) } }, uniquingKeysWith: { a, _ in a })
+        pending = j["pending"].array.map { Conversation.Pending(id: $0["id"].str, text: $0["text"].str, delivery: MessageDelivery($0["delivery"].str) ?? .pending, label: $0["label"].str) }
+        requests = j["requests"].strings
     }
 }
 
@@ -102,7 +126,7 @@ struct ChatCard: View {
 
     /// Requests of this session still waiting for the person, oldest first.
     private var requests: [InboxItem] {
-        info.evs.filter { [.approvalRequested, .inputRequested].contains($0.type) }.compactMap { e in st.inbox.first { $0.key == e.data["key"].str } }
+        info.requests.compactMap { k in st.inbox.first { $0.key == k } }
     }
 
     /// Requests sit above the composer while the person can act on them here.
@@ -126,13 +150,13 @@ struct ChatCard: View {
             }
             .padding(12)
             Divider()
-            PlanStrip(steps: SessionView.plan(info.evs))
-            ChatScroll(run: run, st: st, rows: rows(live: live), target: target, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent, density: density, docked: docked) { id, open in
+            PlanStrip(steps: info.plan)
+            ChatScroll(run: run, st: st, rows: Self.rows(run: run, st: st, info: info, target: target), notes: info.notes, target: target, empty: info.evs.isEmpty, last: info.evs.last?.seq ?? 0, sent: sent, density: density, docked: docked) { id, open in
                 run.chatOpen[target, default: [:]][id] = open
             }
                 // Each conversation keeps its own place; another task's session opens at its newest.
                 .id(target)
-            PendingTray(st: st, target: target)
+            PendingTray(pending: info.pending)
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
                 // What the agent waits on sits right above where the person answers, as in Lody;
@@ -144,14 +168,13 @@ struct ChatCard: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                let commands = SessionView.commands(info.evs)
                 let draft = Binding(get: { run.sessionDrafts[target] ?? "" }, set: { run.sessionDrafts[target] = $0 })
-                if enabled { Suggestions(run: run, draft: draft, commands: commands, picker: picker) }
+                if enabled { Suggestions(run: run, target: target, draft: draft, picker: picker) }
                 Composer(text: draft, images: Binding(get: { run.sessionImages[target] ?? [] }, set: { run.sessionImages[target] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: target == .agent("lead") ? run.leadFocus : 0,
-                         onNavigate: { picker.handle($0, draft: draft) }, ghost: SessionView.argumentHint(draft.wrappedValue, commands)) { send(.message) }
+                         onNavigate: { picker.handle($0, draft: draft) }, ghost: run.suggestions[target].flatMap { $0.draft == draft.wrappedValue ? $0.ghost : nil }) { send(.message) }
                 HStack(spacing: 10) {
-                    if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: SessionView.controls(info.evs)) }
-                    if let u = SessionView.usage(info.evs) { ContextMeter(usage: u) }
+                    if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: info.controls) }
+                    if let u = info.usage { ContextMeter(usage: u) }
                     Spacer()
                     buttons
                 }
@@ -160,8 +183,12 @@ struct ChatCard: View {
         }
         .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
-        // A new level applies to every turn: what the person opened or folded by hand gives way to it.
-        .onChange(of: density) { run.chatOpen = [:] }
+        // A new level applies to every turn: what the person opened or folded by hand gives way to
+        // it, and the server lays the conversations out again at that level.
+        .onChange(of: density) {
+            run.chatOpen = [:]
+            run.loadServed()
+        }
     }
 
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
@@ -261,29 +288,16 @@ struct ChatCard: View {
         }
     }
 
-    /// The conversation in turns (`ChatTurns`): the events it shows, folded as the display level
-    /// and the person's own clicks say.
-    private func rows(live: Bool) -> [ChatTurns.Row] {
-        Self.rows(run: run, st: st, info: info, target: target, detail: density == .detail, live: live)
-    }
-
-    static func rows(run: RunModel, st: RunState, info: SessionInfo, target: SessionTarget, detail: Bool, live: Bool) -> [ChatTurns.Row] {
-        // Calls that came back: Janus's board tools (`tool.completed`) and the agent's own
-        // (`tool.call` with the id its running row had).
-        let done = Set(info.evs.filter { $0.type == .toolCompleted || ($0.type == .toolCall && $0.data["callId"].truthy) }.map { "\($0.actor):\($0.data["callId"].str)" })
-        let shown = info.evs.filter { e in
-            [.toolCall, .toolStarted, .toolCompleted].contains(e.type) ? !ToolRow.hidden(e, done: done) : ChatItem.visible(e, st: st)
-        }
-        // The newest turn runs while the session works on its own or on the person's message.
-        let busy = info.open && live && !info.idle && !run.isReplaying
-        return ChatTurns.rows(shown, ChatTurns.Options(detail: detail, busy: busy, cwd: st.run.cwd, open: run.chatOpen[target] ?? [:]))
+    /// The conversation in turns as the server laid it out at the display level, with what the
+    /// person opened or folded by hand.
+    static func rows(run: RunModel, st: RunState, info: SessionInfo, target: SessionTarget) -> [Conversation.Row] {
+        Conversation.rows(info.rows, events: st.event, open: run.chatOpen[target] ?? [:])
     }
 }
 
 /// Messages sent to this session that have not reached the agent yet, newest last.
 struct PendingTray: View {
-    let st: RunState
-    let target: SessionTarget
+    let pending: [Conversation.Pending]
 
     var body: some View {
         let list = pending
@@ -291,10 +305,9 @@ struct PendingTray: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(verbatim: L.text("待发送 \(list.count)")).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 ForEach(list, id: \.id) { m in
-                    let (l, tone) = m.delivery.trayLabel ?? ("", .gray)
                     HStack(spacing: 8) {
                         if m.delivery == .pending { ProgressView().controlSize(.mini) }
-                        Pill(l, tone)
+                        Pill(m.label, m.delivery.trayTone)
                         Text(m.text).font(.callout).lineLimit(2)
                     }
                 }
@@ -303,19 +316,6 @@ struct PendingTray: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.secondary.opacity(0.05))
         }
-    }
-
-    private var pending: [Msg] {
-        st.msgs.values.filter { m in
-            guard m.deliveredSeq == nil, m.delivery.trayLabel != nil else { return false }
-            switch target {
-            case .task(let t):
-                let agent = st.tasks[t]?.agent
-                return (m.task ?? m.routedTask) == t || (m.task == nil && m.routedTask == nil && m.to == agent)
-            case .agent(let a): return m.to == a
-            }
-        }
-        .sorted { $0.seq < $1.seq }
     }
 }
 

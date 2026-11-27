@@ -665,7 +665,7 @@ struct AdapterLine: View {
                 }
                 .disabled(running)
                 Button(L.text("查看日志")) {
-                    ArtifactWindow.open(path: JanusHome.current().adapterLog(id).path, title: L.text("运行组件日志"))
+                    ArtifactWindow.open(path: "\(id).log", title: L.text("运行组件日志"), source: .adapterLog(store.api, id: id))
                 }
                 .buttonStyle(.link)
             }

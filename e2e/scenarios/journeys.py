@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import socket
+from urllib.parse import quote
 
 from lib import Mcp, wait
 from scenarios import jsonl, read_file, scenario, task
@@ -78,10 +79,12 @@ def goal_codex(ctx, c):
     diff = next((a for a in arts if a["data"]["kind"] == "git_diff"), None)
     c(diff, "T1 保存了 diff 产物")
     if diff:
-        status, body, _ = ctx.api("GET", f"/api/file?path={diff['data']['path']}", raw=True)
-        c(status == 200 and b"notes.md" in body, "产物可以通过 /api/file 读取")
-    code, _ = ctx.api_error("GET", f"/api/file?path={ctx.home}/data/janus.db")
-    c(code == 403, "/api/file 不能读 Janus home 中产物以外的文件")
+        status, body, _ = ctx.api("GET", f"/api/runs/{run.id}/doc?path={quote(diff['data']['path'])}", raw=True)
+        c(status == 200 and b"notes.md" in body, "产物可以经这个任务的文档接口读取")
+        files = ctx.api("GET", f"/api/runs/{run.id}/diff?path={quote(diff['data']['path'])}")["files"]
+        c(any(f["path"] == "notes.md" for f in files), f"diff 产物由服务端按文件解析好：{[f['path'] for f in files]}")
+    code, _ = ctx.api_error("GET", f"/api/runs/{run.id}/doc?path={quote(ctx.home + '/data/janus.db')}")
+    c(code == 403, "任务的文档接口不能读 Janus home 中这个任务以外的文件")
     before = [e["seq"] for e in run.events()]
     status, body, headers = ctx.api("GET", f"/api/runs/{run.id}/export", raw=True)
     seqs = [e["seq"] for e in jsonl(body.decode())]

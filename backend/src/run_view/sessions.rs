@@ -4,13 +4,16 @@
 //! conversation that any message reopens.
 // @project-doc docs/architecture/20261031-frontend.md#session_view
 
+use super::aside::{self, Command, Control, Pending, SectionNote, Step, Usage};
+use super::turns::{self, Row};
 use super::{RunState, SessionTurn, text};
 use crate::db::Event;
 use crate::events::EventKind;
+use crate::lang::Lang;
 use crate::status::RunStatus;
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The event kinds a conversation shows.
 const SHOWN: &[EventKind] = &[
@@ -74,7 +77,18 @@ pub(super) struct SessionFold {
     followups: Vec<i64>,
 }
 
+/// Whether some conversation shows `e`: the events a conversation's rows are made of.
+pub(super) fn in_conversation(e: &Event, d: &Value) -> bool {
+    let kind = e.kind();
+    SHOWN.contains(&kind) || (kind == EventKind::AgentStatus && d["turn"] == "idle") || LEAD_MARKS.contains(&kind)
+}
+
 impl SessionFold {
+    /// The events conversation `key` shows, by seq.
+    pub(super) fn events_of(&self, key: &str) -> Vec<i64> {
+        self.events.get(key).cloned().unwrap_or_default()
+    }
+
     pub(super) fn apply(&mut self, e: &Event, d: &Value) {
         let kind = e.kind();
         if kind == EventKind::SessionPrompt && d["channel"] == "followup" {
@@ -129,6 +143,7 @@ crate::wire::wire_enum! {
 
 /// One conversation of the run.
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionView {
     /// The events it shows, by seq.
     pub events: Vec<i64>,
@@ -143,6 +158,32 @@ pub struct SessionView {
     /// A chat's, a Loop's or a consolidation's one session: sending reopens it whenever it is gone.
     pub chat: bool,
     pub composer: Composer,
+    /// Its newest turn runs: the session works on its own or on the person's message.
+    pub busy: bool,
+    /// The agent's latest plan, the controls it offers, its slash commands and this session's
+    /// usage (`aside`).
+    pub plan: Vec<Step>,
+    pub controls: Vec<Control>,
+    pub commands: Vec<Command>,
+    pub usage: Option<Usage>,
+    /// A task's latest attempt's Git facts in one line.
+    pub git: Option<String>,
+    /// What each section's opening event says about its session, by seq.
+    pub notes: BTreeMap<i64, SectionNote>,
+    /// Messages on their way to it, and the keys of its requests waiting on the person.
+    pub pending: Vec<Pending>,
+    pub requests: Vec<String>,
+    /// The conversation in turns (`turns`).
+    pub rows: Vec<Row>,
+}
+
+/// What the conversations are drawn from besides the run's state: the events they show, by seq,
+/// each change's line counts, the language and the display level.
+pub(super) struct Drawn<'a> {
+    pub events: &'a HashMap<i64, Event>,
+    pub counts: &'a dyn Fn(i64, usize) -> (usize, usize),
+    pub lang: Lang,
+    pub detail: bool,
 }
 
 /// What each session's facts come to, before the composer is chosen.
@@ -180,24 +221,42 @@ impl Facts {
 /// Every conversation of the run: each task's, each agent's (the lead's is the run's one session
 /// in a chat, a Loop or a consolidation). `live`: the run is in the service's memory.
 // @project-doc docs/architecture/20261031-frontend.md#session_view
-pub(super) fn sessions(st: &RunState, live: bool, replaying: bool) -> BTreeMap<String, SessionView> {
+pub(super) fn sessions(st: &RunState, live: bool, replaying: bool, drawn: &Drawn<'_>) -> BTreeMap<String, SessionView> {
     let status = st.run.status;
+    let l = drawn.lang;
+    let mut conflicts: Vec<&Event> = drawn.events.values().filter(|e| e.kind() == EventKind::TaskConflict).collect();
+    conflicts.sort_by_key(|e| e.seq);
     let resume = matches!(status, Some(RunStatus::Interrupted | RunStatus::Failed));
     let working = matches!(status, Some(RunStatus::Planning | RunStatus::Running));
     let seqs = |key: &str| st.sessions.events.get(key).cloned().unwrap_or_default();
     let mut out = BTreeMap::new();
-    let mut put = |key: String, events: Vec<i64>, f: Facts| {
+    let mut put = |key: String, events: Vec<i64>, f: Facts, task: Option<&str>, agent: Option<&str>| {
         let composer = f.composer(live, replaying);
+        let evs: Vec<&Event> = events.iter().filter_map(|s| drawn.events.get(s)).collect();
+        let busy = f.open && live && !f.idle && !replaying;
+        let shown = turns::shown(&evs, st, &conflicts);
+        let options = turns::Options { detail: drawn.detail, busy, cwd: &st.run.cwd, lang: l, counts: drawn.counts };
+        let notes = evs.iter().filter_map(|e| aside::section_note(e, l).map(|n| (e.seq, n))).collect();
         out.insert(
             key,
             SessionView {
-                events,
                 open: f.open,
                 human: f.human,
                 idle: f.idle,
                 converse: f.converse,
                 chat: f.chat,
                 composer,
+                busy,
+                plan: aside::plan(&evs),
+                controls: aside::controls(&evs, l),
+                commands: aside::commands(&evs),
+                usage: aside::usage(&evs, l),
+                git: task.and_then(|t| aside::task_git(&evs, t, l)),
+                notes,
+                pending: aside::pending(st, task, agent, l),
+                requests: aside::requests(&evs, st),
+                rows: turns::rows(&shown, &options),
+                events,
             },
         );
     };
@@ -213,7 +272,7 @@ pub(super) fn sessions(st: &RunState, live: bool, replaying: bool) -> BTreeMap<S
             converse: false,
             chat: false,
         };
-        put(key.clone(), seqs(&key), f);
+        put(key.clone(), seqs(&key), f, Some(&t.id), None);
     }
     let mut agents: Vec<&str> = st.agents.keys().map(String::as_str).collect();
     if !agents.contains(&"lead") {
@@ -249,7 +308,7 @@ pub(super) fn sessions(st: &RunState, live: bool, replaying: bool) -> BTreeMap<S
                 chat: false,
             }
         };
-        put(key, events, f);
+        put(key, events, f, None, Some(a));
     }
     out
 }

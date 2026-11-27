@@ -64,38 +64,3 @@ import Testing
     #expect(MDDoc.parse("a | b\n---") == [.heading(level: 2, text: "a | b")])
     #expect(MDDoc.slug("2. 验收标准 `AC`") == "2-验收标准-ac")
 }
-
-@Test func runDocumentsComeFromDeliverablesArtifactsAndMentions() {
-    func event(_ seq: Int, _ type: String, text: String = "", data: JSON = [:]) -> Event {
-        Event(["seq": JSON(seq), "ts": JSON(seq), "type": JSON(type), "actor": "lead", "text": JSON(text), "data": data])
-    }
-    let events = [
-        event(1, "session.prompt", data: ["prompt": "参考 /w/IGNORED.md"]),
-        event(2, "board.posted", text: "R1 已完成，交付 /w/R1_MARKET_RESEARCH.md（134 行）"),
-        event(3, "artifact.created", data: ["path": "/j/artifacts/R1-a1-report.md"]),
-        event(4, "tool.call", data: ["input": #"{"file_path":"/w/PRD.md"}"#]),
-        event(5, "agent.message", text: "现在创建 `PRD.md` 与README.md，见 docs/设计说明.md 和 README.md/PRD.md"),
-        event(6, "run.delivered", data: ["deliverables": [["name": "PRD", "path": "/w/PRD.md"]]]),
-        event(7, "agent.message", text: "改了 src/app.js，没有文档"),
-    ]
-    var found: [String: RunDocs.Doc] = [:]
-    RunDocs.scan(events[..<4], cwd: "/w", into: &found)
-    RunDocs.scan(events[4...], cwd: "/w", into: &found)
-    let existing: Set<String> = ["/w/R1_MARKET_RESEARCH.md", "/j/artifacts/R1-a1-report.md", "/w/PRD.md", "/w/README.md", "/w/docs/设计说明.md", "/w/IGNORED.md"]
-    let docs = RunDocs.existing(found) { existing.contains($0) }
-    #expect(docs.map(\.path) == ["/w/PRD.md", "/j/artifacts/R1-a1-report.md", "/w/README.md", "/w/docs/设计说明.md", "/w/R1_MARKET_RESEARCH.md"])
-    #expect(docs[0].source == .deliverable && docs[0].seq == 6)
-    #expect(DocumentsMenu.label("/w/docs/设计说明.md", cwd: "/w") == "docs/设计说明.md")
-}
-
-/// A delivery in a folder without Git delivers no diff and maybe no reply (its last task was
-/// cancelled): the documents the round changed are its deliverables, relative to the run's folder.
-@Test func theFilesADeliveryChangedAreItsDeliverables() {
-    let delivered = Event(["seq": 9, "ts": 9, "type": "run.delivered", "actor": "janus", "text": "",
-                           "data": ["deliverables": [], "changed": ["FINAL_REPORT.md", "data/raw/README.md", "calc.py"]]])
-    var found: [String: RunDocs.Doc] = [:]
-    RunDocs.scan([delivered], cwd: "/w", into: &found)
-    let docs = RunDocs.existing(found) { _ in true }
-    #expect(docs.map(\.path) == ["/w/FINAL_REPORT.md", "/w/data/raw/README.md"], "documents only")
-    #expect(docs.allSatisfy { $0.source == .deliverable })
-}

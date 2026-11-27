@@ -26,20 +26,6 @@ private struct ChatLog {
     #expect(ChatRowStatus.label(.running) == (L.text("会话中"), .blue))
 }
 
-/// After an accepted run's worktree is gone, a document it mentioned by a relative path is looked
-/// for in the repository the result went back to, folder included (FL-19).
-@Test func documentsOfAGoneWorktreeAreFoundInTheRepository() {
-    var log = ChatLog()
-    log.add("agent.message", actor: "lead", text: "写好了 docs/manual.md", data: ["text": "写好了 docs/manual.md"])
-    let cwd = "/Users/me/.janus/work/runs/r1/apps/client"
-    let moved = RunDocs.Moved.of(cwd: cwd, repo: "/Users/me/src/app", run: "r1", exists: { _ in false })
-    #expect(moved == RunDocs.Moved(from: "/Users/me/.janus/work/runs/r1", to: "/Users/me/src/app"))
-    var found: [String: RunDocs.Doc] = [:]
-    RunDocs.scan(log.events, cwd: cwd, moved: moved, into: &found)
-    #expect(found.keys.contains("/Users/me/src/app/apps/client/docs/manual.md"))
-    #expect(RunDocs.Moved.of(cwd: cwd, repo: "/Users/me/src/app", run: "r1", exists: { _ in true }) == nil, "a worktree still there is read as is")
-}
-
 /// A chat that proposed nothing (the server answers `null`) shows no proposal; `nil` written as
 /// a JSON literal would have become `JSON.null` and shown「提议了 0 位数字员工」.
 @Test func noProposalShowsNoBanner() {

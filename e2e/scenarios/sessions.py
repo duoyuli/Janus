@@ -66,7 +66,14 @@ def conversation_in_turns(ctx, c, run):
     def conv(st):
         return st["run"]["conversations"]["task:T1"]
 
-    st = ctx.app.do(f"open run:{run.id}", "density summary", "draft task:T1 /")
+    # The server lays the rows out at the level chosen and offers the commands for the draft: both
+    # come back a moment after the commands.
+    def summary(s):
+        rows = conv(s)["rows"]
+        head = next((r for r in rows if r["kind"] == "head"), None)
+        return conv(s)["suggestions"] and head and head["open"] is ("reply" not in [r["kind"] for r in rows])
+
+    st = ctx.app.until(summary, "摘要档的会话和 / 的建议", f"open run:{run.id}", "density summary", "draft task:T1 /")
     rows = conv(st)["rows"]
     kinds = [r["kind"] for r in rows]
     c(kinds[0] == "section" and "system" in rows[0]["injected"],
@@ -82,7 +89,8 @@ def conversation_in_turns(ctx, c, run):
     labels = [x["label"] for x in conv(st)["suggestions"]]
     c(labels == ["/" + n for n in commands], f"输入 / 列出 Agent 的斜杠命令：{labels}")
 
-    st = ctx.app.do("density detail", "draft task:T1 /review ")
+    st = ctx.app.until(lambda s: conv(s)["ghost"] and any(r["kind"] == "head" and r["open"] for r in conv(s)["rows"]),
+                       "详细档的会话和选中命令的参数", "density detail", "draft task:T1 /review ")
     kinds = [r["kind"] for r in conv(st)["rows"]]
     c("activity" in kinds and next(r for r in conv(st)["rows"] if r["kind"] == "head")["open"] is True, f"详细档：每一轮都展开：{kinds}")
     c(conv(st)["ghost"] == hint, f"选中命令后灰字显示它的参数：{conv(st)['ghost']}")

@@ -5,6 +5,7 @@ use super::runs::After;
 use super::{ApiError, ApiResult, reply};
 use crate::db;
 use crate::orchestrator::{App, Change, SessionKey};
+use crate::run_view::preview::Previews;
 use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::StatusCode;
@@ -14,7 +15,7 @@ use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
 
 /// Tells the app it missed events and should read again rather than silently skip them.
 fn lagged() -> Result<SseEvent, Infallible> {
@@ -22,8 +23,10 @@ fn lagged() -> Result<SseEvent, Infallible> {
 }
 
 /// A run's events from `after` on: the backlog, then each new one as it is stored. Beside them,
-/// `live` frames preview what its sessions are writing and running before it is on record; a
-/// frame missed is not worth a reload, so they never ask for one.
+/// `live` frames preview what its conversations are writing and running before it is on record
+/// (`run_view::preview`): each frame holds the whole preview of the conversations it changed, or
+/// null for one with nothing left to preview. A frame missed is not worth a reload, so they never
+/// ask for one.
 // @project-doc docs/interfaces/20261031-acp_integration.md#live_frames
 pub(super) async fn run(
     State(app): State<Arc<App>>,
@@ -31,23 +34,57 @@ pub(super) async fn run(
     Query(q): Query<After>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>> {
     // Subscribe before reading the backlog so nothing falls between the two.
-    let live = BroadcastStream::new(app.tx.subscribe());
-    let frames = BroadcastStream::new(app.live.subscribe());
-    let backlog = app.db.events(&id, q.after.unwrap_or(0)).unwrap_or_default();
-    let last = backlog.last().map(|e| e.seq).unwrap_or(q.after.unwrap_or(0));
-    let to_sse = |e: &db::Event| Ok(SseEvent::default().data(serde_json::to_string(e).unwrap()));
-    let backlog: Vec<_> = backlog.iter().map(to_sse).collect();
-    let run_id = id.clone();
-    let live = live.filter_map(move |msg| match msg {
-        Ok(e) if e.run_id == id && e.seq > last => Some(to_sse(&e)),
-        Err(_) => Some(lagged()),
-        _ => None,
+    let mut events = app.tx.subscribe();
+    let mut frames = app.live.subscribe();
+    let after = q.after.unwrap_or(0);
+    let backlog = app.db.events(&id, after).unwrap_or_default();
+    let last = backlog.last().map(|e| e.seq).unwrap_or(after);
+    let (out, rx) = tokio::sync::mpsc::channel::<Result<SseEvent, Infallible>>(256);
+    tokio::spawn(async move {
+        use tokio::sync::broadcast::error::RecvError;
+        let to_sse = |e: &db::Event| Ok(SseEvent::default().data(serde_json::to_string(e).unwrap()));
+        let live = |f: Value| Ok(SseEvent::default().event("live").data(f.to_string()));
+        let mut previews = Previews::default();
+        for e in &backlog {
+            previews.recorded(e);
+            if out.send(to_sse(e)).await.is_err() {
+                return;
+            }
+        }
+        loop {
+            let sent = tokio::select! {
+                _ = out.closed() => return,
+                msg = events.recv() => match msg {
+                    Ok(e) if e.run_id == id && e.seq > last => {
+                        let keys = previews.recorded(&e);
+                        let ok = out.send(to_sse(&e)).await.is_ok();
+                        match previews.frame(&keys) {
+                            Some(f) if ok => out.send(live(f)).await.is_ok(),
+                            _ => ok,
+                        }
+                    }
+                    Ok(_) => true,
+                    Err(RecvError::Lagged(_)) => out.send(lagged()).await.is_ok(),
+                    Err(RecvError::Closed) => return,
+                },
+                msg = frames.recv() => match msg {
+                    Ok(f) if f.run == id => {
+                        let keys = previews.apply(&f.data);
+                        match previews.frame(&keys) {
+                            Some(f) => out.send(live(f)).await.is_ok(),
+                            None => true,
+                        }
+                    }
+                    Err(RecvError::Closed) => return,
+                    _ => true,
+                },
+            };
+            if !sent {
+                return;
+            }
+        }
     });
-    let frames = frames.filter_map(move |msg| match msg {
-        Ok(f) if f.run == run_id => Some(Ok(SseEvent::default().event("live").data(f.data.to_string()))),
-        _ => None,
-    });
-    Sse::new(tokio_stream::iter(backlog).chain(live.merge(frames))).keep_alive(KeepAlive::default())
+    Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default())
 }
 
 /// Everything the app follows across runs, as it happens: a short notice for each new event of any

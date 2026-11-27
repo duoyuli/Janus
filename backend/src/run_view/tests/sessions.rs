@@ -1,12 +1,20 @@
 //! Each conversation's events and composer, as the app's session tests had them (`chatSession`,
 //! `agentSession`, `taskSession`, `SessionComposer`).
 
-use super::super::sessions::{Composer, SessionView, sessions};
+use super::super::sessions::{self, Composer, Drawn, SessionView};
+use std::collections::{BTreeMap, HashMap};
+
+/// The conversations of a state alone, without their events' rows.
+fn sessions(st: &RunState, live: bool, replaying: bool) -> BTreeMap<String, SessionView> {
+    let none = HashMap::new();
+    let counts = |_: i64, _: usize| (0, 0);
+    sessions::sessions(st, live, replaying, &Drawn { events: &none, counts: &counts, lang: Lang::Zh, detail: false })
+}
 use super::*;
 
 /// The conversation `key` of `log` at its end: `live` in the service's memory, or `replaying`.
 fn session(log: &Log, key: &str, live: bool, replaying: bool) -> SessionView {
-    fold(&log.events).view(live, replaying, &Words::of(Lang::Zh, &json!({}))).sessions[key].clone()
+    fold(&log.events).view(live, replaying, &Words::of(Lang::Zh, &json!({})), false).sessions[key].clone()
 }
 
 /// A chat's composer: a plain message while the session waits, cutting in while it works, and a

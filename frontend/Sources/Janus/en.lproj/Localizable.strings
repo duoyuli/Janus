@@ -853,7 +853,6 @@
 "先选一个目录" = "Choose a folder first";
 "轮次" = "Turns";
 "读不了这个 diff" = "Could not read the diff";
-"读不了这个文件" = "Could not read this file";
 "读不到新版本的签名" = "Could not read the update’s signature";
 "翻文件" = "Reading files";
 "读取模型中…" = "Loading models…";

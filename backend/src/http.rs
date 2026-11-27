@@ -14,6 +14,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 mod devices;
+mod files;
 pub mod lan;
 mod library;
 mod loops;
@@ -144,6 +145,7 @@ pub fn router(app: Arc<App>, via: Via) -> Router {
         .route("/api/local-config", get(setup::local_preview))
         .route("/api/adapters", get(setup::adapters))
         .route("/api/adapters/{id}/{action}", post(setup::adapter_action))
+        .route("/api/adapters/{id}/log", get(files::adapter_log))
         .route("/api/library", get(library::library))
         .route("/api/library/items/{id}", get(library::item).delete(library::delete_item))
         .route("/api/library/items/{id}/refresh", post(library::refresh_item))
@@ -180,7 +182,6 @@ pub fn router(app: Arc<App>, via: Via) -> Router {
             get(setup::role_avatar).put(setup::set_role_avatar).delete(setup::remove_role_avatar),
         )
         .route("/api/connections/{id}/login", post(setup::login_connection))
-        .route("/api/file", get(runs::file))
         .route("/api/stats/roles", get(setup::role_stats))
         .route("/api/usage", get(runs::usage_bill))
         .route("/api/prices/sync", post(runs::sync_prices))
@@ -198,6 +199,12 @@ pub fn router(app: Arc<App>, via: Via) -> Router {
         .route("/api/runs/workspaces", get(runs::workspaces))
         .route("/api/runs/{id}", get(runs::get).delete(runs::remove))
         .route("/api/runs/{id}/stream", get(streams::run))
+        .route("/api/runs/{id}/suggest", get(views::suggest))
+        .route("/api/runs/{id}/doc", get(files::doc))
+        .route("/api/runs/{id}/doc/asset", get(files::doc_asset))
+        .route("/api/runs/{id}/image", get(files::image))
+        .route("/api/runs/{id}/diff", get(files::diff))
+        .route("/api/runs/{id}/diff/message", post(files::review_message))
         .route("/api/stream", get(streams::all))
         .route("/api/runs/{id}/actions", post(runs::action))
         .route("/api/runs/{id}/export", get(runs::export))

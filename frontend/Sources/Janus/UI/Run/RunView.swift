@@ -95,7 +95,7 @@ struct RunView: View {
             }
         }
         // Links to local Markdown files in agent prose open in Janus.
-        .environment(\.openURL, OpenURLAction { DocLinks.handle($0) })
+        .environment(\.openURL, OpenURLAction { DocLinks.handle($0, source: .run(run.api, run: run.id)) })
         .onExitCommand {
             // Esc leaves replay first, then a task or agent page.
             if run.isChat { return }
@@ -144,7 +144,7 @@ struct QueuedView: View {
                     if run.state.run.goal.contains("\n") {
                         Text(run.state.run.goal).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
-                    StoredImages(paths: run.state.run.images, size: 64)
+                    StoredImages(run: run, paths: run.state.run.images, size: 64)
                     Text(L.text("并行任务已满，排队中。前面的任务结束或暂停后自动开始。"))
                         .font(.callout).foregroundStyle(.secondary)
                     HStack {
@@ -172,12 +172,12 @@ struct DocumentsMenu: View {
         Menu {
             let docs = run.documents
             if docs.isEmpty { Text(L.text("还没有 Markdown 文档")) }
-            ForEach([RunDocs.Source.deliverable, .artifact, .mentioned], id: \.self) { source in
+            ForEach([RunDoc.Source.deliverable, .artifact, .mentioned], id: \.self) { source in
                 let group = docs.filter { $0.source == source }
                 if !group.isEmpty {
                     Section(L.catalogText(Self.title[source] ?? "")) {
                         ForEach(group, id: \.path) { d in
-                            Button(Self.label(d.path, cwd: run.state.run.cwd)) { ArtifactWindow.open(run: run, path: d.path, title: (d.path as NSString).lastPathComponent) }
+                            Button(d.label) { ArtifactWindow.open(run: run, path: d.path, title: d.name) }
                         }
                     }
                 }
@@ -188,13 +188,7 @@ struct DocumentsMenu: View {
         .help(L.text("查看这个任务交付、保存或提到的 Markdown 文档"))
     }
 
-    static let title: [RunDocs.Source: String] = [.deliverable: "交付物", .artifact: "子任务产物", .mentioned: "Agent 写过或提到的文档"]
-
-    /// Inside the run's directory, the path from there; elsewhere, the path with ~.
-    static func label(_ path: String, cwd: String) -> String {
-        let dir = cwd.hasSuffix("/") ? cwd : cwd + "/"
-        return !cwd.isEmpty && path.hasPrefix(dir) ? String(path.dropFirst(dir.count)) : L.tilde(path)
-    }
+    static let title: [RunDoc.Source: String] = [.deliverable: "交付物", .artifact: "子任务产物", .mentioned: "Agent 写过或提到的文档"]
 }
 
 extension RunModel {
@@ -374,7 +368,7 @@ struct RunCard: View {
                 Button(run.goalOpen ? L.text("收起完整目标") : L.text("查看完整目标")) { run.goalOpen.toggle() }.buttonStyle(.link)
                 if run.goalOpen { MarkdownText(text: r.goal).padding(.top, 4) }
             }
-            StoredImages(paths: r.images, size: 64)
+            StoredImages(run: run, paths: r.images, size: 64)
         }
     }
 
@@ -713,19 +707,19 @@ struct RunInspector: View {
     }
 
     /// The documents the deliveries hand over, above the tasks' own artifacts.
-    @ViewBuilder private func deliverables(_ docs: [RunDocs.Doc]) -> some View {
+    @ViewBuilder private func deliverables(_ docs: [RunDoc]) -> some View {
         if !docs.isEmpty {
             Text(L.text("交付物")).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, 8)
             ForEach(Array(docs.enumerated()), id: \.element.path) { i, d in
                 if i > 0 { Divider() }
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text((d.path as NSString).lastPathComponent).font(.callout.weight(.medium)).lineLimit(1)
-                        Text(L.tilde((d.path as NSString).deletingLastPathComponent)).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                        Text(d.name).font(.callout.weight(.medium)).lineLimit(1)
+                        Text(d.dir).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
                     }
                     .help(L.tilde(d.path))
                     Spacer()
-                    Button(L.text("查看")) { ArtifactWindow.open(run: run, path: d.path, title: (d.path as NSString).lastPathComponent) }.buttonStyle(.link)
+                    Button(L.text("查看")) { ArtifactWindow.open(run: run, path: d.path, title: d.name) }.buttonStyle(.link)
                 }
                 .padding(.vertical, 8)
             }

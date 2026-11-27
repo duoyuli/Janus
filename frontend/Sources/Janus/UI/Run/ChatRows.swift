@@ -1,6 +1,6 @@
 import SwiftUI
 
-// The rows of a conversation in turns (`ChatTurns`): the agent's line for each turn, its calls
+// The rows of a conversation in turns (`Conversation`): the agent's line for each turn, its calls
 // grouped, its text, the files it changed, and the preview of what it is writing right now.
 // @project-doc docs/architecture/20261031-frontend.md#session_turns
 
@@ -20,7 +20,7 @@ enum ChatRhythm {
 /// and opens here; while it runs, the line says what the agent is at.
 struct TurnHead: View {
     let run: RunModel
-    let turn: ChatTurns.Turn
+    let turn: Conversation.Head
     /// Nil when the turn has no work to fold, only its reply.
     let open: Bool?
     let toggle: () -> Void
@@ -56,13 +56,11 @@ struct TurnHead: View {
         }
     }
 
-    /// `工作了 2 分 13 秒 · 运行 3 条命令 · 改 1 个文件`, or `正在工作 · 35 秒 · …` while it runs.
+    /// `工作了 2 分 13 秒 · 运行 3 条命令 · 改 1 个文件` as the server wrote it, or
+    /// `正在工作 · 35 秒 · …` with the clock running while it runs.
     private func summary(now: Double) -> String {
-        let stats = turn.stats.text
-        if turn.running {
-            return ([L.text("正在工作 · \(L.dur(max(0, now - turn.start)))")] + (stats.isEmpty ? [] : [stats])).joined(separator: " · ")
-        }
-        return ([L.text("工作了 \(L.dur(turn.end - turn.start))")] + (stats.isEmpty ? [] : [stats])).joined(separator: " · ")
+        guard turn.running else { return turn.summary }
+        return ([L.text("正在工作 · \(L.dur(max(0, now - turn.start)))")] + (turn.stats.isEmpty ? [] : [turn.stats])).joined(separator: " · ")
     }
 }
 
@@ -99,6 +97,8 @@ struct ActivityRow: View {
     let events: [Event]
     /// Nil: every call shows, under no line of its own.
     let open: Bool?
+    /// `运行 2 条命令 · 读 1 个文件 · 思考`, as the server wrote it.
+    let summary: String
     let cwd: String
     let toggle: () -> Void
 
@@ -136,13 +136,6 @@ struct ActivityRow: View {
         if e.type == .agentThought { ThoughtLine(text: e.data["text"].str) } else { ToolRow(run: run, e: e, cwd: cwd) }
     }
 
-    /// `运行 2 条命令 · 读 1 个文件 · 思考`.
-    private var summary: String {
-        let t = ChatTurns.Turn(id: 0, items: events, start: 0, end: 0, cwd: cwd)
-        var parts = [t.stats.text].filter { !$0.isEmpty }
-        if events.contains(where: { $0.type == .agentThought }) { parts.append(L.text("思考")) }
-        return parts.isEmpty ? L.text("\(events.count) 个操作") : parts.joined(separator: " · ")
-    }
 }
 
 /// The agent's thinking, quiet: its first lines, all of it a click away.
@@ -185,7 +178,7 @@ struct TextRow: View {
 
 /// What a session is writing or thinking right now, before it is on record.
 struct LiveRow: View {
-    let session: ChatLive.Session
+    let session: LivePreview
 
     var body: some View {
         VStack(alignment: .leading, spacing: ChatRhythm.line) {
@@ -205,7 +198,9 @@ struct LiveRow: View {
 /// The files a turn changed, under its reply: each with its lines added and removed, the change
 /// itself a click away.
 struct EditsCard: View {
-    let files: [ChatTurns.EditedFile]
+    let files: [Conversation.EditedFile]
+    /// The lines of each change, by event seq (`RunState.diffs`).
+    let diffs: [Int: [ServedDiff]]
     let cwd: String
     @Local private var shown: Set<String> = []
     @Local private var all = false
@@ -237,7 +232,9 @@ struct EditsCard: View {
                 .help(L.tilde(f.path))
                 if shown.contains(f.path) {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(f.changes.enumerated()), id: \.offset) { _, c in InlineDiff(path: L.tilde(f.path), old: c.old, new: c.new) }
+                        ForEach(Array(f.changes.enumerated()), id: \.offset) { _, c in
+                            if let list = diffs[c.seq], c.index < list.count { InlineDiff(path: L.tilde(f.path), lines: list[c.index].lines) }
+                        }
                     }
                     .padding(.horizontal, 12).padding(.bottom, 8)
                 }

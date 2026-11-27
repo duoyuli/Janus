@@ -1,7 +1,6 @@
 //! Runs and chats: listing, creating, acting on and deleting them, their usage and files, and the
 //! usage bill and model prices across runs.
 
-use super::setup::PathQuery;
 use super::{ApiError, ApiResult, ok, reply};
 use crate::orchestrator::{ActionReply, ActionRequest, App, NewChat, NewRun};
 use crate::status::{RunKind, RunStatus};
@@ -246,18 +245,4 @@ pub(super) async fn export(State(app): State<Arc<App>>, UrlPath(id): UrlPath<Str
         lines.join("\n") + "\n",
     )
         .into_response())
-}
-
-/// Artifacts are served read-only, and nothing else: the rest of Janus home holds the database
-/// and credentials.
-pub(super) async fn file(State(app): State<Arc<App>>, Query(q): Query<PathQuery>) -> ApiResult {
-    let path = PathBuf::from(&q.path);
-    if !path.exists() {
-        return Err(ApiError::not_found("文件不存在"));
-    }
-    if !app.cfg.layout.is_artifact(&path) {
-        return Err(ApiError::forbidden("只能读取 Janus 的产物"));
-    }
-    let text = std::fs::read_to_string(&path).map_err(anyhow::Error::from)?;
-    Ok(([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response())
 }

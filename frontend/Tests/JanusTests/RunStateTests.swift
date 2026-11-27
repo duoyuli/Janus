@@ -57,18 +57,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(st.session(.agent("nobody")).composer == .ended, "a conversation the server did not serve takes nothing")
 }
 
-/// A steered message is shown where it was inserted: applying it only updates that bubble.
-@Test func aSteeredMessageIsShownOnce() {
-    var log = Log()
-    log.add("user.message", actor: "user", to: "lead", data: ["id": "m1", "text": "先看 T1", "delivery": "pending"])
-    log.add("message.routed", to: "lead", data: ["id": "m1", "delivery": "steer"])
-    log.add("message.delivered", to: "lead", data: ["ids": ["m1"], "applied": true])
-    let st = RunState(["msgs": [["id": "m1", "text": "先看 T1", "by": "user", "to": "lead", "seq": 1, "delivery": "steer", "deliveredSeq": 3]]], events: log.events)
-    #expect(!ChatItem.visible(log.events[0], st: st), "the message shows as its own bubble")
-    #expect(ChatItem.visible(log.events[1], st: st))
-    #expect(!ChatItem.visible(log.events[2], st: st), "applying it only updates the inserted bubble")
-}
-
 /// The independent verifier is kept apart from the task it checks, with its own methods; a
 /// completed negative review is not an approval.
 @Test func aVerifierIsKeptApartAndARejectionIsNoApproval() {
@@ -118,18 +106,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     #expect(a.summary.reminders.count == 1)
 }
 
-/// Where a run's repository and an attempt's commit are, as the session headers say it.
-@Test func gitNotesSayWhereTheWorkIs() {
-    var log = Log()
-    log.add("run.created", actor: "user", data: ["goal": "g", "cwd": "/h/work/runs/r1", "git": true,
-                                                  "worktree": ["repo": "/code/app", "included": [".env"], "branch": "main"]])
-    #expect(SessionView.runGitNote(log.events[0].data) == expectedCopy("Git 仓库 /code/app · 分支 main", "Git repository /code/app · branch main"))
-    log.add("attempt.started", task: "T1", attempt: 1, data: ["git": ["repo": "/code/app", "branch": .null, "worktree": "/h/work/runs/r1", "head": "0123456789abcdef"]])
-    var st = RunState()
-    st.events = log.events
-    #expect(SessionView.taskGitNote(st, "T1") == expectedCopy("Git 仓库 /code/app · detached HEAD · 提交 01234567", "Git repository /code/app · detached HEAD · commit 01234567"))
-}
-
 /// A queued run's row names its place in the queue; a queued run is neither at work nor finished.
 @Test func aQueuedRunIsListedByItsPlace() {
     #expect(!RunStatus.queued.isActive && !RunStatus.queued.isFinished)
@@ -165,7 +141,6 @@ private func servedTask(_ id: String, agent: String = "m1", status: String = "ru
     log.add("loop.slept", data: ["until": .null, "reason": .null, "summary": ""])
     var st = RunState()
     st.events = log.events
-    #expect(!ChatItem.visible(log.events[0], st: st) && ChatItem.visible(log.events[1], st: st))
     let (woke, slept) = (log.events[1], log.events[3])
     #expect(LoopText.woke(woke).hasPrefix(expectedCopy("第 3 次开工 · ", "Wake 3 · ")))
     #expect(LoopText.woke(woke).hasSuffix(expectedCopy(" · 按时间表", " · on schedule")))

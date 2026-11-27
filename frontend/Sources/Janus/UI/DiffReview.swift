@@ -30,13 +30,14 @@ enum DiffWindow {
 struct DiffReviewView: View {
     let run: RunModel
     let artifact: Artifact
-    @Local private var files: [Diff.File] = []
+    @Local private var files: [DiffFile] = []
     @Local private var error: String?
     @Local private var selected: Int?
     @Local private var hovered: Int?
     @Local private var editing: Int?
     @Local private var draft = ""
-    @Local private var comments: [Int: (file: String, line: Diff.Line, text: String)] = [:]
+    /// The person's comments, by the id of the line each is on.
+    @Local private var comments: [Int: String] = [:]
     @Local private var summary = ""
     @Local private var sent: String?
 
@@ -110,14 +111,14 @@ struct DiffReviewView: View {
         }
     }
 
-    @ViewBuilder private func row(_ f: Diff.File, _ l: Diff.Line) -> some View {
+    @ViewBuilder private func row(_ f: DiffFile, _ l: DiffFile.Line) -> some View {
         let tint: Color = l.kind == .added ? Tone.green.color : l.kind == .removed ? Tone.red.color : .clear
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 0) {
                 Text(verbatim: l.old.map(String.init) ?? "").frame(width: 40, alignment: .trailing)
                 Text(verbatim: l.new.map(String.init) ?? "").frame(width: 40, alignment: .trailing)
                 // Hover a line to comment on it.
-                Button { editing = l.id; draft = comments[l.id]?.text ?? "" } label: {
+                Button { editing = l.id; draft = comments[l.id] ?? "" } label: {
                     Image(systemName: "plus.bubble.fill").foregroundStyle(Color.accent)
                 }
                 .buttonStyle(.plain).frame(width: 24)
@@ -142,7 +143,7 @@ struct DiffReviewView: View {
                         Button(L.text("取消")) { editing = nil }.keyboardShortcut(.cancelAction)
                         Button(L.text("添加")) {
                             let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                            comments[l.id] = t.isEmpty ? nil : (f.path, l, t)
+                            comments[l.id] = t.isEmpty ? nil : t
                             editing = nil
                         }
                         .buttonStyle(.primary).keyboardShortcut(.defaultAction)
@@ -153,8 +154,8 @@ struct DiffReviewView: View {
             } else if let c = comments[l.id] {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "text.bubble").foregroundStyle(Color.accent)
-                    Text(c.text).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
-                    IconButton(symbol: "square.and.pencil", label: L.text("编辑这条意见"), size: 11) { editing = l.id; draft = c.text }
+                    Text(c).font(.callout).frame(maxWidth: .infinity, alignment: .leading)
+                    IconButton(symbol: "square.and.pencil", label: L.text("编辑这条意见"), size: 11) { editing = l.id; draft = c }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Color.soft)
@@ -185,22 +186,68 @@ struct DiffReviewView: View {
         .background(Color.card)
     }
 
+    /// The comments as one message, written by the server in the run's language
+    /// (`POST /api/runs/{id}/diff/message`), sent as any message.
     private func send(to agent: String, label: String) {
-        let list = comments.values.sorted { ($0.file, $0.line.id) < ($1.file, $1.line.id) }.map { Diff.Comment(file: $0.file, line: $0.line, text: $0.text) }
-        let text = Diff.message(subject: artifact.subject, artifact: artifact.name, comments: list, summary: summary)
+        let body: JSON = ["path": JSON(artifact.path), "summary": JSON(summary),
+                          "comments": JSON.array(comments.map { ["line": JSON($0.key), "text": JSON($0.value)] })]
         Task {
-            if await run.act(.message(.agent(agent), text: text, images: [])) {
-                comments = [:]; summary = ""; sent = L.text("已发给\(label)")
+            do {
+                let text = try await run.api.post("/api/runs/\(run.id)/diff/message", body)["text"].str
+                if await run.act(.message(.agent(agent), text: text, images: [])) {
+                    comments = [:]; summary = ""; sent = L.text("已发给\(label)")
+                }
+            } catch {
+                run.store.show(error.localizedDescription)
             }
         }
     }
 
+    /// The diff file by file, as the server reads it (`GET /api/runs/{id}/diff`).
     private func load() async {
-        let text: String?
-        if let t = try? String(contentsOfFile: artifact.path, encoding: .utf8) { text = t }
-        else { text = try? await run.api.text("/api/file?path=\(API.q(artifact.path))") }
-        guard let text else { error = L.text("读不了这个 diff"); return }
-        let parsed = Diff.parse(text)
-        if parsed.isEmpty { error = L.text("这个 diff 是空的") } else { files = parsed }
+        do {
+            let parsed = try await run.api.get("/api/runs/\(run.id)/diff?path=\(API.q(artifact.path))")["files"].array.map(DiffFile.init)
+            if parsed.isEmpty { error = L.text("这个 diff 是空的") } else { files = parsed }
+        } catch {
+            self.error = L.text("读不了这个 diff")
+        }
+    }
+}
+
+/// One file of a saved diff as the server parsed it (`backend/src/diff.rs`): its hunks and lines,
+/// each line numbered on both sides and by its id in the whole diff.
+struct DiffFile: Identifiable, Equatable {
+    struct Line: Identifiable, Equatable {
+        enum Kind: String { case context, added, removed }
+        let id: Int
+        let kind: Kind
+        let text: String
+        let old: Int?
+        let new: Int?
+    }
+    struct Hunk: Identifiable, Equatable {
+        let id: Int
+        let header: String
+        let lines: [Line]
+    }
+    let id: Int
+    let path: String
+    let hunks: [Hunk]
+    let added: Int
+    let removed: Int
+    /// A new file Git does not track yet; its diff is included when Git could read it.
+    let untracked: Bool
+
+    init(_ j: JSON) {
+        id = j["id"].int ?? 0
+        path = j["path"].str
+        added = j["added"].int ?? 0
+        removed = j["removed"].int ?? 0
+        untracked = j["untracked"].bool ?? false
+        hunks = j["hunks"].array.map { h in
+            Hunk(id: h["id"].int ?? 0, header: h["header"].str, lines: h["lines"].array.map {
+                Line(id: $0["id"].int ?? 0, kind: Line.Kind(rawValue: $0["kind"].str) ?? .context, text: $0["text"].str, old: $0["old"].int, new: $0["new"].int)
+            })
+        }
     }
 }

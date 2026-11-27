@@ -407,19 +407,33 @@ struct Thumb: View {
     }
 }
 
-/// Images stored with a run (a goal's, a message's), shown small; a click opens one in Preview.
+/// Images stored with a run (a goal's, a message's), shown small, read from the service
+/// (`GET /api/runs/{id}/image`); a click opens one in Preview.
 struct StoredImages: View {
+    let run: RunModel
     let paths: [String]
     var size: CGFloat = 72
     var body: some View {
         if !paths.isEmpty {
             HStack(spacing: 6) {
-                ForEach(paths, id: \.self) { p in
-                    Button { NSWorkspace.shared.open(URL(fileURLWithPath: p)) } label: { Thumb(image: NSImage(contentsOfFile: p), size: size) }
-                        .buttonStyle(.plain).help(L.text("在预览中打开")).accessibilityLabel(L.text("图片 \((p as NSString).lastPathComponent)"))
-                }
+                ForEach(paths, id: \.self) { p in StoredImage(run: run, path: p, size: size) }
             }
         }
+    }
+}
+
+private struct StoredImage: View {
+    let run: RunModel
+    let path: String
+    let size: CGFloat
+    @Local private var image: NSImage?
+
+    var body: some View {
+        Button { NSWorkspace.shared.open(URL(fileURLWithPath: path)) } label: { Thumb(image: image, size: size) }
+            .buttonStyle(.plain).help(L.text("在预览中打开")).accessibilityLabel(L.text("图片 \((path as NSString).lastPathComponent)"))
+            .task(id: path) {
+                image = (try? await run.api.data("/api/runs/\(run.id)/image?path=\(API.q(path))")).flatMap(NSImage.init(data:))
+            }
     }
 }
 

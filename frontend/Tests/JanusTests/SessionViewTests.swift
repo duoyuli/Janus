@@ -4,95 +4,6 @@ import SwiftUI
 import Testing
 @testable import Janus
 
-private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
-    Event(["seq": JSON(seq), "ts": JSON(seq * 1000), "type": JSON(type), "actor": "m1", "task": "T1", "text": "", "data": data])
-}
-
-/// The plan, controls, commands and usage beside a conversation come from its latest events.
-@Test func sessionStateComesFromTheLatestEvents() {
-    let evs = [
-        ev(1, "session.controls", ["model": ["id": "model", "current": "a", "options": [["value": "a", "name": "A"], ["value": "b", "name": "B"]]],
-                                   "controls": [["id": "mode", "name": "Mode", "category": "mode", "type": "select", "via": "mode", "current": "ask", "options": [["value": "ask"], ["value": "full"]]],
-                                                ["id": "solo", "type": "select", "current": "x", "options": [["value": "x"]]]]]),
-        ev(2, "agent.plan", ["entries": [["content": "读", "status": "completed"], ["content": "改", "status": "in_progress"]]]),
-        ev(3, "session.control", ["id": "mode", "value": "full", "via": "mode"]),
-        ev(4, "session.control", ["id": "model", "failed": true]),
-        ev(5, "session.commands", ["commands": [["name": "compact", "description": "压缩"]]]),
-        ev(6, "session.usage", ["used": 50000, "size": 200000]),
-        ev(7, "session.usage", ["totalTokens": 1500]),
-    ]
-    #expect(SessionView.plan(evs).map(\.status) == ["completed", "in_progress"])
-    let c = SessionView.controls(evs)
-    #expect(c.map(\.id) == ["model", "mode"], "a control with one choice is not offered")
-    #expect(c[0].current == "a" && c[1].current == "full" && c[1].name == expectedCopy("模式", "Mode") && c[1].via == "mode")
-    #expect(SessionView.commands(evs).first?.name == "compact")
-    let u = SessionView.usage(evs)
-    #expect(u?.percent == 25 && u?.tokens == 1500)
-    #expect(SessionView.usage([]) == nil)
-}
-
-/// Typing `/` at the start asks for a command, `@` as the last word for a file; picking one
-/// completes that word.
-@Test func composerSuggestionsCompleteTheWordBeingTyped() {
-    #expect(SessionView.asking("/re") == .command("re"))
-    #expect(SessionView.asking("/review now") == nil)
-    #expect(SessionView.asking("看看 @src/ma") == .file("src/ma"))
-    #expect(SessionView.asking("看看 src") == nil)
-    #expect(SessionView.complete("/re", with: .command("review")) == "/review ")
-    #expect(SessionView.complete("看看 @src/ma", with: .file("src/main.rs")) == "看看 @src/main.rs ")
-}
-
-/// A reported file change shows its changed lines with a little context.
-@Test func inlineDiffsShowChangedLines() {
-    let lines = InlineDiff.lines(old: "a\nb\nc", new: "a\nB\nc\nd")
-    #expect(lines.map(\.0) == [" ", "-", "+", " ", "+"])
-    #expect(lines.map(\.1) == ["a", "b", "B", "c", "d"])
-}
-
-/// Janus's own board tools show once: an agent's echo of them is hidden, whichever way the agent
-/// names them (Codex `mcp.janus.*`, Claude Code `mcp__janus__*`).
-@Test func boardToolEchoesAreHidden() {
-    func call(_ type: String, _ text: String, _ tool: String) -> Event {
-        Event(["seq": 1, "ts": 1, "type": JSON(type), "actor": "lead", "text": JSON(text), "data": ["tool": JSON(tool), "input": "{\"timeout_sec\":45}", "callId": "c1"]])
-    }
-    #expect(ToolRow.hidden(call("tool.call", "mcp__janus__wait", "other"), done: []))
-    #expect(ToolRow.hidden(call("tool.started", "mcp__janus__wait", "other"), done: []))
-    #expect(ToolRow.hidden(call("tool.call", "mcp.janus.wait", "other"), done: []))
-    #expect(!ToolRow.hidden(call("tool.started", "调用 janus.wait，等待返回", "janus.wait"), done: []), "Janus's own record stays")
-    #expect(!ToolRow.hidden(call("tool.call", "Read calc.py", "read"), done: []))
-}
-
-/// The session card keeps its own numbers: this session's context and the last turn, labelled apart
-/// from the run's cumulative total.
-@Test func sessionUsageIsLabelledApartFromTheRunTotal() {
-    let evs = [
-        ev(1, "session.usage", ["used": 50000, "size": 200000]),
-        ev(2, "session.usage", ["totalTokens": 1500]),
-    ]
-    let u = SessionView.usage(evs)
-    // The header keeps reading the same two numbers it did before.
-    #expect(u?.percent == 25 && u?.tokens == 1500)
-    #expect(u?.contextLabel == expectedCopy("本会话 上下文 25%", "Session context: 25%"))
-    #expect(u?.turnLabel == expectedCopy("上一轮 1,500 tokens", "Last turn: 1,500 tokens"))
-    #expect(u?.labels == expectedCopy("本会话 上下文 25% · 上一轮 1,500 tokens", "Session context: 25% · Last turn: 1,500 tokens"))
-
-    // An agent that only reports context has no last-turn number; a 0 before it read anything is
-    // not shown, as before.
-    let contextOnly = [ev(1, "session.usage", ["used": 0, "size": 200000]), ev(2, "session.usage", ["used": 21000, "size": 200000])]
-    let c = SessionView.usage(contextOnly)
-    #expect(c?.tokens == nil && c?.turnLabel == nil)
-    #expect(c?.contextLabel == expectedCopy("本会话 上下文 10%", "Session context: 10%"), "\(c?.contextLabel ?? "nil")")
-    #expect(c?.percent == 10)
-
-    // Only a last-turn number: the context label stays absent instead of showing 0.
-    let turnOnly = [ev(1, "session.usage", ["totalTokens": 700])]
-    let t = SessionView.usage(turnOnly)
-    #expect(t?.contextLabel == nil)
-    #expect(t?.turnLabel == expectedCopy("上一轮 700 tokens", "Last turn: 700 tokens"))
-    #expect(t?.labels == expectedCopy("上一轮 700 tokens", "Last turn: 700 tokens"))
-    #expect(SessionView.usage([]) == nil)
-}
-
 /// The usage card and the period bill really draw: the same rows the data tests assert are rendered
 /// into PNGs (light and dark), so a person can look at the result instead of trusting the strings
 /// alone.
@@ -257,19 +168,4 @@ private func ev(_ seq: Int, _ type: String, _ data: JSON) -> Event {
     _ = g.measured(below: 0, last: 7, person: false, now: 0.4)
     more = g.retry(now: 0.6)
     #expect(!more, "at the end: nothing to do")
-}
-
-/// An attempt's header says which session it is in when it is not a plain new one, and why it
-/// runs again, so a rework reads as the same conversation going on.
-@Test func attemptHeadersSayWhichSessionAndWhy() {
-    #expect(SessionView.attemptNote(["session": "s1"], task: "T1") == "")
-    #expect(SessionView.attemptNote(["resumed": true], task: "T1") == expectedCopy(" · 接上了原会话", " · Picked up the previous session"))
-    let rework: JSON = ["continuation": ["from": "T1", "session": "s1", "loaded": true], "reopen": ["reason": "lead.retry", "session": "continue", "from": "V1"]]
-    #expect(SessionView.attemptNote(rework, task: "T1") == expectedCopy(" · 接上原会话 · 按 V1 的意见返工", " · Picks up its own session · Rework on V1's findings"))
-    let follow: JSON = ["continuation": ["from": "T1", "session": "s1", "loaded": true]]
-    #expect(SessionView.attemptNote(follow, task: "T2") == expectedCopy(" · 接上 T1 的会话", " · Picks up T1's session"))
-    let never: JSON = ["continuation": ["from": "T4", "loaded": false, "fallback": "no_session"], "reopen": ["reason": "lead.retry", "session": "continue"]]
-    #expect(SessionView.attemptNote(never, task: "T4") == expectedCopy(" · 新开会话（这个子任务之前没有会话）", " · New session (this subtask had no session before)"))
-    let full: JSON = ["continuation": ["from": "V1", "loaded": false, "fallback": "context_over_75pct"], "reopen": ["reason": "target.reworked", "target": "T1"]]
-    #expect(SessionView.attemptNote(full, task: "V1") == expectedCopy(" · 新开会话（原会话上下文超过 75%） · T1 返工后复审", " · New session (previous one was over 75% of its context) · Re-check after T1 was reworked"))
 }

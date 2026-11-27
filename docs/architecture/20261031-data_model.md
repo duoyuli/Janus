@@ -151,4 +151,4 @@ $JANUS_HOME（默认 ~/.janus，权限 0700）
 
 目标模式下，diff 的比较基准从 Run 开始时的工作目录状态算起，Run 之前就存在的改动不会算到任务头上。
 
-产物保存在 `data/runs/<run>/artifacts/<task>/`，只能通过 `GET /api/file` 读取，且路径必须是这样的产物文件（`Layout::is_artifact`），见 [HTTP API](../interfaces/20261031-http_api.md#files)。
+产物保存在 `data/runs/<run>/artifacts/<task>/`，客户端只能经它所属 Run 的接口读取（`GET /api/runs/{id}/doc`、`/diff`），且路径必须是这个 Run 的产物文件（`Layout::is_artifact`），见 [HTTP API](../interfaces/20261031-http_api.md#run_files_read)。

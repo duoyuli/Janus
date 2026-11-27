@@ -1,9 +1,12 @@
 import SwiftUI
 
 /// How much of an agent's work a conversation shows: every tool call, or only what was said,
-/// asked and delivered.
+/// asked and delivered. One choice for all conversations, remembered on this Mac; the server lays
+/// the conversations out at it.
 enum ChatDensity: String {
     case detail, summary
+    static let key = "janus.chatDensity"
+    static var current: ChatDensity { UserDefaults.janus.string(forKey: key).flatMap(ChatDensity.init(rawValue:)) ?? .summary }
 }
 
 /// The conversation itself, newest at the bottom. While the person is at the bottom it follows what
@@ -14,7 +17,9 @@ enum ChatDensity: String {
 struct ChatScroll: View {
     let run: RunModel
     let st: RunState
-    let rows: [ChatTurns.Row]
+    let rows: [Conversation.Row]
+    /// What the server says about each section's opening event, by seq (`SessionInfo.notes`).
+    let notes: [Int: Conversation.Note]
     let target: SessionTarget
     let empty: Bool
     /// The session's last event: it changes whenever anything arrives.
@@ -112,7 +117,7 @@ struct ChatScroll: View {
     /// One line of the list: a conversation row at its place, or the live preview after them all.
     struct Line: Identifiable {
         let index: Int
-        let row: ChatTurns.Row?
+        let row: Conversation.Row?
         var id: Int { row?.id ?? ChatScroll.liveId }
     }
 
@@ -120,43 +125,44 @@ struct ChatScroll: View {
 
     @ViewBuilder private func line(_ l: Line) -> some View {
         if let r = l.row {
-            let gap: CGFloat = l.index == 0 ? 0 : Self.gap(r, after: rows[l.index - 1])
+            let gap: CGFloat = l.index == 0 ? 0 : Self.points(r.gap)
             row(r).padding(.top, gap).modifier(ChatProbe.Row(id: r.id, order: l.index))
         } else {
             LiveSlot(run: run, target: target)
         }
     }
 
-    /// Turns and sections stand apart; the blocks of one turn sit close.
-    static func gap(_ r: ChatTurns.Row, after prev: ChatTurns.Row) -> CGFloat {
-        switch r {
-        case .section: return ChatRhythm.round
-        case .item(let e):
-            // A prompt right under the message it carries sits with it.
-            if case .item(let p) = prev, ChatTurns.role(p) == .opener { return ChatRhythm.block / 2 }
-            return ChatTurns.role(e) == .opener ? ChatRhythm.round : ChatRhythm.block / 2
-        case .head: return ChatRhythm.block
-        case .activity: return ChatRhythm.line
-        case .text(_, let reply): return reply ? ChatRhythm.block : ChatRhythm.line + 4
-        case .edits: return ChatRhythm.block
+    /// The space the server puts above a row (turns and sections stand apart, the blocks of one
+    /// turn sit close), in points.
+    static func points(_ gap: Conversation.Gap) -> CGFloat {
+        switch gap {
+        case .none: return 0
+        case .round: return ChatRhythm.round
+        case .block: return ChatRhythm.block
+        case .half: return ChatRhythm.block / 2
+        case .line: return ChatRhythm.line
+        case .loose: return ChatRhythm.line + 4
         }
     }
 
-    @ViewBuilder private func row(_ r: ChatTurns.Row) -> some View {
+    @ViewBuilder private func row(_ r: Conversation.Row) -> some View {
         let cwd = st.run.cwd
         switch r {
-        case .section(let e, let injected):
+        case .section(let e, let injected, _):
             VStack(alignment: .leading, spacing: 6) {
-                ChatItem(run: run, st: st, e: e, docked: docked)
+                ChatItem(run: run, st: st, e: e, docked: docked, note: note(e))
                 ForEach(injected) { ChatItem(run: run, st: st, e: $0, docked: docked) }
             }
-        case .item(let e): ChatItem(run: run, st: st, e: e, docked: docked)
-        case .head(let t, let open): TurnHead(run: run, turn: t, open: open) { toggle(r.id, !(open ?? false)) }
-        case .activity(_, let es, let open): ActivityRow(run: run, events: es, open: open, cwd: cwd) { toggle(r.id, !(open ?? true)) }
-        case .text(let es, let reply): TextRow(events: es, reply: reply)
-        case .edits(_, let files): EditsCard(files: files, cwd: cwd)
+        case .item(let e, _): ChatItem(run: run, st: st, e: e, docked: docked, note: note(e))
+        case .head(_, let t, let open, _): TurnHead(run: run, turn: t, open: open) { toggle(r.id, !(open ?? false)) }
+        case .activity(_, let es, let open, let summary, _): ActivityRow(run: run, events: es, open: open, summary: summary, cwd: cwd) { toggle(r.id, !(open ?? true)) }
+        case .text(_, let es, let reply, _): TextRow(events: es, reply: reply)
+        case .edits(_, let files, _): EditsCard(files: files, diffs: st.diffs, cwd: cwd)
         }
     }
+
+    /// What the server says about a section's opening event (an attempt's note, its Git facts).
+    private func note(_ e: Event) -> Conversation.Note? { notes[e.seq] }
 
     /// Back to the newest item, following again.
     private var back: some View {
@@ -205,17 +211,10 @@ struct LiveSlot: View {
     let target: SessionTarget
 
     var body: some View {
-        if !run.isReplaying, let s = session, !(s.text.isEmpty && s.thought.isEmpty) {
+        if !run.isReplaying, let s = run.preview[target.label], !(s.text.isEmpty && s.thought.isEmpty) {
             LiveRow(session: s).padding(.top, ChatRhythm.block)
         } else {
             Color.clear.frame(height: 1)
-        }
-    }
-
-    private var session: ChatLive.Session? {
-        switch target {
-        case .task(let t): return run.preview.of(task: t, agent: nil)
-        case .agent(let a): return run.preview.of(task: nil, agent: a)
         }
     }
 }

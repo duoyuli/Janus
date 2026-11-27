@@ -51,3 +51,10 @@ import Testing
     #expect(MemoryText.source(mine).hasPrefix(expectedCopy("你 · ", "You · ")))
     #expect(MemoryText.briefLine(["title": "测试命令", "body": "先装依赖\n\n再跑 just test"]) == "测试命令：先装依赖 再跑 just test")
 }
+
+/// Only what is new since the last look is announced, and nothing on the first look.
+@Test func notificationsAreForWhatIsNew() {
+    func e(_ k: String) -> InboxEntry { InboxEntry(["key": JSON(k), "run": "r", "title": JSON(k), "canWait": true]) }
+    #expect(Notifier.fresh([e("a"), e("b")], seen: nil).isEmpty)
+    #expect(Notifier.fresh([e("a"), e("b")], seen: ["a"]).map(\.key) == ["b"])
+}

@@ -5,7 +5,7 @@
 use super::App;
 use crate::db::{InboxMark, RunRow, RunsPage};
 use crate::lang::Lang;
-use crate::run_view::{Candidate, InboxEntry, RunView, Words, fold, inbox_entries};
+use crate::run_view::{Candidate, Fold, InboxEntry, RunView, Words, fold, inbox_entries};
 use crate::status::{RunKind, RunStatus};
 use anyhow::Result;
 use serde::Serialize;
@@ -25,27 +25,40 @@ pub struct Inbox {
 
 impl App {
     /// Run `id`'s view written in `lang`, up to and including seq `until` (all of it without);
-    /// `None` when there is no such run.
-    pub fn run_view(&self, id: &str, until: Option<i64>, lang: Lang) -> Result<Option<RunView>> {
+    /// its conversations at the display level `detail`. `None` when there is no such run.
+    pub fn run_view(&self, id: &str, until: Option<i64>, lang: Lang, detail: bool) -> Result<Option<RunView>> {
         let Some(row) = self.db.run(id)? else { return Ok(None) };
         let words = Words::of(lang, &row.config);
         // A replayed position has no live session to work or to be held.
         let live = until.is_none() && self.run(id).is_some();
-        let f = match until {
-            Some(until) => {
-                let mut events = self.db.events(id, 0)?;
-                events.retain(|e| e.seq <= until);
-                fold(&events)
-            }
-            None => {
-                return Ok(Some(self.views.current(
-                    id,
-                    |after| self.db.events(id, after),
-                    |f| f.view(live, false, &words),
-                )?));
-            }
+        let work = self.cfg.layout.run(row.kind, id).work;
+        let show = |f: &Fold, replaying: bool| {
+            let mut view = f.view(live, replaying, &words, detail);
+            view.docs = f.docs(&work);
+            view
         };
-        Ok(Some(f.view(live, true, &words)))
+        Ok(Some(match until {
+            Some(until) => show(&self.fold_until(id, until)?, true),
+            None => self.views.current(id, |after| self.db.events(id, after), |f| show(f, false))?,
+        }))
+    }
+
+    /// Run `id`'s fold up to and including seq `until`.
+    fn fold_until(&self, id: &str, until: i64) -> Result<Fold> {
+        let mut events = self.db.events(id, 0)?;
+        events.retain(|e| e.seq <= until);
+        Ok(fold(&events))
+    }
+
+    /// `with` over run `id`'s fold now, or at seq `until`; `None` when there is no such run.
+    pub fn with_fold<R>(&self, id: &str, until: Option<i64>, with: impl FnOnce(&Fold) -> R) -> Result<Option<R>> {
+        if self.db.run(id)?.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(match until {
+            Some(until) => with(&self.fold_until(id, until)?),
+            None => self.views.current(id, |after| self.db.events(id, after), with)?,
+        }))
     }
 
     /// Everything that waits on the person, in `lang`, split by what they put off; `now` is the

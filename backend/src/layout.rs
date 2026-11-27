@@ -283,7 +283,7 @@ impl Layout {
     // ---- Recognizing files Janus stored
 
     /// Whether `path` is an artifact of a run, `data/runs/<run>/artifacts/<task>/<file>` or the
-    /// whole run's diff, `data/runs/<run>/changes/<file>`: the only files `/api/file` serves, since
+    /// whole run's diff, `data/runs/<run>/changes/<file>`: the only Janus files a client reads as a run's, since
     /// the rest of the home holds the database and secrets.
     pub fn is_artifact(&self, path: &Path) -> bool {
         self.stored(path, &[RunKind::Goal], "artifacts", 3) || self.stored(path, &[RunKind::Goal], "changes", 2)

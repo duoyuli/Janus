@@ -279,15 +279,31 @@ struct MDTableLayout: Layout {
     }
 }
 
-/// A standalone image: local files relative to the document; web images are left as a link.
+/// How a document read through the service shows its pictures: by their path, from the service
+/// (`DocSource.image`); without it, pictures are local files.
+private struct DocImagesKey: EnvironmentKey {
+    static let defaultValue: (@Sendable (String) async -> Data?)? = nil
+}
+
+extension EnvironmentValues {
+    var docImages: (@Sendable (String) async -> Data?)? {
+        get { self[DocImagesKey.self] }
+        set { self[DocImagesKey.self] = newValue }
+    }
+}
+
+/// A standalone image: files relative to the document; web images are left as a link.
 private struct MDImage: View {
     let alt: String
     let src: String
     let base: URL?
+    @Environment(\.docImages) private var load
+    @Local private var served: NSImage?
 
     var body: some View {
         let url = URL(string: src, relativeTo: base) ?? URL(fileURLWithPath: src)
-        if url.isFileURL, let img = NSImage(contentsOf: url) {
+        let local = load == nil && url.isFileURL ? NSImage(contentsOf: url) : nil
+        if url.isFileURL, let img = served ?? local {
             Image(nsImage: img).resizable().scaledToFit()
                 .frame(maxWidth: min(img.size.width, 820), alignment: .leading)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -295,6 +311,10 @@ private struct MDImage: View {
                 .help(alt)
         } else {
             Link(destination: url.absoluteURL) { Label(alt.isEmpty ? src : alt, systemImage: "photo") }
+                .task(id: url) {
+                    guard let load, url.isFileURL, let data = await load(url.standardizedFileURL.path) else { return }
+                    served = NSImage(data: data)
+                }
         }
     }
 }

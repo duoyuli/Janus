@@ -348,13 +348,14 @@ enum Snapshots {
                     // turns at the display level chosen, what the composer suggests for its draft and the
                     // live preview (docs/architecture/20261031-frontend.md#session_turns).
                     "conversations": .object(Dictionary(uniqueKeysWithValues: (s.orderedTasks.map { (SessionTarget.task($0.id), s.session(.task($0.id))) } + [(SessionTarget.agent("lead"), s.session(.agent("lead")))]).map { target, info in
-                        let detail = UserDefaults.janus.string(forKey: "janus.chatDensity") == ChatDensity.detail.rawValue
                         let draft = r.sessionDrafts[target] ?? ""
-                        let live: ChatLive.Session? = { if case .task(let t) = target { return r.preview.of(task: t, agent: nil) } else { return r.preview.of(task: nil, agent: "lead") } }()
+                        let live = r.preview[target.label]
+                        // What the server offered for this very draft (an answer for an earlier one is stale).
+                        let offered = r.suggestions[target].flatMap { $0.draft == draft ? $0 : nil }
                         return (target.label, [
-                            "rows": JSON.array(ChatCard.rows(run: r, st: s, info: info, target: target, detail: detail, live: r.canAct).map(Self.row)),
-                            "suggestions": JSON.array(Suggestions.rows(SessionView.asking(draft), commands: SessionView.commands(info.evs), files: []).map { ["label": JSON($0.label), "group": $0.group.map(JSON.init) ?? .null] }),
-                            "ghost": SessionView.argumentHint(draft, SessionView.commands(info.evs)).map(JSON.init) ?? .null,
+                            "rows": JSON.array(ChatCard.rows(run: r, st: s, info: info, target: target).map(Self.row)),
+                            "suggestions": JSON.array((offered?.rows ?? []).map { ["label": JSON($0.label), "group": $0.group.map(JSON.init) ?? .null] }),
+                            "ghost": offered?.ghost.map(JSON.init) ?? .null,
                             "preview": ["text": JSON(live?.text ?? ""), "tools": JSON(live?.tools.count ?? 0)],
                         ] as JSON)
                     })),
@@ -375,7 +376,7 @@ enum Snapshots {
                     "tasks": JSON.array(s.orderedTasks.map { t in
                         ["id": JSON(t.id), "status": JSON(t.status.rawValue), "agent": JSON(t.agent), "attempts": JSON(t.attempts.count),
                          "verdict": JSON(t.verdict?.rawValue), "question": JSON(t.question?.question),
-                         "git": JSON(SessionView.taskGitNote(s, t.id))]
+                         "git": JSON(s.session(.task(t.id)).git)]
                     }),
                     "inbox": JSON.array(s.inbox.map { ["kind": JSON($0.kind), "key": JSON($0.key), "task": JSON($0.task)] }),
                     "agents": .object(s.agents.mapValues { JSON($0.phase.rawValue) }),
@@ -395,9 +396,14 @@ enum Snapshots {
                 ]
             }
             try? j.data(pretty: true).write(to: URL(fileURLWithPath: dir).appendingPathComponent("\(arg.isEmpty ? "state" : arg).json"))
-        case "doc": ArtifactWindow.open(path: arg, api: store.api)
+        case "doc": if let run = store.run { ArtifactWindow.open(run: run, path: arg, title: (arg as NSString).lastPathComponent) } else { ArtifactWindow.open(path: arg) }
         case "window": target = arg.isEmpty ? nil : arg
-        case "density": UserDefaults.janus.set(arg, forKey: "janus.chatDensity")
+        // The display level, as the conversation's picker sets it: the server lays the open run's
+        // conversations out again at it.
+        case "density":
+            UserDefaults.janus.set(arg, forKey: ChatDensity.key)
+            store.run?.chatOpen = [:]
+            store.run?.loadServed()
         // The send key, as Settings › 通用 saves it.
         case "send-key": SendKeySetting.shared.value = SendKey(rawValue: arg) ?? .standard
         // The automatic update switch, as Settings › 通用 › 更新 saves it.
@@ -460,15 +466,15 @@ enum Snapshots {
     /// The first composer of the key window (or the first visible one).
     /// A block as the state names it: its kind, and for a table its header, for code its language.
     /// One conversation row as the test reads it: its kind, and what it shows in words.
-    static func row(_ r: ChatTurns.Row) -> JSON {
+    static func row(_ r: Conversation.Row) -> JSON {
         switch r {
-        case .section(let e, let injected): return ["kind": "section", "type": JSON(e.type.rawValue), "injected": JSON.array(injected.map { JSON($0.data["channel"].string ?? $0.type.rawValue) })]
-        case .item(let e): return ["kind": "item", "type": JSON(e.type.rawValue), "seq": JSON(e.seq)]
-        case .head(let t, let open):
-            return ["kind": "head", "agent": JSON(t.agent), "open": open.map { JSON.bool($0) } ?? .null, "running": JSON(t.running), "stats": JSON(t.stats.text)]
-        case .activity(_, let es, let open): return ["kind": "activity", "calls": JSON(es.count), "open": open.map { JSON.bool($0) } ?? .null]
-        case .text(let es, let reply): return ["kind": reply ? "reply" : "text", "text": JSON(es.map { $0.data["text"].str }.joined())]
-        case .edits(_, let files): return ["kind": "edits", "files": JSON.array(files.map { ["path": JSON($0.path), "added": JSON($0.added), "removed": JSON($0.removed)] })]
+        case .section(let e, let injected, _): return ["kind": "section", "type": JSON(e.type.rawValue), "injected": JSON.array(injected.map { JSON($0.data["channel"].string ?? $0.type.rawValue) })]
+        case .item(let e, _): return ["kind": "item", "type": JSON(e.type.rawValue), "seq": JSON(e.seq)]
+        case .head(_, let t, let open, _):
+            return ["kind": "head", "agent": JSON(t.agent), "open": open.map { JSON.bool($0) } ?? .null, "running": JSON(t.running), "stats": JSON(t.stats)]
+        case .activity(_, let es, let open, _, _): return ["kind": "activity", "calls": JSON(es.count), "open": open.map { JSON.bool($0) } ?? .null]
+        case .text(_, let es, let reply, _): return ["kind": reply ? "reply" : "text", "text": JSON(es.map { $0.data["text"].str }.joined())]
+        case .edits(_, let files, _): return ["kind": "edits", "files": JSON.array(files.map { ["path": JSON($0.path), "added": JSON($0.added), "removed": JSON($0.removed)] })]
         }
     }
 
