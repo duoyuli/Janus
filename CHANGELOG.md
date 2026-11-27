@@ -4,6 +4,28 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.27.4-rc.1
+
+- Mac 应用的任务页（工作台）改成一个群：
+  - 群里的时间线就是负责人的对话，派工、开工和交接、交结果和验证判定、返工、冲突、可能卡住、转给你的提问和审批、交付，都按发生的先后插在里面。
+  - 等你处理的消息黄底显示，卡片就地处理；标题旁的「@你 N 件 ↓」一次跳到一件。
+  - 每个子任务是一个话题：负责人派的活、组员和负责人之间的来回，旁边一页是它的工作记录，可以插话或接管。成员、子任务、文件在右栏，窗口窄时浮在群上面。
+  - 群底部一行显示谁正在干什么，输入框可以发给负责人，也可以直接发给正在干活的组员。
+  - 没有固定阶段：分批派活、返工、交付后接着改，都只是群里多几条消息。原来的运行卡片、待处理一节、进展时间线和检查器去掉了。
+  - Web 版这一版不变。
+
+- 内部：群消息、话题、正在干活的人和 @你 都在服务端算（视图的 `feed`）；客户端读视图时带 `group=1` 才在负责人的会话里拿到群消息，不带时和原来一样。README 的截图按新界面重拍。
+
+- The Mac app's run page (the workbench) is now a group chat:
+  - The lead's conversation is the group's timeline. Dispatches, starts and handoffs, results and verdicts, rework, conflicts, possible stalls, questions and approvals passed to you, and deliveries appear in it in the order they happened.
+  - What waits on you is highlighted and handled in place; "@You N ↓" beside the title jumps to each in turn.
+  - Each task is a topic: what the lead asked for and what the collaborator and the lead said about it, with its work log one tab away, where you can cut in or take over. Members, tasks and files are in the side panel, which floats over the group in a narrow window.
+  - A line above the composer shows who is doing what, and the composer can address the lead or a collaborator at work.
+  - No fixed phases: dispatching in batches, rework and changes after a delivery are just more posts. The run card, the pending section, the progress timeline and the inspector are gone.
+  - The web version is unchanged in this release.
+
+- Internal: the server writes the posts, topics, who is at work and what waits on you (the view's `feed`); a client gets the posts in the lead's session only when it asks with `group=1`, and the view is unchanged without it. The README screenshots show the new page.
+
 ## 2026.11.27.3
 
 - 修复：手机经局域网或 Tailscale 地址打开 Web 版时，点「发送」、快捷回答、继续等操作没有任何反应。这些地址走明文 HTTP，浏览器不提供 `crypto.randomUUID`，每个操作在发出请求前就出错了；复制到剪贴板在这些地址上也会失败。现在都改用明文 HTTP 下也有的接口。
