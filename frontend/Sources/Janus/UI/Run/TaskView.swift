@@ -21,8 +21,8 @@ struct TaskView: View {
 
     private func content(_ st: RunState, _ t: TaskState) -> some View {
         let (label, tone) = t.status.label
-        let evs = st.events.filter { e in e.task == t.id || e.data["target"].str == t.id || e.data["tasks"].strings.contains(t.id) || e.data["unlocked"].strings.contains(t.id) }
-        let lastStart = evs.last { $0.type == .attemptStarted }?.data ?? .null
+        let page = st.page.tasks[t.id] ?? ServedPage.TaskPage()
+        let evs = page.trace.compactMap { st.event($0) }
         let w = run.who(t.agent)
         // The evidence summary is a display grouping of what the events recorded; whether the task
         // passed stays with `task.succeeded` / `verification.*`.
@@ -41,8 +41,7 @@ struct TaskView: View {
                         }
                         Text(t.title).font(.display(.title2)).textSelection(.enabled)
                         if !t.desc.isEmpty { Text(t.desc).foregroundStyle(.secondary).textSelection(.enabled) }
-                        let structure = [t.owns.isEmpty ? nil : L.text("负责 \(t.owns.joined(separator: L.text("、")))"), t.verifies.isEmpty ? nil : L.text("独立验证 \(t.verifies)")].compactMap { $0 }
-                        if !structure.isEmpty { Text(verbatim: structure.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                        if !page.structure.isEmpty { Text(verbatim: page.structure).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                         if let git = session.git { Text(verbatim: git).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     }
                     Spacer()
@@ -124,7 +123,7 @@ struct TaskView: View {
                         Card {
                             KV(rows: [(L.text("协作者"), w.name)])
                             depRow(L.text("上游"), t.deps, st)
-                            depRow(L.text("下游"), st.order.filter { st.tasks[$0]?.deps.contains(t.id) == true }, st)
+                            depRow(L.text("下游"), page.downstream, st)
                             if !t.attempts.isEmpty {
                                 Divider()
                                 Text(L.text("尝试")).font(.callout).foregroundStyle(.secondary)
@@ -145,13 +144,7 @@ struct TaskView: View {
                             }
                             Divider()
                             DisclosureGroup(L.text("运行环境")) {
-                                let cfg = lastStart["config"]
-                                let rt = [lastStart["runtime"].truthy ? lastStart["runtime"].str : w.runtime,
-                                          cfg["model"].truthy ? cfg["model"].str + (cfg["effort"].truthy ? " (\(cfg["effort"].str))" : "") : nil,
-                                          cfg["label"].truthy || cfg["mode"].truthy ? L.text("权限 \(cfg["label"].truthy ? cfg["label"].str : cfg["mode"].str)") : nil,
-                                          lastStart["agentInfo"].truthy ? "\(lastStart["agentInfo"]["name"].str) \(lastStart["agentInfo"]["version"].str)" : nil].compactMap { $0 }.joined(separator: " · ")
-                                KV(rows: [(L.text("运行时"), rt), (L.text("隔离方式"), lastStart["enforcement"].truthy ? lastStart["enforcement"].str : "—"),
-                                          (L.text("会话"), t.attempts.last?.session ?? "—"), (L.text("工作区"), t.attempts.last?.workspace ?? L.text("工作目录"))])
+                                KV(rows: page.env)
                                     .padding(.top, 6)
                             }
                             .font(.callout)

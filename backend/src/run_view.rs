@@ -19,6 +19,7 @@ pub mod docs;
 mod evidence;
 mod inbox;
 pub mod lines;
+mod page;
 pub mod preview;
 mod review;
 mod sessions;
@@ -1083,6 +1084,7 @@ pub struct Fold {
     shown: HashMap<i64, Event>,
     diffs: BTreeMap<i64, Vec<DiffView>>,
     docs: docs::DocsFold,
+    traces: page::TraceFold,
 }
 
 /// One file change an event carries (a tool call's edit, the edit an approval asks about), as it
@@ -1109,6 +1111,7 @@ impl Fold {
         let null = Value::Null;
         let d = e.data.as_ref().unwrap_or(&null);
         self.docs.apply(e, d);
+        self.traces.apply(e, d);
         if sessions::in_conversation(e, d) {
             // A tool call's edits are its `diffs` (`old`, `new`); an approval's are the diffs in the
             // content of the call it asks about (`oldText`, `newText`).
@@ -1209,7 +1212,22 @@ impl Fold {
             title: String::new(),
             read_only,
             resume_note,
+            page: page::Page::default(),
         }
+    }
+
+    /// The run page's own lines and lists for `view` (`page`), once the service has filled in its
+    /// documents and title.
+    pub fn page(&self, view: &RunView, words: &Words) -> page::Page {
+        page::page(
+            &self.state,
+            &self.traces,
+            view.review.as_ref(),
+            view.delivery.as_ref(),
+            &view.docs,
+            &view.title,
+            words,
+        )
     }
 
     /// Only what the inbox reads: the person's open items and the latest delivery's review,
@@ -1288,6 +1306,8 @@ pub struct RunView {
     /// Above the run card while it stopped short and can go on: what happened and what to do.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume_note: Option<String>,
+    /// The run page's lines and lists around the board (`page`).
+    pub page: page::Page,
 }
 
 /// The folds of the runs someone asked about, each kept at the newest event it has seen, so the

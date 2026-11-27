@@ -77,7 +77,7 @@ struct RunView: View {
                 }
                 ToolbarItem {
                     Menu {
-                        Button(L.text("复制交付摘要")) { run.copySummary() }.disabled(run.state.result == nil)
+                        Button(L.text("复制交付摘要")) { run.copySummary() }.disabled(run.state.page.summary == nil)
                         Button(L.text("导出事件日志…")) { run.exportLog() }
                     } label: { Label(L.text("分享"), systemImage: "square.and.arrow.up") }
                     .help(L.text("复制交付摘要或导出事件日志"))
@@ -203,35 +203,11 @@ extension RunModel {
         await act(state.run.paused ? .resume : .pause)
     }
 
-    /// The delivery under review as text: the conclusion, what needs looking at, where the result
-    /// is, each task's numbers, and the report.
+    /// The delivery under review as text, as the server writes it: the conclusion, what needs
+    /// looking at, where the result is, each task's numbers, and the report.
     func copySummary() {
-        guard let r = state.result else { return }
-        let d = Delivery(r)
-        var lines: [String] = [L.text("已完成：\(state.title)")]
-        if state.deliveries.count > 1 { lines.append(L.text("第 \(d.n) 次交付")) }
-        if !d.headline.isEmpty { lines.append(d.headline) }
-        let signals = state.review?.signals ?? []
-        if !signals.isEmpty {
-            lines += ["", L.text("需要你看的：")]
-            lines += signals.map { "- " + $0.text + ($0.detail.isEmpty ? "" : L.text("（\($0.detail)）")) }
-        }
-        if !d.mergeNote.isEmpty { lines += ["", d.mergeNote] }
-        let evidence = state.delivery ?? DeliveryEvidence()
-        let acceptance = evidence.tasks
-        lines += ["", evidence.facts]
-        if !acceptance.isEmpty {
-            lines += ["", L.text("逐条验收：")]
-            for a in acceptance {
-                let verified: [String] = a.verifications.map { v in v.passed ? L.text("\(v.task) 通过") : L.text("\(v.task) 未确认（\(v.label)）") }
-                var line = L.text("- \(a.task)：通过 \(a.passed)/\(a.criteria) · 证据：\(a.counts)")
-                if !verified.isEmpty { line += L.text(" · 独立验证：") + verified.joined(separator: L.text("、")) }
-                if a.unverified { line += L.text(" · 没有独立验证") }
-                lines.append(line)
-            }
-        }
-        if !d.summary.isEmpty { lines += ["", d.summary] }
-        copyText(lines.joined(separator: "\n"))
+        guard let text = state.page.summary else { return }
+        copyText(text)
         store.show(L.text("已复制交付摘要"))
     }
 
@@ -352,7 +328,7 @@ struct RunCard: View {
             // Reminders stay directly under the summary whether or not the ledger is open; the
             // ledger never repeats them (W1 F4). Text only: nothing here pauses, stops or budgets
             // the run.
-            if let line = run.usage.remindersLine { Note(text: line, tone: .amber) }
+            if let line = run.usage.words.reminders { Note(text: line, tone: .amber) }
             if run.usageOpen { UsageSection(run: run, st: st) }
         }
     }
@@ -417,11 +393,8 @@ struct RunCard: View {
     /// The summary line at `now`: the visible text and the full-digit VoiceOver and hover text come
     /// from the same displayed ledger, so they never disagree.
     private func summaryText(now: Double) -> some View {
-        let u = run.usageDisplayed(at: now)
-        let tasks = st.order.count
-        let done = st.orderedTasks.filter { $0.status == .succeeded }.count
-        let voice = u.runCardVoice(tasks: tasks, done: done)
-        return Text(verbatim: u.runCardLine(tasks: tasks, done: done))
+        let (line, voice) = run.usageCard(at: now)
+        return Text(verbatim: line)
             .font(.callout).foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
             .textSelection(.enabled)
@@ -571,12 +544,11 @@ struct RunInspector: View {
     let st: RunState
 
     var body: some View {
-        // The whole run's diff first: it is what accepting brings back, the lead's own edits included.
-        let diffs = latest(st.artifacts.filter(\.isDiff)).sorted { $0.ofRun && !$1.ofRun }
-        let files = latest(st.artifacts.filter { !$0.isDiff })
-        // What the deliveries hand over, as the 文档 menu lists it: the documents the rounds
-        // changed and the replies they delivered, minus those already listed as task artifacts.
-        let delivered = run.documents.filter { d in d.source == .deliverable && !files.contains { $0.path == d.path } }
+        // As the server lists them: each task's newest diff (the whole run's first), its newest
+        // files, and what the deliveries hand over that is not among those.
+        let diffs = st.page.diffs
+        let files = st.page.files
+        let delivered = st.page.delivered
         let tab = self.tab
         Card(padding: 12) {
             Picker(L.text("查看"), selection: tabBinding) {
@@ -697,9 +669,4 @@ struct RunInspector: View {
         }
     }
 
-    /// The newest artifact of each task and name kind: an older attempt's diff is history.
-    private func latest(_ xs: [Artifact]) -> [Artifact] {
-        var seen = Set<String>()
-        return xs.sorted { $0.seq > $1.seq }.filter { seen.insert("\($0.task)/\($0.kind)/\($0.isDiff ? "" : $0.name)").inserted }
-    }
 }

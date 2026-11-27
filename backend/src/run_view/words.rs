@@ -15,6 +15,8 @@ use std::collections::HashMap;
 pub struct Words {
     pub lang: Lang,
     names: HashMap<String, String>,
+    /// Each member's Agent by name (`connection_name`).
+    runtimes: HashMap<String, String>,
     /// The run's members in the snapshot's order, each with whether it leads.
     pub team: Vec<(String, bool)>,
     /// What the run is called in the lists (`row_title`), when the service knows its record.
@@ -26,8 +28,9 @@ impl Words {
     pub fn of(lang: Lang, config: &Value) -> Words {
         let members = super::list(&config["team"]);
         let names = members.iter().map(|m| (text(&m["id"]), text(&m["name"]))).collect();
+        let runtimes = members.iter().map(|m| (text(&m["id"]), text(&m["connection_name"]))).collect();
         let team = members.iter().map(|m| (text(&m["id"]), super::truthy(&m["lead"]))).collect();
-        Words { lang, names, team, title: String::new() }
+        Words { lang, names, runtimes, team, title: String::new() }
     }
 
     /// Who an id is: the person, Janus, or a member by its name.
@@ -37,6 +40,11 @@ impl Words {
             "janus" => "Janus".into(),
             _ => self.names.get(id).filter(|n| !n.is_empty()).cloned().unwrap_or_else(|| id.into()),
         }
+    }
+
+    /// The Agent a member runs on, by name; empty for anyone else.
+    pub fn runtime(&self, id: &str) -> String {
+        self.runtimes.get(id).cloned().unwrap_or_default()
     }
 
     /// The list separator: 「、」 or ", ".

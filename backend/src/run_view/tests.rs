@@ -8,6 +8,7 @@ mod card;
 mod evidence;
 mod inbox;
 mod lines;
+mod page;
 mod review;
 mod sessions;
 mod timeline;

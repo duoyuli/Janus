@@ -9,77 +9,29 @@ import Testing
 
 // MARK: Run card summary
 
-private func ledger(tokens: UsageTokens? = nil, completeness: UsageCompleteness = .missing,
-                    durationMs: Int? = nil, context: UsageContext? = nil,
-                    cost: UsageCost? = nil, sessions: [UsageSession] = []) -> UsageLedger {
+/// The run card's line puts the subtasks' progress before the server's items, and while the run
+/// ticks counts its wall-clock item on from the start; the reading for VoiceOver does the same.
+@Test func runCardLinePutsProgressFirstAndCountsTheTime() {
     var l = UsageLedger()
-    l.run.tokens = tokens ?? UsageTokens()
-    l.run.completeness = completeness
-    l.run.durationMs = durationMs
-    l.run.context = context ?? UsageContext()
-    l.run.cost = cost ?? UsageCost()
-    l.sessions = sessions
-    return l
-}
-
-@Test func runCardLineKeepsTheReportedNumbersInOrder() {
-    let all = ledger(
-        tokens: UsageTokens(total: 76_800_000, input: 50_000_000, output: 1_000_000), completeness: .complete,
-        durationMs: 2_878_000, context: UsageContext(used: 78_000, peak: 90_000, size: 200_000, reports: 4),
-        cost: UsageCost(lines: [UsageCostLine(currency: "USD", amount: 44.2864)], reportedSessions: 1),
-        sessions: [UsageSession(key: "a", actor: "lead", task: nil, attempt: nil, turns: 2,
-                                context: UsageContext(used: 78_000, size: 200_000, reports: 4))])
-    #expect(all.runCardLine(tasks: 10, done: 3)
-        == expectedCopy("子任务 3 / 10 · 用量 76.8M tokens（完整） · 费用 44.2864 USD · 耗时 47 分 58 秒（总时长） · 上下文 39%", "Subtasks: 3 / 10 · Usage: 76.8M tokens (Complete) · Cost: 44.2864 USD · Elapsed: 47 min 58 sec (total time) · Context: 39%"))
-    // VoiceOver gets every digit, never the compact form.
-    #expect(all.runCardVoice(tasks: 10, done: 3)
-        == expectedCopy("子任务 3 / 10，用量 76,800,000 tokens（完整），费用 44.2864 USD，耗时 47 分 58 秒（总时长），上下文 78,000 / 200,000（39%） · 峰值 90,000", "Subtasks: 3 / 10, Usage: 76,800,000 tokens (Complete), Cost: 44.2864 USD, Elapsed: 47 min 58 sec (total time), Context: 78,000 / 200,000 (39%) · Peak: 90,000"))
-
-    // The compact line keeps 「N 个会话」 out (it is in the expanded ledger), while a cost row
-    // that names several sessions still says so.
-    var manySessions = all
-    manySessions.run.cost = UsageCost(lines: [UsageCostLine(currency: "USD", amount: 44.2864, sessions: 9)], reportedSessions: 9)
-    #expect(manySessions.runCardLine(tasks: 10, done: 3).contains(expectedCopy("费用 44.2864 USD ·", "Cost: 44.2864 USD ·")))
-    #expect(!manySessions.runCardLine(tasks: 10, done: 3).contains(expectedCopy("个会话", "sessions")))
-    #expect(manySessions.run.costDetail == expectedCopy("44.2864 USD（9 个会话）", "44.2864 USD (9 sessions)"))
-}
-
-@Test func runCardLineLeavesOutWhatWasNotReported() {
-    let partial = ledger(tokens: UsageTokens(total: 15_400), completeness: .partial, durationMs: 65_000,
-                         sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1, turns: 1)])
-    #expect(partial.runCardLine(tasks: 3, done: 2) == expectedCopy("子任务 2 / 3 · 用量 15.4K tokens（部分上报） · 耗时 1 分 05 秒（总时长）", "Subtasks: 2 / 3 · Usage: 15.4K tokens (Partially reported) · Elapsed: 1 min 05 sec (total time)"))
-
-    // Only a context snapshot: no tokens, no cost, but the ledger opens and the ratio is shown.
-    let contextOnly = ledger(durationMs: 2_000, context: UsageContext(used: 52_000, size: 200_000, reports: 2),
-                             sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1,
-                                                     context: UsageContext(used: 52_000, size: 200_000, reports: 2))])
-    #expect(contextOnly.runCardLine(tasks: 2, done: 1) == expectedCopy("子任务 1 / 2 · 耗时 2 秒（总时长） · 上下文 26%", "Subtasks: 1 / 2 · Elapsed: 2 sec (total time) · Context: 26%"))
-    #expect(contextOnly.hasUsage)
-
-    // Nothing reported at all: only the wall-clock time, and no ledger control.
-    let fresh = ledger(durationMs: 400)
-    #expect(fresh.runCardLine(tasks: 0, done: 0) == expectedCopy("耗时 不到 1 秒（总时长）", "Elapsed: Under 1 sec (total time)"))
-    #expect(!fresh.hasUsage)
-    #expect(!UsageLedger.empty.hasUsage)
-}
-
-@Test func ledgerOpensOnlyWhenASessionReportedSomething() {
-    // An opened session that reported nothing is not a ledger.
-    let opened = ledger(sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1)])
-    #expect(!opened.hasUsage)
-    let costOnly = ledger(cost: UsageCost(lines: [UsageCostLine(currency: "USD", amount: 1)], reportedSessions: 1),
-                          sessions: [UsageSession(key: "a", actor: "m", task: "T1", attempt: 1,
-                                                  cost: [UsageCostLine(currency: "USD", amount: 1)])])
-    #expect(costOnly.hasUsage)
+    l.run.durationMs = 59_000
+    l.words = UsageWords(hasUsage: true, card: ["用量 15.4K tokens（部分上报）", "耗时 59 秒（总时长）"],
+                         voice: ["用量 15,400 tokens（部分上报）", "耗时 59 秒（总时长）"], elapsed: 1)
+    let still = l.cardLine(progress: "子任务 2 / 3", at: 2_000_000, since: 1_000_000, ticking: false)
+    #expect(still.line == "子任务 2 / 3 · 用量 15.4K tokens（部分上报） · 耗时 59 秒（总时长）")
+    #expect(still.voice == "子任务 2 / 3" + L.text("，") + "用量 15,400 tokens（部分上报）" + L.text("，") + "耗时 59 秒（总时长）")
+    let ticking = l.cardLine(progress: nil, at: 1_061_000, since: 1_000_000, ticking: true)
+    #expect(ticking.line.hasSuffix(L.text("耗时 \(L.text("\(L.dur(61_000))（总时长）"))")))
+    #expect(ticking.voice.contains(L.dur(61_000)))
 }
 
 @Test func ledgerControlStaysWhileOpenWhereNothingWasReported() {
     // A replayed position before any usage: no control while folded, but an already open ledger
     // keeps the control so it can be folded again.
-    let empty = ledger(durationMs: 400)
+    let empty = UsageLedger()
     #expect(!empty.showsLedgerControl(open: false))
     #expect(empty.showsLedgerControl(open: true))
-    let reported = ledger(durationMs: 400, sessions: [UsageSession(key: "a", actor: "m", task: nil, attempt: nil, turns: 1)])
+    var reported = UsageLedger()
+    reported.words.hasUsage = true
     #expect(reported.showsLedgerControl(open: false) && reported.showsLedgerControl(open: true))
 }
 

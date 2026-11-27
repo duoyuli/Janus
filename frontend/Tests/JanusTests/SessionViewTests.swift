@@ -54,7 +54,7 @@ import Testing
         "sessions": ["task:T1": ["events": .array(t1), "composer": "replay"]],
     ], events: events)
     #expect(run.usage.run.completeness == .partial, "the rendered card says partial")
-    #expect(run.usage.run.summaryRows.first?.value.contains(expectedCopy("部分上报", "Partially reported")) == true)
+    #expect(run.usage.words.rows.first?.value.contains("部分上报") == true)
 
     let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("janus-usage", isDirectory: true)
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

@@ -57,20 +57,8 @@ struct ReviewLine: View {
         }
     }
 
-    private var text: String {
-        switch stage {
-        case .resolving: return L.text("合并到你的分支时冲突了，你的目录和分支都没动。负责人在任务的副本里解决，解决后再次交付。")
-        case .leadWorking: return L.text("负责人在处理你的消息，处理完再验收。")
-        case .teamWorking: return L.text("负责人派了新的子任务，做完后再次交付。")
-        case .asking: return L.text("有事等你回答，见上面的「待处理」。回答后负责人接着做。")
-        case .held: return L.text("你打断了负责人这一轮，它在等你。这一轮改的东西还没有交付。")
-        case .accepted:
-            let when = d.result.accepted.map { L.clock($0) } ?? ""
-            return L.text("你已于 \(when) 验收了这次交付。") + (d.mergeNote.isEmpty ? "" : " " + d.mergeNote)
-        case .stopped: return L.text("交付之后任务停下了，见上面的运行卡片。")
-        case .awaiting, .blocked: return ""
-        }
-    }
+    /// Who it waits on now, as the server words the stage.
+    private var text: String { st.page.reviewLine ?? "" }
 }
 
 /// 「第 2 次交付」, shown once there has been more than one.
@@ -201,8 +189,8 @@ struct ReviewBody: View {
 
     /// Where the result is, and what changed: the files, the diff to review, the other deliverables.
     @ViewBuilder private var changes: some View {
-        let diff = d.deliverables.compactMap { a in st.artifacts.first { $0.path == a["path"].str && $0.isDiff } }.first
-        let others = d.deliverables.filter { a in !st.artifacts.contains { $0.path == a["path"].str && $0.isDiff } }
+        let diff = st.page.diff
+        let others = st.page.others
         VStack(alignment: .leading, spacing: 6) {
             Text(st.deliveries.count > 1 ? L.text("这一轮改了什么") : L.text("改了什么")).font(.callout.weight(.semibold))
             if !d.mergeNote.isEmpty {
@@ -278,30 +266,23 @@ struct ReviewBody: View {
                 .padding(.top, 4)
             }
         }
-        let earlier = st.deliveries.filter { $0.seq < d.result.seq }
+        let earlier = st.page.earlier
         if !earlier.isEmpty {
             DisclosureGroup(L.text("之前的交付 \(earlier.count) 次")) {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(earlier.reversed(), id: \.seq) { r in
-                        let e = Delivery(r)
+                    ForEach(earlier, id: \.seq) { e in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             RoundTag(n: e.n)
-                            Text(MD.inline(ReviewBody.firstLine(e))).font(.callout).lineLimit(2)
+                            Text(MD.inline(e.line)).font(.callout).lineLimit(2)
                             Spacer(minLength: 4)
-                            if r.accepted != nil { Text(L.text("已验收")).font(.caption).foregroundStyle(Tone.green.color) }
-                            SeqButton(seq: r.seq, run: run)
+                            if e.accepted { Text(L.text("已验收")).font(.caption).foregroundStyle(Tone.green.color) }
+                            SeqButton(seq: e.seq, run: run)
                         }
                     }
                 }
                 .padding(.top, 4)
             }
         }
-    }
-
-    /// A delivery in one line: its conclusion, or its report's first line.
-    static func firstLine(_ d: Delivery) -> String {
-        let text = d.headline.isEmpty ? d.summary : d.headline
-        return text.split(separator: "\n").first.map(String.init) ?? ""
     }
 
     private static let taskId = regex(#"^[A-Za-z][\w-]*$"#)

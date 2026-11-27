@@ -134,6 +134,8 @@ impl App {
         let show = |f: &Fold, replaying: bool| {
             let mut view = f.view(live, replaying, &words, detail);
             view.docs = f.docs(&work);
+            view.title = words.title.clone();
+            view.page = f.page(&view, &words);
             view
         };
         let mut view = match until {
@@ -141,7 +143,6 @@ impl App {
             None => self.views.current(id, |after| self.db.events(id, after), |f| show(f, false))?,
         };
         view.actions = run_ops::answers(&facts, until.is_some(), lang);
-        view.title = words.title.clone();
         Ok(Some(view))
     }
 

@@ -1397,3 +1397,4 @@ pub fn event_from_json(run: &str, v: &Value) -> Event {
 
 #[cfg(test)]
 mod tests;
+pub mod words;

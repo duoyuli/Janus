@@ -68,8 +68,13 @@ final class RunModel {
     /// `elapsedMs` ask here, so the number they show and the live judgement cannot drift apart.
     /// The expanded usage detail keeps the recorded ledger and does not follow the clock.
     // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
-    func usageDisplayed(at now: Double) -> UsageLedger {
-        usage.displayed(at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
+    func usageCard(at now: Double) -> (line: String, voice: String) {
+        usage.cardLine(progress: shown.page.progress, at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
+    }
+
+    /// The run card's wall-clock time at `now`, as `usageCard` counts it.
+    func elapsedMs(at now: Double) -> Int? {
+        usage.elapsedMs(at: now, since: shown.run.start, ticking: canAct && shown.run.status.isActive)
     }
 
     /// The seq of the last event at the replayed position; nil while live.
@@ -106,7 +111,7 @@ final class RunModel {
         usageTask?.cancel()
         usageTask = Task { [weak self] in
             guard let self, last > 0 else { return }
-            guard let j = try? await self.api.get("/api/runs/\(self.id)/usage?until=\(last)"),
+            guard let j = try? await self.api.get("/api/runs/\(self.id)/usage?until=\(last)&lang=\(L.serverLanguage)"),
                   !Task.isCancelled, self.replayedSeq == until else { return }
             self.usage = UsageLedger.server(j)
         }

@@ -377,6 +377,8 @@ struct RunState {
     var readOnly = false
     /// Above the run card while it stopped short and can go on.
     var resumeNote: String?
+    /// The run page's own lines and lists around the board, as the server writes them.
+    var page = ServedPage()
     /// The newest event the server folded in.
     var seq = 0
     /// The events shown with it, the run's log up to the shown position (the app's own copy).
@@ -413,6 +415,7 @@ struct RunState {
         readOnly = j["readOnly"].bool ?? false
         title = j["title"].str
         resumeNote = j["resumeNote"].string
+        page = ServedPage(j["page"])
         seq = j["seq"].int ?? 0
         self.events = events
     }
@@ -522,5 +525,50 @@ struct BoardFacts {
 
     init(_ j: JSON) {
         open = j["open"].array.map(OpenFact.init)
+    }
+}
+/// What the run page shows around the board, as the server writes it (`page` of the view,
+/// `backend/src/run_view/page.rs`): the delivery in one line and as text to copy, what the round
+/// changed, the deliveries before, the inspector's lists, each task page's trace and setting.
+struct ServedPage {
+    struct Earlier { let n: Int; let seq: Int; let line: String; let accepted: Bool }
+    struct TaskPage {
+        var trace: [Int] = []
+        var downstream: [String] = []
+        var structure = ""
+        var env: [(String, String)] = []
+    }
+
+    var reviewLine: String?
+    var summary: String?
+    var progress: String?
+    var diff: Artifact?
+    var others: [JSON] = []
+    var earlier: [Earlier] = []
+    var diffs: [Artifact] = []
+    var files: [Artifact] = []
+    var delivered: [RunDoc] = []
+    var tasks: [String: TaskPage] = [:]
+    var workspaceNote = ""
+    var branchNote: String?
+
+    init() {}
+
+    init(_ j: JSON) {
+        reviewLine = j["reviewLine"].string
+        summary = j["summary"].string
+        progress = j["progress"].string
+        diff = j["changes"]["diff"].isNull ? nil : Artifact(j["changes"]["diff"])
+        others = j["changes"]["others"].array
+        earlier = j["earlier"].array.map { Earlier(n: $0["n"].int ?? 0, seq: $0["seq"].int ?? 0, line: $0["line"].str, accepted: $0["accepted"].bool ?? false) }
+        diffs = j["inspector"]["diffs"].array.map(Artifact.init)
+        files = j["inspector"]["files"].array.map(Artifact.init)
+        delivered = j["inspector"]["delivered"].array.map(RunDoc.init)
+        tasks = j["tasks"].object.mapValues { t in
+            TaskPage(trace: t["trace"].array.compactMap(\.int), downstream: t["downstream"].strings, structure: t["structure"].str,
+                     env: t["env"].array.map { ($0["label"].str, $0["value"].str) })
+        }
+        workspaceNote = j["team"]["workspace"].str
+        branchNote = j["team"]["branch"].string
     }
 }

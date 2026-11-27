@@ -25,7 +25,12 @@ let serverLedger: JSON = [
     "attempts": [["task": "T1", "n": 1, "actor": "researcher", "state": "succeeded", "startedMs": 1000, "endedMs": 59000, "durationMs": 58000],
                  ["task": "T2", "n": 1, "actor": "implementer", "state": "verificationFailed", "note": "没有测试", "startedMs": 2000]],
     "sessions": [["key": "s1", "actor": "researcher", "task": "T1", "attempt": 1, "tokens": ["total": 15400], "turns": 1, "context": ["used": 52000, "size": 200000, "reports": 2], "cost": [], "firstMs": 1000, "lastMs": 59000]],
-    "reminders": [["kind": "oneTask", "task": "T1", "total": 16900, "share": 0.91], ["kind": "costUnknown"], ["kind": "somethingNew"]],
+    "reminders": [["kind": "oneTask", "task": "T1", "total": 16900, "share": 0.91], ["kind": "costUnknown"]],
+    "words": ["hasUsage": true, "card": ["用量 16.9K tokens（部分上报）", "费用 0.25 USD", "耗时 59 秒（总时长）", "上下文 26%"],
+              "voice": ["用量 16,900 tokens（部分上报）", "费用 0.25 USD", "耗时 59 秒（总时长）", "上下文 52,000 / 200,000（26%） · 峰值 61,000"],
+              "elapsed": 2, "reminders": "提醒（按已上报数据）：大部分用量集中在一个子任务：T1 占 16,900 的 91%",
+              "rows": [["label": "Token", "value": "16,900 tokens（部分上报）", "help": "h"]], "sessions": "3 个会话",
+              "tasks": [["id": "T1", "text": "15,400 tokens（完整） · 58 秒", "help": "t"]], "members": []],
 ]
 
 /// The server's ledger reads into every range, with missing numbers kept missing.
@@ -35,39 +40,25 @@ let serverLedger: JSON = [
     #expect(l.run.completeness == .partial && l.run.waitMs == 30000 && l.run.context.peak == 61000)
     #expect(l.run.cost.lines == [UsageCostLine(currency: "USD", amount: 0.25, sessions: 1)])
     #expect(l.lead.tokens.total == 1500 && l.collaborators.tokens.total == 15400)
-    #expect(l.task("T2")?.notStarted == true && l.task("T2")?.tokens.total == nil)
+    #expect(l.task("T2")?.sessions == 0 && l.task("T2")?.tokens.total == nil)
     #expect(l.attempts.map(\.state) == [.succeeded, .verificationFailed] && l.attempts[1].note == "没有测试" && l.attempts[1].durationMs == nil)
     #expect(l.sessions.first?.context.ratio == 0.26)
-    #expect(l.hasUsage)
-    #expect(l.reminders == [.oneTask(task: "T1", total: 16900, share: 0.91), .costUnknown], "a reminder this build does not know is left out")
-}
-
-/// Reminders are worded in the app's language from their numbers, prefixed when the numbers are
-/// not complete; nothing reported, no line.
-@Test func usageRemindersAreWordedFromTheirNumbers() {
-    let l = UsageLedger.server(serverLedger)
-    #expect(l.remindersLine?.hasPrefix(expectedCopy("提醒（按已上报数据）：", "Notice (reported data only): ")) == true)
-    #expect(l.remindersLine?.contains("T1") == true && l.remindersLine?.contains("16,900") == true && l.remindersLine?.contains("91%") == true)
-    #expect(UsageReminder.tokens(total: 520_000, threshold: 500_000).text.contains("520,000"))
-    #expect(UsageReminder.idleTeam(collaborators: 6, minutes: 30).text.contains("30"))
-    #expect(UsageLedger.empty.remindersLine == nil)
+    #expect(l.words.hasUsage && l.words.elapsed == 2 && l.words.reminders?.contains("91%") == true)
+    #expect(l.words.rows.first?.label == "Token" && l.words.tasks.first?.id == "T1" && l.words.sessions == "3 个会话")
 }
 
 /// The run card's wall-clock time counts from the run's start while the run is ticking (live,
 /// not replayed, still going), and keeps the recorded value everywhere else: a read-only or
-/// finished run, and a clock that reads earlier than the records. Only the run's own time moves.
+/// finished run, and a clock that reads earlier than the records.
 @Test func usageDisplayCountsUpOnlyWhileTheRunTicks() {
     let l = UsageLedger.server(serverLedger)
     let start = 1_000_000.0
-    let live = l.displayed(at: start + 61_000, since: start, ticking: true)
-    #expect(live.run.durationMs == 61_000, "ticking: now minus the start")
-    #expect(live.runCardLine(tasks: 0, done: 0).contains(L.dur(61_000)) && live.runCardVoice(tasks: 0, done: 0).contains(L.dur(61_000)),
-            "the visible line and its VoiceOver text carry the same value")
-    #expect(live.run.waitMs == l.run.waitMs && live.reminders == l.reminders && live.tasks == l.tasks && live.attempts == l.attempts,
-            "everything but the run's own time stays recorded")
-    #expect(l.displayed(at: start + 61_000, since: start, ticking: false).run.durationMs == 59_000, "not ticking: the recorded value")
-    #expect(l.displayed(at: start + 500, since: start, ticking: true).run.durationMs == 59_000, "a clock behind the records does not shrink it")
-    #expect(l.displayed(at: start + 61_000, since: 0, ticking: true).run.durationMs == 59_000, "no start, nothing to count from")
+    #expect(l.elapsedMs(at: start + 61_000, since: start, ticking: true) == 61_000, "ticking: now minus the start")
+    let card = l.cardLine(progress: nil, at: start + 61_000, since: start, ticking: true)
+    #expect(card.line.contains(L.dur(61_000)) && card.voice.contains(L.dur(61_000)), "the visible line and its VoiceOver text carry the same value")
+    #expect(l.elapsedMs(at: start + 61_000, since: start, ticking: false) == 59_000, "not ticking: the recorded value")
+    #expect(l.elapsedMs(at: start + 500, since: start, ticking: true) == 59_000, "a clock behind the records does not shrink it")
+    #expect(l.elapsedMs(at: start + 61_000, since: 0, ticking: true) == 59_000, "no start, nothing to count from")
 }
 
 /// A replayed position of a running prefix never ticks with the clock.
@@ -82,5 +73,5 @@ let serverLedger: JSON = [
     run.replay = events.count
     run.usage = UsageLedger.server(serverLedger)
     #expect(!run.elapsedTicks, "a replayed position does not ask for a per-second timeline")
-    #expect(run.usageDisplayed(at: 1_061_000).run.durationMs == 59_000, "a replay position keeps its ledger's value")
+    #expect(run.elapsedMs(at: 1_061_000) == 59_000, "a replay position keeps its ledger's value")
 }

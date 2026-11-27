@@ -104,18 +104,6 @@ struct AuditView: View {
 struct TeamView: View {
     let run: RunModel
 
-    /// What the run does to its directory, from facts rather than the sentence recorded at creation.
-    private func wsNote(_ r: RunInfo) -> String {
-        if r.git { return r.workspace.isEmpty ? L.text("Git 仓库，基线 \(String(r.baseRef.prefix(7)))") : r.workspace }
-        return L.text("不是 Git 仓库：直接改这个目录，没有 diff")
-    }
-
-    /// Where a run in a worktree merges its result back, and whether it has.
-    private func mergeNote(_ r: RunInfo) -> String {
-        let source = r.branch.isEmpty ? "detached HEAD" : r.branch
-        return r.merged ? L.text("已合并到 \(source)") : L.text("交付时合并到 \(source)")
-    }
-
     var body: some View {
         let full = run.state
         ScrollView {
@@ -129,8 +117,8 @@ struct TeamView: View {
                     if let ws = run.store.workspace(run.workspaceId) { Button(L.text("工作区设置…")) { run.store.editingWorkspace = ws.json } }
                 }
                 Card {
-                    KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), wsNote(full.run))]
-                       + (full.run.repo.isEmpty ? [] : [(L.text("工作目录"), full.run.cwd), (L.text("分支"), mergeNote(full.run))])
+                    KV(rows: [(L.text("负责人"), run.agentName("lead")), (L.text("工作区"), full.page.workspaceNote)]
+                       + (full.page.branchNote.map { [(L.text("工作目录"), full.run.cwd), (L.text("分支"), $0)] } ?? [])
                        + [(L.text("开始"), L.dateTime(full.run.start))])
                 }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12, alignment: .top)], spacing: 12) {

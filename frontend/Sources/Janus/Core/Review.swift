@@ -44,7 +44,6 @@ struct Delivery {
     /// library tools the lead called after delegating; each with the task it is about, if any.
     var risks: [(task: String?, text: String)] { d["risks"].array.map { ($0["task"].string, $0["text"].str) }.filter { !$0.text.isEmpty } }
     var evidence: [JSON] { d["evidence"].array }
-    var deliverables: [JSON] { d["deliverables"].array }
 
     init(_ result: RunResult) { self.result = result }
 }

@@ -397,12 +397,12 @@ enum Snapshots {
                     "agents": .object(s.agents.mapValues { JSON($0.phase.rawValue) }),
                     "tokens": r.usage.run.tokens.total.map { JSON($0) } ?? .null,
                     // The collaborators' time as the usage section words it, and the numbers behind it.
-                    "subtaskTime": JSON(r.usage.time.value),
+                    "subtaskTime": JSON(r.usage.words.rows.first { $0.label == L.text("子任务") }?.value),
                     "subtaskMs": ["work": JSON(r.usage.time.workMs), "verify": JSON(r.usage.time.verifyMs), "rework": JSON(r.usage.time.reworkMs)],
                     // The run card's wall-clock time right now, from the same displayed ledger and
                     // live judgement as the view: the end-to-end test checks it advances by the
                     // second without new events (docs/operations/20261031-testing.md#product_e2e).
-                    "elapsedMs": r.usageDisplayed(at: L.nowMs()).run.durationMs.map { JSON($0) } ?? .null,
+                    "elapsedMs": r.elapsedMs(at: L.nowMs()).map { JSON($0) } ?? .null,
                     // Where the run works and where its accepted result went, as the delivery shows it.
                     "worktree": JSON(s.run.repo.isEmpty ? nil : s.run.cwd), "branch": JSON(s.run.branch.isEmpty ? nil : s.run.branch), "merged": .bool(s.run.merged),
                     // The blocks the last agent message is drawn as (`MarkdownText`).

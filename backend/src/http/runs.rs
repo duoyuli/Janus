@@ -130,6 +130,8 @@ pub(super) async fn get(
 #[derive(Deserialize)]
 pub(super) struct Until {
     until: Option<i64>,
+    /// `zh` or `en`, for the ledger's words; the app's language without.
+    lang: Option<String>,
 }
 
 /// The run's read-only usage ledger over its event log up to and including seq `until` (all of it
@@ -148,7 +150,11 @@ pub(super) async fn usage(
     if let Some(until) = q.until {
         events.retain(|e| e.seq <= until);
     }
-    reply(usage::ledger(&events))
+    let lang = super::views::lang_of(&app, q.lang.as_deref())?;
+    let ledger = usage::ledger(&events);
+    let mut j = serde_json::to_value(&ledger).map_err(anyhow::Error::from)?;
+    j["words"] = serde_json::to_value(usage::words::words(&ledger, lang)).map_err(anyhow::Error::from)?;
+    reply(j)
 }
 
 #[derive(Deserialize)]

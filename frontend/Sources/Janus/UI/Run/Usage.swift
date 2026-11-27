@@ -6,10 +6,9 @@ import SwiftUI
 
 /// The run's usage ledger, opened from the run card's summary line (W1 F3). It is the expanded
 /// body only: the summary line already names the totals and their completeness, so the body does
-/// not repeat the card title, the completeness capsule or the reminders. Tokens, makeup, cost,
-/// wall-clock time, context snapshots, the lead and collaborator subtotals and the task and member
-/// detail all come from `UsageScope.summaryRows`, so a test reads exactly what this card shows. A
-/// missing number is written in words and never as 0.
+/// not repeat the card title, the completeness capsule or the reminders. Its rows and the task and
+/// member detail are the server's words (`UsageWords`). A missing number is written in words and
+/// never as 0.
 // @project-doc docs/architecture/20261031-frontend.md#usage_ledger
 struct UsageSection: View {
     let run: RunModel
@@ -17,34 +16,16 @@ struct UsageSection: View {
     /// The second-level task and member list, closed until asked for.
     @Local private var detail = false
 
-    /// What each row means, shown on hover.
-    private var help: [String: String] { [
-        "Token": L.text("每轮 Agent 上报的 Token 之和（含子 Agent）；没上报写「未上报」，上下文快照不计入"),
-        L.text("构成"): L.text("输入、缓存读取、缓存写入和输出；为 0 的不列"),
-        L.text("费用"): L.text("Agent 上报的原值；没上报就写「未上报」，不按 Token 估算"),
-        L.text("耗时"): L.text("总时长：从任务创建到最后一条事件；等你的时间单独列出"),
-        L.text("上下文"): L.text("上下文快照只看最近值和峰值，不算进 Token 总量"),
-        L.text("小计"): L.text("总计含负责人；负责人和协作者分开列"),
-        L.text("子任务"): L.text("每次尝试从开始到结束的时间相加；同时进行的尝试各算各的。验证是独立验证的尝试，返工是失败后或负责人发回后的再次尝试"),
-    ] }
-
     var body: some View {
         let u = run.usage
-        let subtotal = u.subtotalLine
-        let rowHelp = help
         VStack(alignment: .leading, spacing: 9) {
             Divider()
-            ForEach(u.run.summaryRows) { row in
-                UsageRow(label: row.label, value: row.value).help(rowHelp[row.label] ?? "")
+            ForEach(u.words.rows) { row in
+                UsageRow(label: row.label, value: row.value).help(row.help)
             }
-            if let time = u.time.value {
-                UsageRow(label: L.text("子任务"), value: time).help(rowHelp[L.text("子任务")] ?? "")
-            }
-            UsageRow(label: subtotal.label, value: subtotal.value).help(rowHelp[subtotal.label] ?? "")
             HStack(spacing: 8) {
-                Text(verbatim: L.text("\(u.run.sessions) 个会话")).font(.caption).foregroundStyle(.secondary)
+                Text(verbatim: u.words.sessions).font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                // A disclosure, not a link: it opens the task and member list at this level.
                 Button { detail.toggle() } label: {
                     HStack(spacing: 6) {
                         DisclosureChevron(open: detail)
@@ -59,13 +40,13 @@ struct UsageSection: View {
                 .help(L.text("按子任务和成员拆开看用量"))
                 .accessibilityLabel(detail ? L.text("收起子任务与成员明细") : L.text("展开子任务与成员明细"))
             }
-            if detail { details(u) }
+            if detail { details(u.words) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L.text("这次任务的用量明细"))
     }
 
-    @ViewBuilder private func details(_ u: UsageLedger) -> some View {
+    @ViewBuilder private func details(_ u: UsageWords) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             if u.tasks.isEmpty && u.members.isEmpty {
                 Text(L.text("还没有子任务和会话。")).font(.caption).foregroundStyle(.secondary)
@@ -76,13 +57,13 @@ struct UsageSection: View {
                         TaskTag(id: scope.id)
                         Text(st.tasks[scope.id]?.title ?? "").font(.callout).lineLimit(1)
                         Spacer(minLength: 8)
-                        Text(verbatim: u.taskDetail(scope)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(verbatim: scope.text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .contentShape(Rectangle())
                     .hoverable(6)
                 }
                 .buttonStyle(.plain)
-                .help(L.text("\(u.taskDetail(scope)) · \(scope.costDetail)，点按打开子任务页"))
+                .help(scope.help)
             }
             if !u.tasks.isEmpty && !u.members.isEmpty { Divider() }
             ForEach(u.members, id: \.id) { member in
@@ -93,21 +74,19 @@ struct UsageSection: View {
                         Text(w.name).font(.callout).lineLimit(1)
                         if member.id == "lead", w.name != L.text("负责人") { Text(L.text("负责人")).font(.caption2).foregroundStyle(.secondary) }
                         Spacer(minLength: 8)
-                        Text(verbatim: u.memberDetail(member)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text(verbatim: member.text).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     .contentShape(Rectangle())
                     .hoverable(6)
                 }
                 .buttonStyle(.plain)
-                .help(u.memberDetail(member) + (member.contextDetail.map { L.text(" · 上下文 \($0)") } ?? ""))
+                .help(member.help)
             }
         }
         .padding(.leading, 4)
     }
 }
 
-/// A usage row: a short label and its value. The value says 「未上报」 / 「口径未知」 in words, so a
-/// missing number never reads as 0.
 struct UsageRow: View {
     let label: String
     let value: String

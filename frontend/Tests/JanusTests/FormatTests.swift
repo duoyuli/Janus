@@ -94,19 +94,8 @@ func expectedCopy(_ chinese: String, _ english: String) -> String {
     #expect(usageMoney(0.25) == "0.25" && usageMoney(5) == "5" && usageMoney(0.12345) == "0.1235")
     #expect(usagePercent(0.26) == "26%")
 
-    var zero = UsageScope(id: "run")
-    zero.tokens = UsageTokens(total: 0)
-    zero.completeness = .complete
-    #expect(zero.tokensText == expectedCopy("0 tokens（完整）", "0 tokens (Complete)"))
-    #expect(zero.breakdown == nil, "parts of 0 are not listed")
-
     let missing = UsageScope(id: "run")
-    #expect(missing.tokensText == expectedCopy("未上报", "Not reported"))
-    #expect(missing.costText == expectedCopy("费用：未上报", "Cost: Not reported"))
     #expect(missing.costDetail == expectedCopy("未上报", "Not reported"))
-    #expect(missing.durationText == expectedCopy("没有时长记录", "No duration recorded"))
-    #expect(missing.contextDetail == nil)
-    #expect(UsageLedger.empty.remindersLine == nil)
 }
 
 /// The audit filter's categories, compared by prefix (each event is asked on every draw).
