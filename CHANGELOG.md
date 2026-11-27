@@ -4,6 +4,48 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.27
+
+- 新增 Web 版：在浏览器里用 Janus，功能和 Mac 应用对齐，包括收件箱、工作区、新建任务和对话、任务页（交付审阅、会话、时间线、子任务、审计与回放、团队、diff 审阅、文档）、对话、值班、团队记忆和设置（数字员工、Agent、资源库、用量账单）。页面由 Janus 服务直接提供，不用另装；手机宽度下用底部页签，编辑器占满整屏，删除、停止等操作前从底部弹出确认。只能在 Mac 上做的事（手机访问的开关和配对、更新、macOS 权限、本机环境）在 Web 上写明去 Mac 操作；Web 上新建工作区时手动填写目录路径。
+
+- 新增「设置 › 手机访问」：打开后，同一局域网或同一 Tailscale 里的手机扫二维码配对，就能用 Web 版；默认关闭。每台配对的设备都列在这里，可以随时取消配对，取消后它立即失效。只接受私有网络和 Tailscale 的连接，在外面请经 Tailscale 连回来，不要把端口转发到外网；局域网里是明文传输。「在浏览器中打开」在这台 Mac 的浏览器里配对并打开 Web 版。
+
+- 配对的设备和 Mac 应用一样，能在编辑器里看到并修改资源库 MCP 服务器的值和 Agent 的环境变量；本机环境、配对码和手机访问的开关仍只在 Mac 上。
+
+- Janus 写给 Agent 的语言只跟着 Mac 应用的语言设置；Web 版换语言只改它自己的显示。
+
+- 任务能不能继续、暂停、停止、验收、删除，改由 Janus 服务判断，并写明不能的原因。修复：已交付、已验收的任务，服务允许继续，应用却不给「继续」。
+
+- 修复：侧栏和收件箱对「干活中」算法不同，排队中的任务在两处显示不一致；现在都以服务给出的为准。
+
+- 任务页、会话、请求卡片和表单、验收证据、时间线、审计、成员面板、值班、团队记忆、设置、资源库和用量账单上的文字和排序，全部由 Janus 服务按界面语言写好，Mac 应用和 Web 版只负责显示，两边永远说同一句话。会话按轮的分组、每行的文字、diff 的解析和文档清单也在服务端算。
+
+- 数字员工的头像可以直接选任意图片（20 MB 以内），由服务裁成正方形。
+
+- 把负责人建议的内容或一条团队笔记加入共享资料时，草稿由服务写好，Mac 和 Web 打开的一样。
+
+- 内部：应用读的文档、diff、图片和运行组件日志都经 HTTP 读取，不再直接读 Janus home 里的文件；删除 `/api/file`。新增 `web/`（TypeScript、Vite、Preact，构建时用 `npm ci --ignore-scripts` 按 lockfile 安装，运行时不联网），构建结果嵌进 `janus`；CI 新增 Web 任务，`just e2e` 新增第 5 步「Web 端到端测试」，在 Chrome 里按桌面和手机两种宽度比对服务端数据。Swift 中原来的推导和对应测试删掉，改为 Rust 测试。修复一个会话滚动测试在屏幕解锁时卡死的问题（测试数据没跟上服务端排好的行）。新增 ADR：Web 客户端、手机扫码配对、凭据也给配对的设备。
+
+- New: a web version of Janus, matching the Mac app: the inbox, workspaces, new goals and chats, the run page (delivery review, conversations, timeline, subtasks, audit and replay, team, diff review, documents), chats, Loops, team memory and settings (digital employees, agents, library, usage bill). The Janus service serves it; nothing else to install. At phone width it has tabs at the bottom, editors fill the screen, and deleting or stopping asks first in a sheet from the bottom. What only the Mac can do (phone access and pairing, updates, macOS permissions, the host environment) says so on the web; a new workspace on the web takes its folder as a typed path.
+
+- New: Settings › Phone Access. Turned on, a phone on the same local network or the same Tailscale network scans a QR code to pair and use the web version; it is off by default. Each paired device is listed and can be unpaired at any time, which takes effect at once. Only private networks and Tailscale are let in: when away, come back through Tailscale and never forward the port to the Internet; on the local network traffic is not encrypted. Open in Browser pairs and opens the web version in this Mac's browser.
+
+- Paired devices, like the Mac app, can see and change library MCP server values and agents' environment variables in the editors; the host environment, pairing codes and the phone access switch stay on the Mac.
+
+- The language Janus writes to agents follows only the Mac app's language; changing the web version's language changes only what it shows.
+
+- Whether a run can be resumed, paused, stopped, accepted or deleted is now decided by the Janus service, which also says why not. Fixed: delivered and accepted goals could be resumed by the service, but the app did not offer Resume.
+
+- Fixed: the sidebar and the inbox counted "At work" differently, so a queued run showed differently in the two; both now read the service.
+
+- The words and order on the run page, conversations, request cards and forms, acceptance evidence, timeline, audit, team panel, Loops, team memory, settings, library and usage bill are all written by the Janus service in the interface language; the Mac app and the web version only draw them, so both always say the same. A conversation's turns, each line's words, diff parsing and the document list are worked out on the service too.
+
+- A digital employee's picture can be any image up to 20 MB; the service crops it square.
+
+- Taking a lead's suggestions or a team note into the shared material opens a draft the service writes, the same on the Mac and the web.
+
+- Internal: documents, diffs, images and runtime logs the app shows are read over HTTP, no longer from files in the Janus home; `/api/file` is removed. New `web/` (TypeScript, Vite, Preact; installed at build time with `npm ci --ignore-scripts` from the lockfile, nothing fetched at run time), built into the `janus` binary; CI gains a web job and `just e2e` a fifth step, the web end-to-end test, comparing what Chrome draws at desktop and phone widths with the service. The Swift derivations and their tests are gone, replaced by Rust tests. Fixed a conversation scrolling test that hung on an unlocked screen (its fixture lacked the rows the service lays out). New ADRs: the web client, pairing phones over the local network, credentials for paired devices.
+
 ## 2026.11.26.14
 
 - 收件箱的「稍后」和「忽略」记在 Janus 服务里，不再只存在这台 Mac 上：在别处推迟、拿回或忽略一项，这里不用刷新就跟上。升级后，之前推迟或忽略过的事项会回到「待处理」，需要再处理一次。
