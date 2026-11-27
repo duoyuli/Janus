@@ -10,6 +10,7 @@ import { show } from "../../lib/store.ts";
 import { useDrawn } from "../../lib/testing.ts";
 import { Button, Card, Note, Spinner } from "../../ui/kit.tsx";
 import { Segmented } from "../../ui/form.tsx";
+import { copyText } from "../../lib/plain-http.ts";
 
 type Period = "week" | "days30" | "thisMonth" | "lastMonth";
 
@@ -41,7 +42,7 @@ export function UsagePane() {
   };
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(r.text);
+      await copyText(r.text);
       show(t`已复制用量账单`);
     } catch (e) {
       show((e as Error).message);

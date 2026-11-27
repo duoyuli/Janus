@@ -10,6 +10,7 @@ import { api, type Json } from "./api.ts";
 import { confirm, confirmDeleteRun } from "./confirm.ts";
 import { serverLang, tr } from "./i18n.ts";
 import { RunPager } from "./pager.ts";
+import { randomId } from "./plain-http.ts";
 
 export const meta = signal<Json>(null);
 export const connections = signal<Json[]>([]);
@@ -110,7 +111,7 @@ export async function loadInbox() {
 export async function inboxAct(e: Json, a: Json) {
   inbox.answering.value = new Set([...inbox.answering.value, e.key]);
   try {
-    await api.post(`/api/runs/${e.run}/actions`, { ...a.body, commandId: crypto.randomUUID() });
+    await api.post(`/api/runs/${e.run}/actions`, { ...a.body, commandId: randomId() });
   } catch (err) {
     show(String((err as Error).message));
   }

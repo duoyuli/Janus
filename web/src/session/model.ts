@@ -11,6 +11,7 @@ import { serverLang, t } from "../lib/i18n.ts";
 import { load, save } from "../lib/prefs.ts";
 import { show } from "../lib/store.ts";
 import type { PickedImage } from "../ui/form.tsx";
+import { randomId } from "../lib/plain-http.ts";
 
 /** How much of an agent's work a conversation shows; one choice for every conversation on this browser. */
 export type Density = "summary" | "detail";
@@ -179,7 +180,7 @@ export class RunModel {
    * False when the service refused it, and says why. */
   async act(body: Json): Promise<boolean> {
     if (this.replay.value !== null) return false;
-    const b = { ...body, commandId: crypto.randomUUID() };
+    const b = { ...body, commandId: randomId() };
     for (let attempt = 0; attempt < 2; attempt++) {
       b.expectedSequence = this.events.value.at(-1)?.seq ?? 0;
       try {

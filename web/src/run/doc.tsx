@@ -14,6 +14,7 @@ import { Button, Card, Spinner } from "../ui/kit.tsx";
 import { Markdown } from "../session/Markdown.tsx";
 import type { RunModel } from "../session/model.ts";
 import { runLink } from "./nav.ts";
+import { copyText } from "../lib/plain-http.ts";
 
 /** `href` from the folder of `doc`, as a path. */
 export function resolvePath(doc: string, href: string): string {
@@ -56,7 +57,7 @@ export function DocPage({ run, path, from }: { run: RunModel; path: string; from
     },
   };
   const copy = (s: string, done: string) => {
-    void navigator.clipboard?.writeText(s).then(() => show(done), () => show(s));
+    void copyText(s).then(() => show(done), () => show(s));
   };
   return (
     <div class="page doc-page">

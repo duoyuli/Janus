@@ -26,6 +26,7 @@ import { agentLink, docLink, runLink, type RunSub, taskLink } from "./nav.ts";
 import { AgentPage, AuditPage, TaskPage, TeamPage } from "./pages.tsx";
 import { clock, short } from "./parts.tsx";
 import "./run.css";
+import { copyText } from "../lib/plain-http.ts";
 
 /** Delete a run (`DELETE /api/runs/{id}`); what the service says when it may not. */
 async function deleteRun(id: string): Promise<boolean> {
@@ -152,7 +153,7 @@ function RunFrame({ run, full, title, tab, inboxCount, replayBar, page }: { run:
 }
 
 function copySummary(text: string) {
-  void navigator.clipboard?.writeText(text).then(() => show(t`已复制交付摘要`), () => show(text));
+  void copyText(text).then(() => show(t`已复制交付摘要`), () => show(text));
 }
 
 /** The run's event log as a file, through the browser's download. */
