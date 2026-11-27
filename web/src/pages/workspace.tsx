@@ -303,10 +303,10 @@ function GoalComposer({ ws, problems, firstRun }: { ws: Json; problems: Json[]; 
   };
   return (
     <div class="stack">
-      <div class="composer card">
+      <div class="goal-composer card">
         <ImageStrip images={images.value} onChange={(v) => (images.value = v)} />
         <textarea
-          class="composer-field"
+          class="goal-field"
           rows={4}
           placeholder={t`想要什么结果？`}
           aria-label={t`想要什么结果？`}
@@ -326,7 +326,7 @@ function GoalComposer({ ws, problems, firstRun }: { ws: Json; problems: Json[]; 
             }
           }}
         />
-        <div class="composer-bar">
+        <div class="goal-bar">
           <AddImages onPick={(f) => void add(f)} disabled={images.value.length >= MAX_IMAGES} />
           <span class="caption">{t`可以粘贴截图`}</span>
           <span class="grow" />
@@ -336,7 +336,7 @@ function GoalComposer({ ws, problems, firstRun }: { ws: Json; problems: Json[]; 
         </div>
       </div>
       {firstRun && (
-        <div class="suggestions">
+        <div class="goal-suggestions">
           {SUGGESTIONS().map(([name, text]) => (
             <Button small title={text} onClick={() => (draft.value = text!)}>
               {name}

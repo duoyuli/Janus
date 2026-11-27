@@ -100,7 +100,7 @@ export function DiffPage({ run, path }: { run: RunModel; path: string }) {
                         </div>
                         {editing === l.id ? (
                           <div class="comment-edit">
-                            <textarea class="field" rows={2} placeholder={t`这一行要怎么改`} value={draft} onInput={(e) => setDraft(e.currentTarget.value)} />
+                            <textarea class="text-field" rows={2} placeholder={t`这一行要怎么改`} value={draft} onInput={(e) => setDraft(e.currentTarget.value)} />
                             <div class="flow end">
                               {comments[l.id] !== undefined && (
                                 <Button onClick={() => { const c = { ...comments }; delete c[l.id]; setComments(c); setEditing(null); }}>{t`删除`}</Button>
@@ -126,7 +126,7 @@ export function DiffPage({ run, path }: { run: RunModel; path: string }) {
         </div>
       )}
       <div class="diff-footer card">
-        <input class="field grow" placeholder={t`总体意见（可选）`} value={summary} onInput={(e) => setSummary(e.currentTarget.value)} />
+        <input class="text-field grow" placeholder={t`总体意见（可选）`} value={summary} onInput={(e) => setSummary(e.currentTarget.value)} />
         <span class="callout secondary">{t`${Object.keys(comments).length} 条意见`}</span>
         {sent && <span class="callout fg-green">{sent}</span>}
         {!ofRun && (

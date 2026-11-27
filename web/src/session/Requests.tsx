@@ -30,7 +30,7 @@ function Shell({ run, card, children, controls }: { run: RunModel; card: Json; c
       </div>
       {children}
       {(card.facts ?? []).map(([k, v]: [string, string]) => (
-        <div class="kv">
+        <div class="fact-row">
           <span class="secondary">{k}</span>
           <span>{v}</span>
         </div>
@@ -42,11 +42,11 @@ function Shell({ run, card, children, controls }: { run: RunModel; card: Json; c
 
 function Choice({ title, sub, on, multi, accent, onClick, disabled }: { title: string; sub?: string; on: boolean; multi?: boolean; accent?: boolean; onClick: () => void; disabled?: boolean }) {
   return (
-    <button type="button" class={"choice" + (on ? " on" : "")} aria-pressed={on} onClick={onClick} disabled={disabled}>
-      <span class="choice-mark" aria-hidden="true">
+    <button type="button" class={"answer" + (on ? " on" : "")} aria-pressed={on} onClick={onClick} disabled={disabled}>
+      <span class="answer-mark" aria-hidden="true">
         {multi ? (on ? "☑" : "☐") : on ? "◉" : "○"}
       </span>
-      <span class="choice-text">
+      <span class="answer-text">
         <span>{title}</span>
         {sub && <span class={"caption" + (accent ? " accent" : "")}>{sub}</span>}
       </span>
@@ -96,7 +96,7 @@ function QuestionAsk({ run, card }: { run: RunModel; card: Json }) {
       controls={
         <>
           {options.length > 0 && (
-            <div class="choices">
+            <div class="answers">
               {options.map((o) => (
                 <Choice
                   title={o}
@@ -110,7 +110,7 @@ function QuestionAsk({ run, card }: { run: RunModel; card: Json }) {
             </div>
           )}
           <textarea
-            class="field"
+            class="text-field"
             rows={2}
             disabled={!can}
             placeholder={decision ? (options.length ? t`补充说明（可选）` : t`你的回答`) : t`补充说明（可选），会和回答一起发给 Agent`}
@@ -248,7 +248,7 @@ function SchemaForm({ run, card, disabled }: { run: RunModel; card: Json; disabl
           case "multi": {
             const multi = f.kind === "multi";
             field = (
-              <div class="choices">
+              <div class="answers">
                 {f.choices.map((o: Json) => {
                   const on = multi ? (Array.isArray(cur) ? cur : []).some((x: Json) => same(x, o.value)) : same(cur, o.value);
                   return (
@@ -277,7 +277,7 @@ function SchemaForm({ run, card, disabled }: { run: RunModel; card: Json; disabl
           case "number":
             field = (
               <input
-                class="field narrow"
+                class="text-field narrow"
                 inputMode="decimal"
                 disabled={disabled}
                 aria-label={f.title}
@@ -290,10 +290,10 @@ function SchemaForm({ run, card, disabled }: { run: RunModel; card: Json; disabl
             );
             break;
           case "line":
-            field = <input class="field" disabled={disabled} aria-label={f.title} value={cur ?? ""} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />;
+            field = <input class="text-field" disabled={disabled} aria-label={f.title} value={cur ?? ""} onInput={(e) => set(f.key, (e.target as HTMLInputElement).value)} />;
             break;
           default:
-            field = <textarea class="field" rows={3} disabled={disabled} aria-label={f.title} value={cur ?? ""} onInput={(e) => set(f.key, (e.target as HTMLTextAreaElement).value)} />;
+            field = <textarea class="text-field" rows={3} disabled={disabled} aria-label={f.title} value={cur ?? ""} onInput={(e) => set(f.key, (e.target as HTMLTextAreaElement).value)} />;
         }
         return (
           <div class="form-field">
@@ -305,7 +305,7 @@ function SchemaForm({ run, card, disabled }: { run: RunModel; card: Json; disabl
             {field}
             {f.custom && (
               <input
-                class="field"
+                class="text-field"
                 disabled={disabled}
                 placeholder={f.custom.placeholder}
                 value={values[f.custom.key] ?? ""}

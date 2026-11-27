@@ -101,14 +101,14 @@
   display: block;
 }
 
-.composer {
+.goal-composer {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
 }
 
-.composer-field {
+.goal-field {
   width: 100%;
   min-height: 110px;
   border: 0;
@@ -120,13 +120,13 @@
   line-height: 1.5;
 }
 
-.composer-bar {
+.goal-bar {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.suggestions {
+.goal-suggestions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -295,7 +295,7 @@
     flex: 1 1 150px;
   }
 
-  .composer-bar .btn-primary {
+  .goal-bar .btn-primary {
     min-height: var(--tap);
   }
 }

@@ -326,11 +326,11 @@ export function AuditPage({ run, seq }: { run: RunModel; seq: number | null }) {
             <button type="button" role="tab" aria-selected={f.cat === v} class={"segment" + (f.cat === v ? " on" : "")} onClick={() => set("cat", v)}>{label}</button>
           ))}
         </div>
-        <select class="field" aria-label={t`子任务`} value={f.task} onChange={(e) => set("task", e.currentTarget.value)}>
+        <select class="text-field" aria-label={t`子任务`} value={f.task} onChange={(e) => set("task", e.currentTarget.value)}>
           <option value="">{t`全部子任务`}</option>
           {(full?.tasks ?? []).map((x: Json) => <option value={x.id}>{`${x.id} ${short(x.title, 14)}`}</option>)}
         </select>
-        <select class="field" aria-label={t`参与者`} value={f.actor} onChange={(e) => set("actor", e.currentTarget.value)}>
+        <select class="text-field" aria-label={t`参与者`} value={f.actor} onChange={(e) => set("actor", e.currentTarget.value)}>
           <option value="">{t`全部参与者`}</option>
           {actors.map((a) => <option value={a}>{who(run, a).name}</option>)}
         </select>

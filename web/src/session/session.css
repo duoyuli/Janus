@@ -686,19 +686,20 @@
   white-space: pre-wrap;
 }
 
-.kv {
+.fact-row {
   display: flex;
   gap: 12px;
   font-size: 13px;
 }
 
-.choices {
+/* A request's options to pick from (not the segmented `.choice` of pages.css). */
+.answers {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.choice {
+.answer {
   display: inline-flex;
   align-items: baseline;
   gap: 7px;
@@ -713,26 +714,26 @@
   font: inherit;
 }
 
-.choice.on {
+.answer.on {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.choice-mark {
+.answer-mark {
   color: var(--secondary);
 }
 
-.choice.on .choice-mark {
+.answer.on .answer-mark {
   color: var(--accent);
 }
 
-.choice-text {
+.answer-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.field {
+.text-field {
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
@@ -743,7 +744,7 @@
   font: inherit;
 }
 
-.field.narrow {
+.text-field.narrow {
   max-width: 200px;
 }
 
@@ -848,7 +849,7 @@
   }
 
   .suggest-row,
-  .choice {
+  .answer {
     min-height: var(--tap);
   }
 }
@@ -876,6 +877,19 @@
     flex-wrap: nowrap;
   }
 
+  /* More than one button (stop, take over, send …): they take their own line under the field. */
+  .composer-line:has(.composer-buttons > :nth-child(2)) {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "box box"
+      "attach send";
+  }
+
+  .composer-line:has(.composer-buttons > :nth-child(2)) .composer-buttons {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
   .composer-field {
     min-height: var(--tap);
     resize: none;
@@ -887,6 +901,6 @@
   }
 
   .density .choice {
-    min-height: 36px;
+    min-height: 32px;
   }
 }
