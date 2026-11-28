@@ -390,26 +390,31 @@ fn a_replay_prefix_gives_the_numbers_of_that_point() {
 
 #[test]
 fn reminders_carry_their_numbers() {
-    let mut e = vec![];
-    created(&mut e);
-    e.push(ev(2, 2_000, "agent.status", "lead", None, None, json!({ "session": "lead-1" })));
-    usage(&mut e, 3, 3_000, "lead", None, None, json!({ "used": 4000, "size": 200000 }));
-    started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
-    usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": 520_000 }));
-    let l = ledger(&e);
+    let run = |total: i64| {
+        let mut e = vec![];
+        created(&mut e);
+        e.push(ev(2, 2_000, "agent.status", "lead", None, None, json!({ "session": "lead-1" })));
+        usage(&mut e, 3, 3_000, "lead", None, None, json!({ "used": 4000, "size": 200000 }));
+        started(&mut e, 4, 4_000, "m1", "T1", 1, "s1");
+        usage(&mut e, 5, 5_000, "m1", Some("T1"), Some(1), json!({ "totalTokens": total }));
+        ledger(&e)
+    };
+    let l = run(120_000_000);
     assert_eq!(l.run.completeness, Completeness::Partial, "the lead reported context but no tokens");
     assert_eq!(
         l.reminders,
         [
-            Reminder::Tokens { total: 520_000, threshold: TOKEN_REMINDER },
-            Reminder::OneTask { task: "T1".into(), total: 520_000, share: 1.0 },
+            Reminder::Tokens { total: 120_000_000, threshold: TOKEN_REMINDER },
+            Reminder::OneTask { task: "T1".into(), total: 120_000_000, share: 1.0 },
             Reminder::CostUnknown,
         ]
     );
     assert_eq!(
         serde_json::to_value(&l.reminders[1]).unwrap(),
-        json!({ "kind": "oneTask", "task": "T1", "total": 520000, "share": 1.0 })
+        json!({ "kind": "oneTask", "task": "T1", "total": 120000000, "share": 1.0 })
     );
+    // Six million tokens are an ordinary run's: only the missing cost is worth a word.
+    assert_eq!(run(6_000_000).reminders, [Reminder::CostUnknown]);
 }
 
 #[test]

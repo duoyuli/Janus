@@ -30,11 +30,12 @@ use serde::Serialize;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-/// Default reminder thresholds. The run reached this many tokens.
-pub const TOKEN_REMINDER: i64 = 500_000;
+/// Default reminder thresholds. The run reached this many tokens: below it a run's tokens are no
+/// news, however many collaborators share them.
+pub const TOKEN_REMINDER: i64 = 100_000_000;
 /// One task holds at least this share of a run of at least [`TASK_SHARE_FLOOR`] tokens.
 pub const TASK_SHARE: f64 = 0.6;
-pub const TASK_SHARE_FLOOR: i64 = 50_000;
+pub const TASK_SHARE_FLOOR: i64 = TOKEN_REMINDER;
 /// This many collaborators and no task succeeded within [`IDLE_WITHOUT_SUCCESS`].
 pub const MANY_COLLABORATORS: usize = 5;
 pub const IDLE_WITHOUT_SUCCESS: i64 = 30 * 60 * 1000;
