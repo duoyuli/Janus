@@ -60,9 +60,14 @@ def devices(ctx, c):
     c(refused(lambda: browser(ctx, "POST", "/api/devices/claim", {"code": code, "name": "又一次"})) == 401, "同一个配对码不能再用")
     me = browser(ctx, "GET", "/api/devices/me", cookie=token)
     c(me["name"] == "e2e 手机", "带 cookie 的浏览器知道自己是哪台设备")
-    mine = browser(ctx, "GET", "/api/inbox", cookie=token)
-    c(mine.keys() == ctx.api("GET", "/api/inbox").keys() and len(mine["open"]) == len(ctx.api("GET", "/api/inbox")["open"]),
-      "带 cookie 的浏览器读到的收件箱和本机应用读到的一样")
+    # Other scenarios share the service and add to the inbox between two reads: compare reads
+    # that saw the same moment, the local one before and after the browser's agreeing.
+    def same_inbox():
+        before = ctx.api("GET", "/api/inbox")
+        mine = browser(ctx, "GET", "/api/inbox", cookie=token)
+        after = ctx.api("GET", "/api/inbox")
+        return len(before["open"]) == len(after["open"]) and mine.keys() == after.keys() and len(mine["open"]) == len(after["open"])
+    c(bool(wait(same_inbox, "浏览器和本机读到同一时刻的收件箱", timeout=10)), "带 cookie 的浏览器读到的收件箱和本机应用读到的一样")
     ctx.api("POST", "/api/setup/connections", {"id": "devices-claude", "kind": "claude", "name": "devices claude",
                                                  "auth": "apikey", "envText": "export ANTHROPIC_AUTH_TOKEN=devices-secret"})
     env = "/api/connections/devices-claude/env"
