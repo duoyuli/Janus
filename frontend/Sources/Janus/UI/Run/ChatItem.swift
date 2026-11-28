@@ -109,20 +109,16 @@ struct ToolRow: View {
 
     var body: some View {
         let d = e.data
-        let cwd = st.run.cwd
         guard case .tool(let t)? = st.lines[e.seq] else { return AnyView(EmptyView()) }
         // A call still running shows its newest frame: a title the agent filled in later, its output so far.
         let live = t.running ? run.preview[e.task.map { "task:" + $0 } ?? "agent:" + e.actor]?.tools[d["callId"].str] : nil
-        let output = L.inWorkspace(live?.output ?? d["output"].str, cwd)
         let input = live.map { $0.input.isEmpty ? $0.title : $0.input } ?? (d["input"].truthy ? d["input"].str : e.text)
         let (verb, what, mono) = live.map { ($0.verb, $0.what, $0.mono) } ?? (t.verb, t.what, t.mono)
-        let full = t.board ? d["args"].or(d["input"]).pretty() : input
         return AnyView(VStack(alignment: .leading, spacing: 4) {
+            // The whole input and output only once opened: a call's output runs to many kilobytes,
+            // and working it out for every call on every update of a busy run is the page's cost.
             DisclosureGroup {
-                CodeBlock(text: full + (output.isEmpty ? "" : "\n\n→ \(output)"), maxHeight: 300)
-                ForEach(Array((st.diffs[e.seq] ?? []).enumerated()), id: \.offset) { _, x in
-                    InlineDiff(path: L.tilde(x.path), lines: x.lines)
-                }
+                ToolDetail(st: st, e: e, board: t.board, input: input, output: live?.output)
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
@@ -145,7 +141,7 @@ struct ToolRow: View {
                 }
             }
             // A running command's output so far: its last lines, as its own terminal ends.
-            if t.running, !output.isEmpty {
+            if t.running, case let output = L.inWorkspace(live?.output ?? d["output"].str, st.run.cwd), !output.isEmpty {
                 let (tail, cut) = Self.tail(output)
                 VStack(alignment: .leading, spacing: 2) {
                     if cut { Text(L.text("更早的输出没有显示")).font(.caption2).foregroundStyle(.tertiary) }
@@ -164,5 +160,26 @@ struct ToolRow: View {
         let all = output.components(separatedBy: "\n")
         guard all.count > lines else { return (output, false) }
         return (all.suffix(lines).joined(separator: "\n"), true)
+    }
+}
+
+/// An opened tool call: its whole input (a board call's arguments as JSON), its output, and the
+/// changes it made.
+struct ToolDetail: View {
+    let st: RunState
+    let e: Event
+    let board: Bool
+    let input: String
+    /// The running call's output so far; the event's own otherwise.
+    let output: String?
+
+    var body: some View {
+        let d = e.data
+        let output = L.inWorkspace(output ?? d["output"].str, st.run.cwd)
+        let full = board ? d["args"].or(d["input"]).pretty() : input
+        CodeBlock(text: full + (output.isEmpty ? "" : "\n\n→ \(output)"), maxHeight: 300)
+        ForEach(Array((st.diffs[e.seq] ?? []).enumerated()), id: \.offset) { _, x in
+            InlineDiff(path: L.tilde(x.path), lines: x.lines)
+        }
     }
 }

@@ -102,6 +102,7 @@ private var screenLocked: Bool {
 
     // Scroll up and let replies arrive: the view stays.
     for _ in 0..<5 { try await swipe(400) }
+    #expect(!run.scrolling, "a scroll that ended lets the live run's updates in again")
     let place = clip.bounds.origin.y
     for n in 201...204 { events.append(reply(n)); host.rootView = view(); await settle() }
     #expect(abs(clip.bounds.origin.y - place) < 2, "scrolled up, new replies do not move the view")

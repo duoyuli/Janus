@@ -90,8 +90,17 @@ final class RunModel {
         let until = replayedSeq
         let last = until ?? events.last?.seq ?? 0
         viewTask?.cancel()
+        if until == nil { reading = true; lastRead = Date.timeIntervalSinceReferenceDate }
         viewTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                // A read that ended, answered or not, lets the next one go; one replaced by a newer
+                // read leaves that to the newer one.
+                if until == nil, !Task.isCancelled {
+                    self.reading = false
+                    if self.again { self.again = false; self.scheduleLoad() }
+                }
+            }
             let at = until.map { "&until=\($0)" } ?? ""
             let detail = ChatDensity.current == .detail ? "&detail=1" : ""
             // The lead's conversation is the run page's group: the team's posts in their place.
@@ -101,6 +110,8 @@ final class RunModel {
                 self.replayState = RunState(j, events: self.events.filter { $0.seq <= until })
                 return
             }
+            // Read while the person started scrolling: read again once they stop.
+            if self.scrolling { self.held = true; return }
             let before = self.state.run.status
             self.state = RunState(j, events: self.events)
             // The sidebar lists run statuses; refresh it when this one's changes.
@@ -178,6 +189,19 @@ final class RunModel {
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var suggestTasks: [SessionTarget: Task<Void, Never>] = [:]
     @ObservationIgnored private var batchTask: Task<Void, Never>?
+    /// The person is scrolling a conversation. A live run's updates wait until they stop: taking one
+    /// in lays the conversation out again on the main thread, and under a scroll that is a stutter
+    /// and blank space where the rows were not drawn yet. What came meanwhile is read once at the end.
+    @ObservationIgnored var scrolling = false {
+        didSet { if !scrolling && held { held = false; scheduleLoad() } }
+    }
+    /// An update came while the person scrolled.
+    @ObservationIgnored private var held = false
+    /// A read of the live view is on its way; `again`: events came meanwhile, read once more after it.
+    @ObservationIgnored private var reading = false
+    @ObservationIgnored private var again = false
+    /// When the last read of the live view set out (`Date.timeIntervalSinceReferenceDate`).
+    @ObservationIgnored private var lastRead = 0.0
     @ObservationIgnored private var viewTask: Task<Void, Never>?
     @ObservationIgnored private var usageTask: Task<Void, Never>?
 
@@ -288,17 +312,28 @@ final class RunModel {
         Task { [weak self] in await self?.read() }
     }
 
-    /// Events arrive in bursts; ask the server once per burst. The events themselves show at once.
+    /// Events arrive in bursts: ask the server once per burst, at most every `spacing`, and only
+    /// after the last answer came. Each answer lays the page out again on the main thread, tens of
+    /// milliseconds for a big run, so a busy run asked for one per event and the page stuttered; a
+    /// request cancelled for the next one only had the server work out views nobody read.
     private func scheduleLoad() {
+        if scrolling { held = true; return }
+        if reading { again = true; return }
         guard batchTask == nil else { return }
+        let wait = max(Self.burst, Self.spacing - (Date.timeIntervalSinceReferenceDate - lastRead))
         batchTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 60_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             guard let self, !Task.isCancelled else { return }
             self.batchTask = nil
-            self.state.events = self.events
+            if self.scrolling { self.held = true; return }
             self.loadServed()
         }
     }
+
+    /// Events closer together than this are one burst (seconds).
+    static let burst = 0.06
+    /// The least time between two reads of a live run's view (seconds).
+    static let spacing = 0.3
 
     /// A Run action (docs/interfaces/20261031-http_api.md#run_actions): de-duplicated by `commandId`,
     /// guarded by `expectedSequence`; a 409 refreshes once and tries again.

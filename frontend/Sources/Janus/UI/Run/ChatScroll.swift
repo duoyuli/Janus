@@ -32,7 +32,7 @@ struct ChatScroll: View {
     /// The person opened or folded a turn or a group of calls (row id, open).
     let toggle: (Int, Bool) -> Void
     @Local private var follow = ChatFollow()
-    @Local private var position = ScrollPosition(idType: Int.self, edge: .bottom)
+    @Local private var position = ScrollPosition(edge: .bottom)
     /// Flips with each scroll to the end, so the next one is a new position (`toNewest`).
     @Local private var nudge = false
     /// The content offset that shows the end, from the last measurement.
@@ -43,85 +43,92 @@ struct ChatScroll: View {
     var body: some View {
         let all = lines
         let split = max(0, all.count - Self.tail)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // Older rows are built lazily: a lead's session runs to thousands of events.
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
-                    ForEach(all[..<split]) { line($0) }
-                }
-                // Each row is a target a jump (「@你」) can go to by its id.
-                .scrollTargetLayout()
-                // The newest rows and what the agent is writing right now are always built: their
-                // heights are known, not estimated, so the bottom edge is where the end really is.
-                // A lazy list's estimate of a tall reply it had not built left the view short of the
-                // end, or past it on nothing.
+        // A reader rather than scroll targets for 「@你」: targets would have the position follow
+        // the top row on every frame of a scroll, and the whole conversation built again with it.
+        ScrollViewReader { proxy in
+            ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(all[split...]) { line($0) }
+                    // Only rows older than `tail` are built lazily: a long session runs to thousands.
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        if empty { Text(L.text("开跑后，对话和工具调用会实时出现在这里")).foregroundStyle(.secondary) }
+                        ForEach(all[..<split]) { line($0) }
+                    }
+                    // The newest rows and what the agent is writing right now are always built: their
+                    // heights are known, not estimated, so scrolling keeps its place and the bottom
+                    // edge is where the end really is (`tail`).
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(all[split...]) { line($0) }
+                    }
                 }
-                .scrollTargetLayout()
             }
-        }
-        // A margin of the scroll view, not padding around the rows, so that scrolling to the newest
-        // row leaves the margin below it in view.
-        .contentMargins(12, for: .scrollContent)
-        .modifier(ChatProbe.Scroll(following: follow.following))
-        .scrollPosition($position)
-        // Opens at the newest item. While following, content that grows or shrinks keeps the
-        // bottom where it is, so a streaming reply needs no scroll of its own; scrolled up, the
-        // person's place stays put.
-        .defaultScrollAnchor(.bottom, for: .initialOffset)
-        .defaultScrollAnchor(follow.following ? .bottom : nil, for: .sizeChanges)
-        .onScrollPhaseChange { _, phase in
-            let now = phase == .tracking || phase == .interacting || phase == .decelerating
-            if now != person { person = now }
-        }
-        // Where the end is, as an offset of the content: what the scroll to the end goes to. The
-        // largest offset there is, margin included, which is where the bottom edge puts the view
-        // too: two ends a few points apart had the view bounce between them as a reply streamed.
-        .onScrollGeometryChange(for: CGFloat.self) { g in
-            g.contentSize.height + g.contentInsets.bottom - g.containerSize.height
-        } action: { _, end in endOffset = end }
-        // How much content lies below the visible area, reported on every scroll and every change
-        // of the content's size; the state changes only when the answer does.
-        .onScrollGeometryChange(for: CGFloat.self) { g in
-            g.contentSize.height - g.visibleRect.maxY
-        } action: { _, below in
-            var again = false
-            update { again = $0.measured(below: below, last: last, person: person) }
-            // To the newest row again, on the next turn of the main loop.
-            if again { DispatchQueue.main.async { toNewest() } }
-        }
-        // A new reply while following: go to it at once; the measurements above finish the landing.
-        .onChange(of: last) { if follow.following && !person { toEnd() } }
-        .onChange(of: sent) { toEnd() }
-        .onChange(of: density) { if follow.following { toEnd() } }
-        // A scroll that stopped short of the end moves nothing more, so nothing above asks again:
-        // look once more a moment later while following.
-        .task(id: follow) {
-            guard follow.following, !follow.landed, !person else { return }
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled, !person else { return }
-            var again = false
-            update { again = $0.retry() }
-            if again { toNewest() }
-        }
-        .overlay(alignment: .bottom) { if !follow.following { back } }
-        // Taken to a row further up (「@你」): the person reads there, so the view lets go of the end.
-        .onChange(of: jump) {
-            guard let jump else { return }
-            update { $0.left() }
-            position.scrollTo(id: jump.row, anchor: .top)
+            // A margin of the scroll view, not padding around the rows, so that scrolling to the newest
+            // row leaves the margin below it in view.
+            .contentMargins(12, for: .scrollContent)
+            .modifier(ChatProbe.Scroll(following: follow.following))
+            .scrollPosition($position)
+            // Opens at the newest item. While following, content that grows or shrinks keeps the
+            // bottom where it is, so a streaming reply needs no scroll of its own; scrolled up, the
+            // person's place stays put.
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(follow.following ? .bottom : nil, for: .sizeChanges)
+            .onScrollPhaseChange { _, phase in
+                let now = phase == .tracking || phase == .interacting || phase == .decelerating
+                if now != person { person = now }
+                if run.scrolling != now { run.scrolling = now }
+            }
+            // Gone in the middle of a scroll (another page, another task): updates go on.
+            .onDisappear { if person { run.scrolling = false } }
+            // Where the end is, as an offset of the content: what the scroll to the end goes to. The
+            // largest offset there is, margin included, which is where the bottom edge puts the view
+            // too: two ends a few points apart had the view bounce between them as a reply streamed.
+            .onScrollGeometryChange(for: CGFloat.self) { g in
+                g.contentSize.height + g.contentInsets.bottom - g.containerSize.height
+            } action: { _, end in endOffset = end }
+            // How much content lies below the visible area, reported on every scroll and every change
+            // of the content's size; the state changes only when the answer does.
+            .onScrollGeometryChange(for: CGFloat.self) { g in
+                g.contentSize.height - g.visibleRect.maxY
+            } action: { _, below in
+                var again = false
+                update { again = $0.measured(below: below, last: last, person: person) }
+                // To the newest row again, on the next turn of the main loop.
+                if again { DispatchQueue.main.async { toNewest() } }
+            }
+            // A new reply while following: go to it at once; the measurements above finish the landing.
+            .onChange(of: last) { if follow.following && !person { toEnd() } }
+            .onChange(of: sent) { toEnd() }
+            .onChange(of: density) { if follow.following { toEnd() } }
+            // A scroll that stopped short of the end moves nothing more, so nothing above asks again:
+            // look once more a moment later while following.
+            .task(id: follow) {
+                guard follow.following, !follow.landed, !person else { return }
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                guard !Task.isCancelled, !person else { return }
+                var again = false
+                update { again = $0.retry() }
+                if again { toNewest() }
+            }
+            .overlay(alignment: .bottom) { if !follow.following { back } }
+            // Taken to a row further up (「@你」): the person reads there, so the view lets go of the end.
+            .onChange(of: jump) {
+                guard let jump else { return }
+                update { $0.left() }
+                proxy.scrollTo(jump.row, anchor: .top)
+            }
         }
     }
 
     /// The live preview's row, always last.
     static let liveId = Int.min / 2
-    /// How many of the newest lines are always built (`body`): more than a screen of them, so no
-    /// lazily estimated row is in view at the end. With fewer, macOS 15 measured the rows in view
-    /// after it last reported the content's size, and the view stopped about a screen short of the
-    /// end, sure it was there.
-    static let tail = 30
+    /// How many of the newest lines are always built (`body`): a whole conversation of a usual
+    /// size, so every row's height is known. A lazy list only estimates the rows it has not built,
+    /// and a conversation's rows run from one line to a long result card: in a big run the estimate
+    /// was off by tens of thousands of points, the content's height changed on every frame of a
+    /// scroll (the view jumped and flickered), a fast scroll landed where nothing was built yet (a
+    /// blank screen), and a frame of it took 150 ms. Built, a frame takes about 25 ms and the
+    /// content keeps its height; opening such a run takes a few hundred milliseconds longer, once.
+    /// Only a conversation longer than this keeps its oldest rows lazy.
+    static let tail = 400
 
     /// One line of the list: a conversation row at its place, or the live preview after them all.
     struct Line: Identifiable {
