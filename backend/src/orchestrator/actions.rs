@@ -64,6 +64,11 @@ pub enum RunAction {
         #[serde(flatten)]
         to: SessionTarget,
     },
+    /// A new goal for a goal run's lead, which it works toward from its next turn (`/goal`).
+    Goal {
+        #[serde(default)]
+        text: String,
+    },
     /// Switch one of an open session's controls.
     Control {
         #[serde(default)]
@@ -136,6 +141,7 @@ impl RunAction {
             RunAction::Approve { .. } => "approve",
             RunAction::Input { .. } => "input",
             RunAction::Message { .. } => "message",
+            RunAction::Goal { .. } => "goal",
             RunAction::Control { .. } => "control",
             RunAction::Interrupt(_) => "interrupt",
             RunAction::Takeover(_) => "takeover",
@@ -261,7 +267,7 @@ impl App {
                         match action {
                             // Talking to an agent brings an interrupted run back first, and so does
                             // answering a Loop's question: they outlive its session.
-                            RunAction::Message { .. } => self.resume_run(run_id).await?,
+                            RunAction::Message { .. } | RunAction::Goal { .. } => self.resume_run(run_id).await?,
                             RunAction::Answer { .. } if row.kind.questions_outlive_session() => {
                                 self.resume_run(run_id).await?
                             }
@@ -360,6 +366,20 @@ impl App {
                 let recipient = if to.agent.is_empty() { self.assignee(run, &to.task) } else { to.agent.clone() };
                 let m = self.post_message(run, "user", &recipient, &to.task, &text, &images);
                 self.send_steer(run, &to.agent, &to.task, Steer::Message(m))
+            }
+            // The lead's own command for a goal, in a message to it: it waits its turn as any other,
+            // and the view reads the goal from it (`RunInfo::goal_now`).
+            RunAction::Goal { text } => {
+                let text = text.trim();
+                if text.is_empty() {
+                    bail!("目标不能为空");
+                }
+                if run.kind != RunKind::Goal {
+                    bail!("只有目标任务有目标可改");
+                }
+                let m =
+                    self.post_message(run, "user", "lead", "", &format!("/goal {}", lead::goal_condition(text)), &[]);
+                self.send_steer(run, "lead", "", Steer::Message(m))
             }
             RunAction::Control { id, value, via, to } => {
                 let id = id.trim();

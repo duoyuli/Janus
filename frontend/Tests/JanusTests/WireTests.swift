@@ -47,9 +47,10 @@ private func backendEnum(_ name: String) throws -> Set<String> {
     let lead = SessionTarget.agent("lead")
     let all: [RunAction] = [.answer(key: "", task: "", answer: "", note: ""), .served(["type": "approve"]),
                             .input(key: "", task: "", agent: "", action: "accept", content: [:]), .message(lead, text: "hi", images: []),
-                            .control(lead, id: "mode", value: "plan", via: "mode"), .interrupt(lead), .takeover(lead), .release(lead), .finish(lead),
+                            .goal("只加除法"), .control(lead, id: "mode", value: "plan", via: "mode"), .interrupt(lead), .takeover(lead), .release(lead), .finish(lead),
                             .pause, .resume, .start, .cancel, .accept, .resumeRun]
     #expect(Set(all.map(\.name)) == names)
     #expect(RunAction.message(.task("T1"), text: "hi", images: []).body == ["type": "message", "task": "T1", "agent": "", "text": "hi"])
+    #expect(RunAction.goal("只加除法").body == ["type": "goal", "text": "只加除法"])
     #expect(RunAction.release(lead).body == ["type": "release", "task": "", "agent": "lead"])
 }

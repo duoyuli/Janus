@@ -204,3 +204,32 @@ async fn an_orchestration_that_could_not_be_stored_does_not_start() {
     h.app.action(&r, &action_of(json!({ "type": "cancel" }))).unwrap();
     let _ = std::fs::remove_dir_all(&h.dir);
 }
+
+/// A new goal goes to the lead as its own `/goal` command, waiting its turn as any message, and
+/// the view reads it back as the goal now; an empty one, or one for a chat, is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_goal_goes_to_the_lead_as_its_goal_command() {
+    let h = harness("actions-goal", &[("lead", false), ("m1", true)], json!({ "T1": ["ok"] }));
+    let run = start(&h, json!([task("T1", "m1", json!({}))])).await;
+    wait_until(&h.app, &run, "T1", |e| has(e, "task.succeeded")).await;
+
+    let goal = json!({ "type": "goal", "text": "只加除法，\n先不做乘方" });
+    assert!(matches!(h.app.request_action(&run, &req(goal)).await, Ok(ActionReply::Done)));
+    let sent: Vec<String> = events(&h.app, &run)
+        .iter()
+        .filter(|e| e.kind.as_str() == "user.message" && e.to.as_deref() == Some("lead"))
+        .filter_map(|e| e.data.as_ref().map(|d| d["text"].as_str().unwrap_or_default().to_string()))
+        .collect();
+    assert_eq!(sent, ["/goal 只加除法， 先不做乘方"], "one line, as the first goal went");
+    let view = h.app.run_view(&run, None, crate::lang::Lang::Zh, crate::run_view::Layout::default()).unwrap().unwrap();
+    assert_eq!(view.state.run.goal_now.as_deref(), Some("只加除法， 先不做乘方"));
+    assert_ne!(view.state.run.goal, "只加除法， 先不做乘方", "the run's first goal stays as it was");
+
+    let empty = json!({ "type": "goal", "text": "  " });
+    assert!(matches!(h.app.request_action(&run, &req(empty)).await, Err(Refused::Invalid(_))));
+    let chat = h.app.create_chat(NewChat { role: "m1".into() }).await.unwrap();
+    let to_chat = json!({ "type": "goal", "text": "换个目标" });
+    assert!(matches!(h.app.request_action(&chat, &req(to_chat)).await, Err(Refused::Invalid(_))));
+    h.app.run(&run).unwrap().st.lock().unwrap().status = RunStatus::Cancelled;
+    let _ = std::fs::remove_dir_all(&h.dir);
+}

@@ -147,3 +147,16 @@ fn what_needs_looking_at_is_the_leads_questions_then_januss_findings() {
     assert!(en.iter().any(|x| x.detail == "a.rs, b.rs"));
     assert!(en.iter().any(|x| x.text == "T1: 1 criteria not met"));
 }
+
+#[test]
+fn the_goal_now_is_the_newest_one_the_person_gave_the_lead() {
+    let mut log = start();
+    assert_eq!(log.view().state.run.goal_now, None, "the first goal stands");
+    ask(&mut log, "顺便看看日志");
+    assert_eq!(log.view().state.run.goal_now, None, "a message that is not a goal changes nothing");
+    ask(&mut log, "/goal 上线支付页，只支持银行卡");
+    ask(&mut log, "/goal 上线支付页和退款页");
+    let v = log.view();
+    assert_eq!(v.state.run.goal_now.as_deref(), Some("上线支付页和退款页"));
+    assert_eq!(v.state.run.goal, "上线支付页");
+}

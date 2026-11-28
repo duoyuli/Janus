@@ -10,6 +10,8 @@ enum RunAction: Equatable {
     /// Answer an agent's form: `accept`, `decline` or `cancel`, with what was filled in.
     case input(key: String, task: String, agent: String, action: String, content: [String: JSON])
     case message(SessionTarget, text: String, images: [JSON])
+    /// A new goal for the lead, which it takes up from its next turn.
+    case goal(String)
     /// Switch one of an open session's controls.
     case control(SessionTarget, id: String, value: String, via: String)
     case interrupt(SessionTarget), takeover(SessionTarget), release(SessionTarget), finish(SessionTarget)
@@ -23,6 +25,7 @@ enum RunAction: Equatable {
         case .answer: return "answer"
         case .input: return "input"
         case .message: return "message"
+        case .goal: return "goal"
         case .control: return "control"
         case .interrupt: return "interrupt"
         case .takeover: return "takeover"
@@ -41,7 +44,7 @@ enum RunAction: Equatable {
     /// Whether it brings a run that is not live back to work: continuing it, or talking to it.
     var reopens: Bool {
         switch self {
-        case .resumeRun, .message: return true
+        case .resumeRun, .message, .goal: return true
         default: return false
         }
     }
@@ -57,6 +60,8 @@ enum RunAction: Equatable {
             b = to.body
             b["text"] = JSON(text)
             if !images.isEmpty { b["images"] = .array(images) }
+        case .goal(let text):
+            b = ["text": JSON(text)]
         case let .control(to, id, value, via):
             b = to.body
             b["id"] = JSON(id); b["value"] = JSON(value); b["via"] = JSON(via)

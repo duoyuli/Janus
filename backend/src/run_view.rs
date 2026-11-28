@@ -156,6 +156,9 @@ pub struct RunInfo {
     /// `None` before the run's first event.
     pub status: Option<RunStatus>,
     pub goal: String,
+    /// The goal the lead works toward now, when the person has given it a new one since
+    /// (the `goal` action, a `/goal` message to the lead): the newest, without the command.
+    pub goal_now: Option<String>,
     /// Stored paths of the images pasted with the goal.
     pub images: Vec<String>,
     pub start: i64,
@@ -735,6 +738,9 @@ impl RunState {
                 if let Some(id) = d["id"].as_str() {
                     if e.actor == "user" && e.to.as_deref() == Some("lead") && e.task.is_none() {
                         self.lead_asks.push((e.seq, visible_text(&text(&d["text"]))));
+                        if let Some(goal) = text(&d["text"]).trim_start().strip_prefix("/goal ") {
+                            self.run.goal_now = Some(goal.trim().to_string());
+                        }
                     }
                     self.msgs.push(MsgView {
                         id: id.into(),
