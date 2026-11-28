@@ -396,7 +396,7 @@ Agent 分析出四项改进后提议先做第一项，其余以后再做（其�
 
 - 会话里有几种 Janus 自己写的行仍用事件记录时的文字（`e.text`），不随 `?lang=` 换语言：`agent.status`（「会话已打开，等待你的消息」「这一轮已结束，等待你的消息」）、`session.controls`（「会话选项」）、`session.commands`（「可用命令 N 个」）、`session.control`、`message.delivered`、`loop.failed`（`run_view/lines.rs`）。英文界面里会混着中文。要让这些事件记下结构化的种类，由 `lines.rs` 按语言写，并给旧事件按文字对上种类。
 
-- 后端测试 `lead_resolves_failed_tasks` 在 CI（Linux，整套并行）偶发超时（2026-11-26 发布 2026.11.26.3 时一次）：负责人取消 T3 后 `retry`，T3 的第二次尝试启动、注入了约定，之后 60 秒没有任何事件，等不到「T3 and T4 after retry」。重跑 CI 通过，本机单独跑和整套跑都通过。可能是第一次尝试被判过期（`attempt.late_result`）和第二次尝试启动之间的竞争，要在负载下复现后查清是替身 Agent 还是调度的问题。
+- 后端测试 `lead_resolves_failed_tasks` 在 CI（Linux，整套并行）偶发超时（2026-11-26 发布 2026.11.26.3 时一次）：负责人取消 T3 后 `retry`，T3 的第二次尝试启动、注入了约定，之后 60 秒没有任何事件，等不到「T3 and T4 after retry」。重跑 CI 通过，本机单独跑和整套跑都通过。2026-11-28 发布 2026.11.27.4-rc.2 时在本机的 `just e2e --packaged --real` 里又出现一次（五步同时跑，后端测试和产品端到端测试抢 CPU），停在同一处：T3 第二次尝试注入约定之后没有事件；单独重跑 `just test` 通过。可能是第一次尝试被判过期（`attempt.late_result`）和第二次尝试启动之间的竞争，要在负载下复现后查清是替身 Agent 还是调度的问题。
 
 - Agent 连接仍按 JSON 读写（服务端 `agents/connections.rs`、`checks.rs`，应用的 `AppStore.connections`）：它的字段由 Agent 目录（`kinds`）的登录方式和配置检查决定，2026-11-24 的治理只把数字员工、工作区和 Run 记录改成了结构体。应用的 Run 列表、值班、资源库条目也仍是 `JSON`。改动它们时一起改成结构体。
 
