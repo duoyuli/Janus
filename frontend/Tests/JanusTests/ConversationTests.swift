@@ -60,9 +60,9 @@ private func kinds(_ rows: [Conversation.Row]) -> [String] {
     #expect(kinds(shown) == ["head:folded", "post:dispatch", "post:ask"], "the folded turn's work is left out, the posts stay")
     guard case .post(let id, let p, _) = shown[1] else { Issue.record("no post"); return }
     #expect(id == -20 && p.tasks.map(\.id) == ["T1", "T2"] && p.tasks[1].scope == "依赖 T1" && p.group)
-    let feed = Feed(["topics": ["T2": [ask]], "typing": [["agent": "implementer", "task": "T2", "text": "正在运行 pytest -q"]], "mentions": [-44]])
+    let feed = Feed(["topics": ["T2": [ask]], "mentions": [-44]])
     #expect(feed.topics["T2"]?.first?.key == "q1" && feed.topics["T2"]?.first?.you == true)
-    #expect(feed.typing == [Feed.Typing(agent: "implementer", task: "T2", text: "正在运行 pytest -q")] && feed.mentions == [-44])
+    #expect(feed.mentions == [-44])
 }
 
 /// A folded turn leaves out what folds with it; opening it shows its work; a click on the group
@@ -112,19 +112,29 @@ private func kinds(_ rows: [Conversation.Row]) -> [String] {
     #expect(picker.open(for: "/ren"))
 }
 
-/// The run's diff, documents and live previews read back as served; a diff artifact says whose
-/// changes it holds.
+/// The run's diff, what a delivery hands over and live previews read back as served; a diff
+/// artifact says whose changes it holds.
 @Test func diffsDocumentsAndPreviewsReadBack() {
     let file = DiffFile(["id": 0, "path": "pay.js", "added": 1, "removed": 1, "untracked": false, "hunks": [
         ["id": 0, "header": "@@ -1 +1 @@", "lines": [["id": 1, "kind": "removed", "text": "a", "old": 1, "new": .null],
                                                     ["id": 2, "kind": "added", "text": "b", "old": .null, "new": 1]]]]])
     #expect(file.hunks[0].lines.map(\.kind) == [.removed, .added] && file.hunks[0].lines[1].new == 1 && file.hunks[0].lines[0].new == nil)
     let st = RunState(["diffs": ["4": [["path": "/w/a.js", "added": 1, "removed": 0, "lines": [["mark": "+", "text": "x"]]]]],
-                       "docs": [["path": "/w/PRD.md", "source": "deliverable", "seq": 6, "label": "PRD.md", "name": "PRD.md", "dir": "~/w"]]], events: [])
+                       "page": ["inspector": ["delivered": [["path": "/w/PRD.md", "name": "PRD.md", "dir": "~/w"]]]]], events: [])
     #expect(st.diffs[4]?[0].lines.map(\.mark) == ["+"])
-    #expect(st.docs[0].source == .deliverable && st.docs[0].label == "PRD.md")
+    #expect(st.page.delivered == [RunDoc(["path": "/w/PRD.md", "name": "PRD.md", "dir": "~/w"])] && st.page.delivered[0].dir == "~/w")
     let p = LivePreview(["text": "正在写", "thought": "", "tools": ["c1": ["title": "pytest", "tool": "execute", "input": "", "output": "1 passed", "status": "in_progress"]]])
     #expect(p.text == "正在写" && p.tools["c1"]?.output == "1 passed")
     let run = Artifact(["name": "run-1.diff", "kind": "run_diff", "seq": 1, "by": "janus"])
     #expect(run.isDiff && run.ofRun)
+}
+
+/// A member's card says what it is responsible for and how it runs; the person and Janus have none.
+@Test func aMembersCardSaysItsDutyAndSetup() {
+    let m: JSON = ["id": "m1", "name": "何嘉言", "desc": "负责三表分析", "permission": "Bypass permissions", "effort": "high"]
+    let w = RunModel.Who(id: "m1", name: "何嘉言", initials: "财", color: "#8a5a2b", runtime: "Claude", model: "", lead: false, m: m)
+    #expect(w.duty == "负责三表分析")
+    #expect(w.setup == "Claude · \(L.text("默认模型")) · high · Bypass permissions")
+    let none = RunModel.Who(id: "janus", name: "Janus", initials: "JN", color: "#8a94a6", runtime: "", model: "", lead: false, m: .null)
+    #expect(none.duty.isEmpty && none.setup.isEmpty)
 }

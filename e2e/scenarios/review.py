@@ -43,8 +43,12 @@ def review(ctx, c):
           f"应用：T1 的话题和服务端一致：开工、交结果（{[p['kind'] for p in st['run']['topics'].get('T1', [])]}）")
         c(st["run"]["mentions"] == len(view["feed"]["mentions"]) == 1, "应用：「@你」只有等你验收的这一件")
         side = ctx.app.do(f"open run:{run.id}", "page board", "side topic:T1", "mention", f"shot {run.id}-group")["run"]
-        c(side["side"] == 'topic("T1", work: false)' and drawn(ctx.app.picture(f"{run.id}-group")),
+        c(side["side"] == 'topic("T1")' and drawn(ctx.app.picture(f"{run.id}-group")),
           f"应用：点开 T1 的话题、跳到等你处理的消息，群聊页画出来了（{side['side']}，{run.id}-group.png）")
+        focus = ctx.app.do("focus T1", f"shot {run.id}-focus")["run"]
+        c(focus["focus"] == "T1" and focus["side"] == 'topic("T1")' and drawn(ctx.app.picture(f"{run.id}-focus")),
+          f"应用：展开 T1 的工作记录，它占了群聊的位置，话题在旁边（{focus['focus']}，{focus['side']}，{run.id}-focus.png）")
+        c(ctx.app.do("focus")["run"]["focus"] is None, "应用：回到群聊")
         plain = ctx.api("GET", f"/api/runs/{run.id}/view")
         c(not any(r["kind"] == "post" for r in plain["sessions"]["agent:lead"]["rows"]),
           "不要群聊布局的客户端（Web）拿到的负责人对话和原来一样，没有群消息")
@@ -77,3 +81,15 @@ def review(ctx, c):
         st = ctx.app.until(lambda s: any(e["key"] == key for e in s.get("open", [])), "收件箱出现第二次交付", "reload", "open inbox")
         mine = [e["key"] for e in st["open"] if e["run"] == run.id]
         c(mine == [key], f"应用：收件箱里这个 Run 只有第二次交付一条（{mine}）")
+
+    # A new goal from the goal's panel: it reaches the lead as its own /goal command, and the page
+    # shows it as the goal now.
+    if ctx.app:
+        goal = "只把笔记写成提纲"
+        ctx.app.do(f"open run:{run.id}", "page board", f"goal {goal}")
+        wait(lambda: any(e["data"].get("text") == f"/goal {goal}" for e in run.has("user.message")), "新目标发给负责人")
+        st = ctx.app.until(lambda s: (s.get("run") or {}).get("goalNow") == goal, "应用：目标换成新目标", "goal", f"shot {run.id}-goal")
+        served = ctx.api("GET", f"/api/runs/{run.id}/view?group=1")["run"]
+        c(served["goalNow"] == goal and served["goal"] == "写一份笔记" and st["run"]["goalOpen"]
+          and drawn(ctx.app.picture(f"{run.id}-goal")),
+          f"应用：新目标以 /goal 发给负责人，目标面板显示它，最初的目标还在（{served['goalNow']}，{run.id}-goal.png）")

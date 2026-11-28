@@ -39,21 +39,14 @@ struct RunView: View {
         .navigationTitle(run.isChat ? run.chatTitle : run.isDream ? L.text("整理团队记忆") : run.isLoop ? (run.store.loop(ofRun: run.id)?["name"].str ?? run.runJSON["goal"].str) : run.state.title)
         .navigationSubtitle(run.isChat || run.isLoop || run.isDream || !run.readOnly ? "" : L.text("只读 · 这个任务已停止"))
         .toolbar {
-            if run.isLoop || run.isDream {
-                ToolbarItem { DocumentsMenu(run: run) }
-            } else if run.isChat {
-                ToolbarItem { DocumentsMenu(run: run) }
-                ToolbarItem {
-                    Button { run.exportLog() } label: { Label(L.text("导出事件日志…"), systemImage: "square.and.arrow.up") }
-                        .help(L.text("导出这次对话的事件日志"))
-                }
+            if run.isChat {
                 ToolbarItem {
                     Button { Task { await run.store.deleteRun(run.id) } } label: { Label(L.text("删除对话"), systemImage: "trash") }
                         .disabled(!run.loaded)
                         .help(L.text("删掉这次对话、记录和工作目录，删了就找不回来"))
                         .accessibilityLabel(L.text("删除对话"))
                 }
-            } else {
+            } else if !run.isLoop && !run.isDream {
                 if run.page.isDetail {
                     ToolbarItem(placement: .navigation) {
                         Button { run.show(.board) } label: { Label(L.text("返回工作台"), systemImage: "chevron.backward") }
@@ -62,25 +55,14 @@ struct RunView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     // On a task or agent page no segment is selected, so choosing 工作台 goes back.
-                    Picker(L.text("视图"), selection: Binding(get: { tab }, set: { v in run.show(v == "audit" ? .audit : v == "team" ? .team : .board) })) {
+                    Picker(L.text("视图"), selection: Binding(get: { tab }, set: { v in run.show(v == "audit" ? .audit : .board) })) {
                         Text(inboxCount == 0 ? L.text("工作台") : L.text("工作台 · \(inboxCount)")).tag("board")
                         Text(L.text("审计与回放")).tag("audit")
-                        Text(L.text("团队与权限")).tag("team")
                     }
                     .pickerStyle(.segmented)
-                    .frame(width: 330)
-                    .help(L.text("切换视图（⌘1 / ⌘2 / ⌘3）"))
+                    .frame(width: 240)
+                    .help(L.text("切换视图（⌘1 / ⌘2）"))
                     .accessibilityValue(inboxCount == 0 ? "" : L.text("\(inboxCount) 件待处理"))
-                }
-                ToolbarItem {
-                    DocumentsMenu(run: run)
-                }
-                ToolbarItem {
-                    Menu {
-                        Button(L.text("复制交付摘要")) { run.copySummary() }.disabled(run.state.page.summary == nil)
-                        Button(L.text("导出事件日志…")) { run.exportLog() }
-                    } label: { Label(L.text("分享"), systemImage: "square.and.arrow.up") }
-                    .help(L.text("复制交付摘要或导出事件日志"))
                 }
                 ToolbarItem {
                     // One click removes a finished run; a run still working has to be stopped first.
@@ -108,7 +90,6 @@ struct RunView: View {
     private var tab: String {
         switch run.page {
         case .audit: return "audit"
-        case .team: return "team"
         case .board: return "board"
         default: return ""
         }
@@ -118,7 +99,6 @@ struct RunView: View {
         switch run.page {
         case .board: GroupView(run: run)
         case .audit: AuditView(run: run)
-        case .team: TeamView(run: run)
         case .task(let id): TaskView(run: run, taskId: id)
         case .agent(let id): AgentView(run: run, agentId: id)
         }
@@ -162,40 +142,11 @@ struct QueuedView: View {
     }
 }
 
-/// The run's Markdown files, one click from anywhere in the run: deliverables, artifacts, and
-/// documents the agents wrote or mentioned.
-// @project-doc docs/architecture/20261031-frontend.md#markdown_viewer
-struct DocumentsMenu: View {
-    let run: RunModel
-
-    var body: some View {
-        Menu {
-            let docs = run.documents
-            if docs.isEmpty { Text(L.text("还没有 Markdown 文档")) }
-            ForEach([RunDoc.Source.deliverable, .artifact, .mentioned], id: \.self) { source in
-                let group = docs.filter { $0.source == source }
-                if !group.isEmpty {
-                    Section(L.catalogText(Self.title[source] ?? "")) {
-                        ForEach(group, id: \.path) { d in
-                            Button(d.label) { ArtifactWindow.open(run: run, path: d.path, title: d.name) }
-                        }
-                    }
-                }
-            }
-            Divider()
-            Button(L.text("打开其他 Markdown 文件…")) { ArtifactWindow.choose() }
-        } label: { Label(L.text("文档"), systemImage: "doc.richtext") }
-        .help(L.text("查看这个任务交付、保存或提到的 Markdown 文档"))
-    }
-
-    static let title: [RunDoc.Source: String] = [.deliverable: "交付物", .artifact: "子任务产物", .mentioned: "Agent 写过或提到的文档"]
-}
-
 extension RunModel {
     /// Switches the run's page. The audit and team pages show the live run, so they end a replay;
     /// task and agent pages show the replayed moment.
     func show(_ p: RunPage) {
-        if p == .audit || p == .team { replay = nil }
+        if p == .audit { replay = nil }
         page = p
     }
 

@@ -3,7 +3,7 @@ import Observation
 
 /// Pages inside an open run.
 enum RunPage: Hashable {
-    case board, audit, team, task(String), agent(String)
+    case board, audit, task(String), agent(String)
     /// A task or agent page, which goes back to the workbench.
     var isDetail: Bool { switch self { case .task, .agent: return true; default: return false } }
 }
@@ -143,7 +143,11 @@ final class RunModel {
     /// Images pasted into each session's composer, by the same key as the drafts.
     var sessionImages: [SessionTarget: [PastedImage]] = [:]
     // Board view state
+    /// The goal's panel in the middle of the page, where the person reads it whole and changes it.
     var goalOpen = false
+    /// The task whose collaborator's session fills the group's place, to follow it or step in;
+    /// `nil` shows the group.
+    var focus: String?
     var resultOpen = false
     /// The usage ledger's detail opens beside the group's header on request (W1 F3); it lasts for
     /// this opening of the run.
@@ -158,11 +162,10 @@ final class RunModel {
     /// then row id), for this opening of the run.
     var chatOpen: [SessionTarget: [Int: Bool]] = [:]
     /// What the group's side panel shows: the team's lists, or one task's topic.
-    var side = GroupSide.members
+    var side = GroupSide.tasks
     /// A window too narrow for the side panel shows it over the group on request.
     var sideShown = false
     /// Whom the group's composer sends to: the lead, or the task a collaborator works on.
-    var composeTo = SessionTarget.agent("lead")
     /// Bumped to bring a row of the group into view: 「@你」 goes through what waits on the person.
     var jump: Jump?
     struct Jump: Equatable {
@@ -177,7 +180,6 @@ final class RunModel {
     var highlight: Int?
 
     /// The run's Markdown files that exist, for the 文档 menu, as the server lists them.
-    var documents: [RunDoc] { state.docs }
 
     /// What each conversation's session is writing and running right now, before it is on record,
     /// by `SessionTarget.label`, as the run's stream sends it.
@@ -369,6 +371,17 @@ final class RunModel {
         let id, name, initials, color, runtime, model: String; let lead: Bool; let m: JSON
         /// The digital employee it was made from, whose picture it shows; none for the person and Janus.
         var role = ""
+
+        /// What it is responsible for (the team snapshot's `desc`).
+        var duty: String { m["desc"].str }
+        /// How it runs: the agent, the model, the effort and the permission mode; empty for the
+        /// person and Janus.
+        var setup: String {
+            guard m != .null else { return "" }
+            let agent = [runtime, model.isEmpty ? L.text("默认模型") : model, m["effort"].str].filter { !$0.isEmpty }
+            let permission = m["permission"].truthy ? m["permission"].str : L.text("Agent 没有权限模式")
+            return (agent + [permission]).joined(separator: " · ")
+        }
     }
 
     func who(_ id: String) -> Who {

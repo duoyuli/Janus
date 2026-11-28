@@ -64,31 +64,23 @@ struct Post: Equatable, Identifiable {
     }
 }
 
-/// What sits beside the group: each task's topic, who is at work, and the posts waiting on the
-/// person (their row ids, where 「@你」 jumps).
+/// What sits beside the group: each task's topic, and the posts waiting on the person (their row
+/// ids, where 「@你」 jumps).
 struct Feed {
-    struct Typing: Equatable {
-        let agent: String
-        let task: String
-        let text: String
-    }
-
     var topics: [String: [Post]] = [:]
-    var typing: [Typing] = []
     var mentions: [Int] = []
 
     init() {}
 
     init(_ j: JSON) {
         topics = j["topics"].object.mapValues { $0.array.map(Post.init) }
-        typing = j["typing"].array.map { Typing(agent: $0["agent"].str, task: $0["task"].str, text: $0["text"].str) }
         mentions = j["mentions"].array.compactMap(\.int)
     }
 }
 
-/// What the group's side panel shows: the team, the tasks, the files, or one task's topic with
-/// what was said (`work` false) or its collaborator's session (`work`).
+/// What the group's side panel shows: the tasks, the files, or one task's topic (its collaborator's
+/// session opens where the group is, `RunModel.focus`).
 enum GroupSide: Hashable {
-    case members, tasks, files
-    case topic(String, work: Bool)
+    case tasks, files
+    case topic(String)
 }

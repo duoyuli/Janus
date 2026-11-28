@@ -22,38 +22,51 @@ struct GroupView: View {
                 VStack(spacing: 0) {
                     GroupHeader(run: run, st: st, wide: wide)
                     Divider()
-                    ChatCard(run: run, st: st, title: L.text("群聊"), info: st.session(.agent("lead")), target: .agent("lead"),
-                             chrome: false, composeTo: composeTo(st), recipients: recipients(st), typing: st.feed.typing, jump: run.jump)
+                    if let id = run.focus, st.tasks[id] != nil {
+                        FocusBar(run: run, st: st, taskId: id)
+                        Divider()
+                        ChatCard(run: run, st: st, title: run.who(st.tasks[id]?.agent ?? "").name, info: st.session(.task(id)), target: .task(id), chrome: false)
+                    } else {
+                        ChatCard(run: run, st: st, title: L.text("群聊"), info: st.session(.agent("lead")), target: .agent("lead"),
+                                 chrome: false, jump: run.jump)
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.card)
                 if wide {
                     Divider()
-                    GroupSidePanel(run: run, st: st).frame(width: Self.side)
+                    // Clipped at its own width: nothing in it may push the window wider.
+                    GroupSidePanel(run: run, st: st).frame(width: Self.side).clipped()
                 }
             }
             .overlay(alignment: .trailing) {
                 if !wide && run.sideShown {
                     GroupSidePanel(run: run, st: st)
                         .frame(width: min(Self.side, geo.size.width - 48))
+                        .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line))
                         .shadow(color: .black.opacity(0.18), radius: 18, y: 6)
                         .padding(12)
                 }
             }
+            // The goal in the middle of the page, over everything, to read and change at ease.
+            .overlay {
+                if run.goalOpen {
+                    ZStack {
+                        Color.black.opacity(0.22).ignoresSafeArea()
+                            .onTapGesture { run.goalOpen = false }
+                            .accessibilityHidden(true)
+                        GoalPanel(run: run, st: st)
+                            .frame(width: min(680, geo.size.width - 48))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .background(Color.card, in: RoundedRectangle(cornerRadius: 14))
+                            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.line))
+                            .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
+                    }
+                }
+            }
         }
-    }
-
-    /// The composer's addressee, back to the lead once the collaborator's session is gone.
-    private func composeTo(_ st: RunState) -> Binding<SessionTarget> {
-        Binding(get: { recipients(st).contains(run.composeTo) ? run.composeTo : .agent("lead") },
-                set: { run.composeTo = $0 })
-    }
-
-    /// The lead, and each collaborator whose task has a session open now.
-    private func recipients(_ st: RunState) -> [SessionTarget] {
-        [.agent("lead")] + st.orderedTasks.filter(\.live).map { .task($0.id) }
     }
 }
 
@@ -81,15 +94,15 @@ struct GroupHeader: View {
                 if !wide {
                     Button { run.sideShown.toggle() } label: { Label(L.text("群信息"), systemImage: "sidebar.right") }
                         .labelStyle(.iconOnly).buttonStyle(.borderless)
-                        .help(run.sideShown ? L.text("收起成员、子任务和文件") : L.text("查看成员、子任务和文件"))
+                        .help(run.sideShown ? L.text("收起子任务和文件") : L.text("查看子任务和文件"))
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Image(systemName: "pin").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
-                if r.goal.trimmingCharacters(in: .whitespacesAndNewlines) != st.title {
-                    Button(run.goalOpen ? L.text("收起完整目标") : L.text("完整目标")) { run.goalOpen.toggle() }
-                        .buttonStyle(.link).font(.caption)
+                Button { run.goalOpen.toggle() } label: {
+                    Label(L.text("目标"), systemImage: "pin").font(.caption)
                 }
+                .buttonStyle(.link)
+                .help(L.text("查看完整目标，或者给负责人一个新目标"))
                 summary
                 Spacer(minLength: 8)
                 Picker(L.text("显示"), selection: $density) {
@@ -100,10 +113,6 @@ struct GroupHeader: View {
                 .help(L.text("详细：每次工具调用都显示；摘要：只看对话、请求和结果"))
                 mentions
             }
-            if run.goalOpen {
-                ScrollView { MarkdownText(text: r.goal).frame(maxWidth: .infinity, alignment: .leading) }
-                    .frame(maxHeight: 220)
-            }
             StoredImages(run: run, paths: r.images, size: 48)
             notices
         }
@@ -111,25 +120,24 @@ struct GroupHeader: View {
         .background(Color.page)
     }
 
-    /// Who is in the group, each with a dot for what it is doing; a click opens the team.
+    /// Who is in the group, each with a dot for what it is doing; a hover says who it is, what it
+    /// is responsible for and what it is at.
     private var faces: some View {
-        Button { run.side = .members; run.sideShown = true } label: {
-            HStack(spacing: -6) {
-                ForEach(st.members, id: \.id) { m in
-                    let w = run.who(m.id)
-                    Avatar(initials: w.initials, color: w.color, size: 26, role: w.role)
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.page, lineWidth: 2))
-                        .overlay(alignment: .bottomTrailing) {
-                            Circle().fill(m.phase.label.1 == .gray ? Color.secondary : m.phase.label.1.color)
-                                .frame(width: 8, height: 8)
-                                .overlay(Circle().strokeBorder(Color.page, lineWidth: 1.5))
-                                .offset(x: 2, y: 2)
-                        }
-                        .help("\(w.name) · \(m.phase.label.0) · \(m.line)")
-                }
+        HStack(spacing: -6) {
+            ForEach(st.members, id: \.id) { m in
+                let w = run.who(m.id)
+                Avatar(initials: w.initials, color: w.color, size: 26, role: w.role)
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.page, lineWidth: 2))
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(m.phase.label.1 == .gray ? Color.secondary : m.phase.label.1.color)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().strokeBorder(Color.page, lineWidth: 1.5))
+                            .offset(x: 2, y: 2)
+                    }
+                    .memberHover(w, now: "\(m.phase.label.0) · \(m.line)")
             }
         }
-        .buttonStyle(.plain)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel(L.text("成员：\(st.members.map { run.who($0.id).name }.joined(separator: "、"))"))
     }
 
@@ -159,15 +167,30 @@ struct GroupHeader: View {
                     numbers(now: L.nowMs())
                 }
             }
+            // A reminder is a mark beside the numbers it is about, its words a click away.
+            if let line = run.usage.words.reminders {
+                Button { run.usageOpen.toggle() } label: {
+                    Label(L.text("用量提醒"), systemImage: "exclamationmark.triangle.fill").font(.caption)
+                        .foregroundStyle(Tone.amber.color)
+                }
+                .buttonStyle(.plain)
+                .help(line)
+            }
             if run.usage.showsLedgerControl(open: run.usageOpen) {
                 Button(L.text("用量明细")) { run.usageOpen.toggle() }
                     .buttonStyle(.link).font(.caption)
                     .help(L.text("展开用量：Token、费用、耗时、上下文"))
-                    .popover(isPresented: Binding(get: { run.usageOpen }, set: { run.usageOpen = $0 }), arrowEdge: .bottom) {
-                        ScrollView { VStack(alignment: .leading, spacing: 10) { UsageSection(run: run, st: st) }.padding(16) }
-                            .frame(width: 560, height: 520)
-                    }
             }
+        }
+        .popover(isPresented: Binding(get: { run.usageOpen }, set: { run.usageOpen = $0 }), arrowEdge: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let line = run.usage.words.reminders { Note(text: line, tone: .amber) }
+                    UsageSection(run: run, st: st)
+                }
+                .padding(16)
+            }
+            .frame(width: 560, height: 520)
         }
     }
 
@@ -198,8 +221,7 @@ struct GroupHeader: View {
         }
     }
 
-    /// What the run's state asks the person to know: it failed, it stopped short and can go on, the
-    /// usage reminders.
+    /// What the run's state asks the person to know: it failed, it stopped short and can go on.
     @ViewBuilder private var notices: some View {
         let r = st.run
         if r.status == .failed { Note(text: r.error, tone: .red) }
@@ -218,52 +240,120 @@ struct GroupHeader: View {
             Text(verbatim: L.text("Token 用量参考值：\(reference.formatted(.number.locale(L.locale)))"))
                 .font(.caption).foregroundStyle(.secondary)
         }
-        if let line = run.usage.words.reminders { Note(text: line, tone: .amber) }
     }
 }
 
-/// Who is at work right now, one line each, above the composer like 「对方正在输入」; a click opens
-/// that collaborator's session.
-struct TypingLine: View {
+/// Above a collaborator's session in the group's place: whose it is and how the task stands, and
+/// the way back to the group.
+struct FocusBar: View {
     let run: RunModel
-    let typing: [Feed.Typing]
+    let st: RunState
+    let taskId: String
 
     var body: some View {
-        if !typing.isEmpty && !run.isReplaying {
-            HStack(spacing: 14) {
-                ForEach(typing, id: \.task) { t in
-                    Button { run.side = .topic(t.task, work: true); run.sideShown = true } label: {
-                        HStack(spacing: 5) {
-                            TypingDots()
-                            Text(run.who(t.agent).name).font(.caption.weight(.semibold))
-                            Text(verbatim: "\(t.text) · \(t.task)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(L.text("看 \(run.who(t.agent).name) 的工作记录"))
-                }
-                Spacer(minLength: 0)
+        let t = st.tasks[taskId]
+        let w = run.who(t?.agent ?? "")
+        HStack(spacing: 10) {
+            Button { run.focus = nil } label: { Label(L.text("群聊"), systemImage: "chevron.backward").font(.callout) }
+                .buttonStyle(.link)
+                .help(L.text("回到群聊（⌘[）"))
+            Divider().frame(height: 16)
+            TaskTag(id: taskId)
+            Text(t?.title ?? taskId).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.tail)
+            HStack(spacing: 10) {
+                Avatar(initials: w.initials, color: w.color, size: 18, role: w.role)
+                Text(w.name).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
+            .padding(.vertical, 3).padding(.trailing, 6)
+            .memberHover(w)
+            if let t {
+                let (label, tone) = t.status.label
+                Pill(label, tone)
+                if t.attempts.count > 1 { Pill(L.text("第 \(t.attempts.count) 次")) }
+            }
+            Spacer(minLength: 8)
+            Button(L.text("子任务详情")) { run.show(.task(taskId)) }
+                .buttonStyle(.link).font(.caption)
+                .help(L.text("验收证据、执行轨迹、产物和运行环境"))
         }
+        .padding(.horizontal, 18).padding(.vertical, 8)
+        .background(Color.page)
     }
 }
 
-/// Three dots that pulse in turn, as a chat marks someone typing.
-struct TypingDots: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+/// The goal whole, ready to change: a new one goes to the lead as its own goal command and is
+/// taken up from its next turn; the header keeps the first goal's title. Read-only while the lead
+/// cannot be written to.
+struct GoalPanel: View {
+    let run: RunModel
+    let st: RunState
+    /// What the person has written; `nil` until they change something.
+    @Local private var draft: String?
+    @Local private var sending = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 8, paused: reduceMotion)) { ctx in
-            let t = ctx.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 2) {
-                ForEach(0..<3, id: \.self) { i in
-                    let phase = (t * 1.2 - Double(i) * 0.2).truncatingRemainder(dividingBy: 1)
-                    Circle().fill(Color.accent).frame(width: 4, height: 4)
-                        .opacity(reduceMotion ? 0.7 : (phase < 0.35 ? 1 : 0.3))
+        let r = st.run
+        let now = r.goalNow ?? r.goal
+        let lead = st.session(.agent("lead"))
+        let editable = lead.mode.enabled && r.kind == .goal
+        let text = draft ?? now
+        let changed = text.trimmingCharacters(in: .whitespacesAndNewlines) != now.trimmingCharacters(in: .whitespacesAndNewlines)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(r.goalNow == nil ? L.text("目标") : L.text("现在的目标")).font(.display(.title3))
+                Spacer()
+                Button { close() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+                    .help(L.text("关闭（esc）"))
+            }
+            if editable {
+                TextEditor(text: Binding(get: { text }, set: { draft = $0 }))
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(8)
+                    .frame(height: 300)
+                    .background(Color.soft, in: RoundedRectangle(cornerRadius: 8))
+                Text(L.text("改完发给负责人：它把这当作新的目标，正在忙的话，这一轮结束后收到。"))
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ScrollView { MarkdownText(text: now).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 300)
+                if !lead.mode.placeholder.isEmpty && r.kind == .goal {
+                    Text(verbatim: lead.mode.placeholder).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if r.goalNow != nil {
+                DisclosureGroup(L.text("最初的目标")) {
+                    MarkdownText(text: r.goal).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 4)
+                }
+                .font(.caption)
+            }
+            if editable {
+                HStack {
+                    Spacer()
+                    Button(L.text("取消")) { close() }
+                    Button(L.text("发给负责人")) { send(text) }
+                        .buttonStyle(.primary)
+                        .keyboardShortcut(.return, modifiers: .command)
+                        .disabled(sending || !changed || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help("⌘↩")
                 }
             }
         }
-        .accessibilityHidden(true)
+        .padding(20)
+    }
+
+    private func close() {
+        draft = nil
+        run.goalOpen = false
+    }
+
+    private func send(_ text: String) {
+        sending = true
+        Task {
+            if await run.act(.goal(text.trimmingCharacters(in: .whitespacesAndNewlines))) { close() }
+            sending = false
+        }
     }
 }

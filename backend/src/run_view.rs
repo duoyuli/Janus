@@ -1227,7 +1227,7 @@ impl Fold {
         let now = jiff::Timestamp::now().as_millisecond();
         let lines = lines::lines(&lines::Ctx { st: &self.state, words, events: &self.shown, now });
         let cards = cards::cards(&self.state, &board.open, words);
-        let feed = feed::feed(&posts, &self.state, &lines, words);
+        let feed = feed::feed(&posts);
         RunView {
             state: self.state.clone(),
             lines,

@@ -261,6 +261,8 @@ struct InboxItem: Identifiable {
 struct RunInfo {
     var status = RunStatus.unknown
     var goal = ""
+    /// The goal the lead works toward now, when the person gave it a new one since `goal`.
+    var goalNow: String?
     /// Stored paths of the images pasted with the goal.
     var images: [String] = []
     var start: Double = 0
@@ -294,6 +296,7 @@ struct RunInfo {
     init(_ j: JSON) {
         status = RunStatus(j["status"].str)
         goal = j["goal"].str
+        goalNow = j["goalNow"].string
         images = j["images"].strings
         start = j["start"].double ?? 0
         now = j["now"].double ?? 0
@@ -355,8 +358,6 @@ struct RunState {
     var lines: [Int: ServedLine] = [:]
     /// The card of each request waiting on the person, in the order they wait.
     var cards: [ServedCard] = []
-    /// The run's Markdown documents that exist.
-    var docs: [RunDoc] = []
     /// The run card's status, as the server words it.
     var capsule = (text: "", tone: Tone.gray)
     /// The team panel's rows, in the team's order.
@@ -409,7 +410,6 @@ struct RunState {
         review = j["review"].isNull ? nil : ServedReview(j["review"])
         sessions = j["sessions"].object
         diffs = Dictionary(j["diffs"].object.compactMap { k, v in Int(k).map { ($0, v.array.map(ServedDiff.init)) } }, uniquingKeysWith: { a, _ in a })
-        docs = j["docs"].array.map(RunDoc.init)
         lines = Dictionary(j["lines"].object.compactMap { k, v in Int(k).flatMap { s in ServedLine(v).map { (s, $0) } } }, uniquingKeysWith: { a, _ in a })
         cards = j["cards"].array.map(ServedCard.init)
         capsule = (j["capsule"]["text"].str, Tone(rawValue: j["capsule"]["tone"].str) ?? .gray)
@@ -559,8 +559,6 @@ struct ServedPage {
     var files: [Artifact] = []
     var delivered: [RunDoc] = []
     var tasks: [String: TaskPage] = [:]
-    var workspaceNote = ""
-    var branchNote: String?
 
     init() {}
 
@@ -578,8 +576,6 @@ struct ServedPage {
             TaskPage(trace: t["trace"].array.map(TraceRow.init), downstream: t["downstream"].strings, structure: t["structure"].str,
                      env: t["env"].array.map { ($0["label"].str, $0["value"].str) })
         }
-        workspaceNote = j["team"]["workspace"].str
-        branchNote = j["team"]["branch"].string
     }
 }
 

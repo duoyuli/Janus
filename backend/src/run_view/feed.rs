@@ -2,17 +2,15 @@
 //! The group is the lead's conversation with the posts everyone should see put in at their place
 //! (`merge`): tasks dispatched, started and handed over, results and verdicts, rework, conflicts,
 //! what got stuck, what waits on the person, and each delivery. Each task's topic holds everything
-//! said about it, the back and forth between its collaborator and the lead included. Who is at
-//! work right now is one line each (`typing`). Written here for every client
-//! (docs/decisions/20261126-backend_owns_derived_state.md).
+//! said about it, the back and forth between its collaborator and the lead included. Written here
+//! for every client (docs/decisions/20261126-backend_owns_derived_state.md).
 // @project-doc docs/architecture/20261031-frontend.md#run_group
 
 use super::card::Tone;
-use super::lines::Line;
 use super::review::{Review, ReviewStage};
 use super::turns::{Gap, Row};
 use super::words::Words;
-use super::{RunState, TaskShown, list, text, texts, truthy, visible_text};
+use super::{RunState, list, text, texts, truthy, visible_text};
 use crate::db::Event;
 use crate::events::EventKind;
 use crate::lang::tr;
@@ -111,21 +109,11 @@ fn is_zero(n: &usize) -> bool {
     *n == 0
 }
 
-/// Someone at work right now, and the step they are on.
-#[derive(Clone, Debug, Serialize)]
-pub struct Typing {
-    pub agent: String,
-    pub task: String,
-    /// 「正在运行 pytest -q」.
-    pub text: String,
-}
-
-/// The posts besides the group: each task's topic, and who is at work.
+/// The posts besides the group: each task's topic, and what waits on the person.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Feed {
     /// Everything said about each task, by its id, oldest first.
     pub topics: BTreeMap<String, Vec<Post>>,
-    pub typing: Vec<Typing>,
     /// The posts in the group that wait on the person, oldest first: where 「@你」 jumps.
     pub mentions: Vec<i64>,
 }
@@ -688,9 +676,8 @@ fn set_gap(r: &mut Row, to: Gap) {
     }
 }
 
-/// The feed beside the group: each task's topic, who is at work and the posts waiting on the
-/// person. `lines`: each conversation event's line (`lines`), for the step an agent is on.
-pub(super) fn feed(posts: &[Post], st: &RunState, lines: &BTreeMap<i64, Line>, w: &Words) -> Feed {
+/// The feed beside the group: each task's topic and the posts waiting on the person.
+pub(super) fn feed(posts: &[Post]) -> Feed {
     let mut topics: BTreeMap<String, Vec<Post>> = BTreeMap::new();
     for p in posts {
         for t in p.task.iter().chain(p.other.iter()) {
@@ -698,28 +685,5 @@ pub(super) fn feed(posts: &[Post], st: &RunState, lines: &BTreeMap<i64, Line>, w
         }
     }
     let mentions = posts.iter().filter(|p| p.group && p.you).map(|p| super::turns::post_id(p.seq)).collect();
-    let typing = st
-        .tasks
-        .iter()
-        .filter(|t| t.status == TaskShown::Running && t.session.is_some_and(|s| !s.idle && !s.person))
-        .map(|t| Typing { agent: t.agent.clone(), task: t.id.clone(), text: step(st, &t.id, lines, w) })
-        .collect();
-    Feed { topics, typing, mentions }
-}
-
-/// The step a task's agent is on: its newest call, else thinking or writing.
-fn step(st: &RunState, task: &str, lines: &BTreeMap<i64, Line>, w: &Words) -> String {
-    let l = w.lang;
-    let seqs = st.sessions.events_of(&super::sessions::task_key(task));
-    for seq in seqs.iter().rev() {
-        match lines.get(seq) {
-            Some(Line::Tool(t)) if !t.board => {
-                let what = t.what.lines().next().unwrap_or("");
-                return format!("{} {what}", t.verb).trim().to_string();
-            }
-            Some(Line::Tool(_)) => return l.pick("在看板上", "On the board").into(),
-            _ => {}
-        }
-    }
-    l.pick("在开工", "Getting started").into()
+    Feed { topics, mentions }
 }

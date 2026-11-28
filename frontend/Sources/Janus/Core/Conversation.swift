@@ -228,23 +228,15 @@ struct ServedDiff: Equatable {
     }
 }
 
-/// A Markdown document of the run, as the 文档 menu lists it (`RunView.docs`).
+/// A file a delivery hands over, as the side panel's 文件 page lists it (`page.inspector.delivered`).
 struct RunDoc: Equatable {
-    enum Source: String { case deliverable, artifact, mentioned }
     let path: String
-    let source: Source
-    let seq: Int
-    /// The path from the run's directory, or with `~`.
-    let label: String
     let name: String
     /// The folder it is in, with `~`.
     let dir: String
 
     init(_ j: JSON) {
         path = j["path"].str
-        source = Source(rawValue: j["source"].str) ?? .mentioned
-        seq = j["seq"].int ?? 0
-        label = j["label"].str
         name = j["name"].str
         dir = j["dir"].str
     }

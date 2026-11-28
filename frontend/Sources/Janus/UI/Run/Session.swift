@@ -120,14 +120,6 @@ struct ChatCard: View {
     let target: SessionTarget
     /// Drawn as a card with its own header; the group draws it bare, under its own header.
     var chrome = true
-    /// Narrow (a topic beside the group): bare, and the composer's state left to the topic's header.
-    var compact = false
-    /// Whom the composer sends to, when the person may choose (`recipients`); the conversation's
-    /// own session otherwise.
-    var composeTo: Binding<SessionTarget>?
-    var recipients: [SessionTarget] = []
-    /// Who is at work right now, above the composer.
-    var typing: [Feed.Typing] = []
     /// A row to bring into view.
     var jump: RunModel.Jump?
     /// How much of the agent's work to show (`ChatDensity`). One choice for all conversations,
@@ -139,13 +131,9 @@ struct ChatCard: View {
     /// The slash commands or files offered above the composer, and the one the keys are on.
     @Local private var picker = SuggestionPicker()
 
-    /// The session the composer sends to: this conversation's, or the one the person chose.
-    private var to: SessionTarget { composeTo?.wrappedValue ?? target }
-    private var sending: SessionInfo { to == target ? info : st.session(to) }
-
     /// Requests of the composer's session still waiting for the person, oldest first.
     private var requests: [ServedCard] {
-        sending.requests.compactMap { k in st.cards.first { $0.key == k } }
+        info.requests.compactMap { k in st.cards.first { $0.key == k } }
     }
 
     /// Requests sit above the composer while the person can act on them here.
@@ -155,7 +143,7 @@ struct ChatCard: View {
         let live = run.canAct
         let (state, tone, buttons, placeholder, enabled) = mode(live)
         let card = VStack(alignment: .leading, spacing: 0) {
-            if chrome && !compact {
+            if chrome {
                 HStack {
                     Text(title).font(.headline)
                     Spacer()
@@ -178,10 +166,9 @@ struct ChatCard: View {
             }
                 // Each conversation keeps its own place; another task's session opens at its newest.
                 .id(target)
-            PendingTray(pending: sending.pending)
+            PendingTray(pending: info.pending)
             Divider()
             VStack(alignment: .trailing, spacing: 8) {
-                TypingLine(run: run, typing: typing)
                 // What the agent waits on sits right above where the person answers, as in Lody;
                 // the conversation keeps one line where it was asked.
                 if docked, let first = requests.first {
@@ -191,24 +178,34 @@ struct ChatCard: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                let to = self.to
+                let to = target
                 let draft = Binding(get: { run.sessionDrafts[to] ?? "" }, set: { run.sessionDrafts[to] = $0 })
                 if enabled { Suggestions(run: run, target: to, draft: draft, picker: picker) }
                 Composer(text: draft, images: Binding(get: { run.sessionImages[to] ?? [] }, set: { run.sessionImages[to] = $0 }), placeholder: placeholder, disabled: !enabled, minHeight: 44, focus: to == .agent("lead") ? run.leadFocus : 0,
                          onNavigate: { picker.handle($0, draft: draft) }, ghost: run.suggestions[to].flatMap { $0.draft == draft.wrappedValue ? $0.ghost : nil }) { send(.message) }
-                HStack(spacing: 10) {
-                    if recipients.count > 1 { recipientMenu }
-                    if live && (sending.open || sending.converse) { SessionControls(run: run, target: to, controls: sending.controls) }
-                    if let u = sending.usage { ContextMeter(usage: u) }
-                    Spacer()
-                    if !chrome && !compact { Pill(state, tone) }
-                    buttons
+                // One row while it fits; narrower, the session's settings wrap and the buttons get
+                // their own row, so nothing pushes the conversation wider than its place.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        settings(live)
+                        Spacer()
+                        if !chrome { Pill(state, tone) }
+                        buttons
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        FlowLayout(spacing: 10) { settings(live) }
+                        HStack(spacing: 10) {
+                            if !chrome { Pill(state, tone) }
+                            Spacer(minLength: 0)
+                            buttons
+                        }
+                    }
                 }
             }
             .padding(12)
         }
         Group {
-            if chrome && !compact {
+            if chrome {
                 card
                     .background(Color.card, in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.line.opacity(0.6)))
@@ -224,31 +221,16 @@ struct ChatCard: View {
         }
     }
 
-    /// 「发给 PMO（负责人）」: the lead by default, or a collaborator at work, whose session the
-    /// message cuts into (the lead hears of it as the person's intervention).
-    private var recipientMenu: some View {
-        let name = { (t: SessionTarget) -> String in
-            switch t {
-            case .agent(let a): return run.who(a).lead ? L.text("\(run.who(a).name)（负责人）") : run.who(a).name
-            case .task(let id): return "\(run.who(st.tasks[id]?.agent ?? "").name) · \(id)"
-            }
-        }
-        return Menu {
-            ForEach(recipients, id: \.self) { r in
-                Button(name(r)) { composeTo?.wrappedValue = r }
-            }
-        } label: {
-            // Text only: a menu's label draws a picture at its own size, whatever frame it is given.
-            Text(verbatim: L.text("发给 \(name(to))")).font(.caption)
-        }
-        .menuStyle(.borderlessButton).fixedSize()
-        .help(to == target ? L.text("发给负责人；也可以直接找正在干活的组员") : L.text("直接插进 \(name(to)) 正在做的事，负责人会收到你的介入"))
+    /// The session's own settings and its context.
+    @ViewBuilder private func settings(_ live: Bool) -> some View {
+        if live && (info.open || info.converse) { SessionControls(run: run, target: target, controls: info.controls) }
+        if let u = info.usage { ContextMeter(usage: u) }
     }
 
     /// The composer as the server works it out: the state's pill, the buttons, the placeholder (with
     /// how to paste and send on this Mac when the server says so), and whether it takes a message.
     private func mode(_ live: Bool) -> (String, Tone, AnyView, String, Bool) {
-        let m = sending.mode
+        let m = info.mode
         let placeholder = m.keys ? L.text("\(m.placeholder) · ⌘V 贴截图 · \(sendKey.symbol) 发送") : m.placeholder
         let buttons = AnyView(HStack {
             ForEach(Array(m.buttons.enumerated()), id: \.offset) { _, b in btn(b) }
@@ -269,11 +251,10 @@ struct ChatCard: View {
         }
     }
 
-    private var draft: String { (run.sessionDrafts[to] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var images: [PastedImage] { run.sessionImages[to] ?? [] }
+    private var draft: String { (run.sessionDrafts[target] ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var images: [PastedImage] { run.sessionImages[target] ?? [] }
 
     private func send(_ verb: Conversation.Mode.Act) {
-        let target = to
         switch verb {
         case .resumeRun: Task { await run.act(.resumeRun) }
         case .interrupt: Task { await run.act(.interrupt(target)) }

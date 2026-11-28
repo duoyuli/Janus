@@ -214,28 +214,6 @@ fn each_delivery_is_a_post_and_the_one_awaiting_acceptance_mentions_the_person()
 }
 
 #[test]
-fn who_is_at_work_says_the_step_they_are_on() {
-    let mut log = goal_run();
-    assert_eq!(
-        view(&log).feed.typing.iter().map(|t| (t.agent.as_str(), t.text.as_str())).collect::<Vec<_>>(),
-        [("researcher", "在开工")]
-    );
-    log.add(
-        ev("tool.started")
-            .actor("researcher")
-            .task("T1")
-            .attempt(1)
-            .text("pytest -q")
-            .data(json!({ "callId": "c1", "tool": "execute", "live": true })),
-    );
-    let t = &view(&log).feed.typing[0];
-    assert_eq!((t.task.as_str(), t.text.as_str()), ("T1", "正在运行 pytest -q"));
-    // A turn that ended waits for the person: nobody is typing.
-    log.add(ev("agent.status").actor("researcher").task("T1").data(json!({ "turn": "idle" })));
-    assert!(view(&log).feed.typing.is_empty());
-}
-
-#[test]
 fn without_the_group_layout_the_conversation_is_as_it_was() {
     let mut log = goal_run();
     log.add(ev("session.prompt").to("lead").data(json!({ "channel": "board", "prompt": "[Janus 看板推送] …" })));
@@ -252,5 +230,5 @@ fn a_run_without_tasks_keeps_its_conversation_as_it_was() {
     log.add(ev("agent.message").actor("lead").data(json!({ "text": "你好" })));
     let v = view(&log);
     assert!(posts(&v).is_empty());
-    assert!(v.feed.topics.is_empty() && v.feed.typing.is_empty());
+    assert!(v.feed.topics.is_empty() && v.feed.mentions.is_empty());
 }

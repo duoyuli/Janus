@@ -68,7 +68,7 @@ def worktrees(ctx, c):
       "工作区目录里有了结果，用户没提交的 draft.md 原样保留，还在原来的分支上")
     c(not _git(t.repo, "branch", "--list", "janus/*").strip(), "不新建 janus/ 分支")
     ctx.ui(c, won.id, lambda r, s: r["status"] == "delivered" and r.get("branch") == branch and r.get("merged"),
-           "应用显示结果已合并到哪个分支", pages=("board", "team"))
+           "应用显示结果已合并到哪个分支", pages=("board",))
 
     # The other run changed the same file: its result conflicts with what the first brought back.
     told = lambda: [e for e in lost.has("user.message", actor="janus") if "a.txt" in e["data"].get("text", "")]

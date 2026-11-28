@@ -110,12 +110,12 @@ def goal_codex(ctx, c):
          "负责人回复验收后的消息")
     c(True, "验收后给负责人发消息，负责人照常回复")
     if ctx.app:
-        # The documents the round changed are deliverables too: the inspector lists notes.md under 产物.
+        # The documents the round changed are deliverables too: the side panel lists notes.md under 交付物.
         st = ctx.ui(c, run.id, lambda r, s: any(p.endswith("/notes.md") for p in r["deliverables"]), "右栏「文件」的交付物列出这一轮改的文档")
         c(delivered["data"]["changed"] == ["notes.md"], f"交付记录里这一轮改的文件：{delivered['data']['changed']}（应用显示 {st['run']['deliverables']}）")
     ctx.ui(c, run.id, lambda r, s: {x["id"]: x["status"] for x in r["tasks"]} == {"T1": "succeeded", "T2": "succeeded"}
            and r["delivered"] and r["accepted"], "T1、T2 已完成，Run 已交付并验收",
-           pages=("board", "team", "audit", "task:T2", "agent:lead"))
+           pages=("board", "audit", "task:T2", "agent:lead"))
 
 
 def _sse(ctx, run):

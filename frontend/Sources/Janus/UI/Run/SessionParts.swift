@@ -131,21 +131,20 @@ struct SessionControls: View {
     let target: SessionTarget
     let controls: [Conversation.Control]
 
+    /// One menu each, laid out by the row they are in.
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(controls) { c in
-                Menu {
-                    ForEach(c.options, id: \.value) { o in
-                        Button { set(c, o.value) } label: {
-                            if o.value == c.current { Label(o.name, systemImage: "checkmark") } else { Text(o.name) }
-                        }
+        ForEach(controls) { c in
+            Menu {
+                ForEach(c.options, id: \.value) { o in
+                    Button { set(c, o.value) } label: {
+                        if o.value == c.current { Label(o.name, systemImage: "checkmark") } else { Text(o.name) }
                     }
-                } label: {
-                    Text(verbatim: c.label).font(.caption)
                 }
-                .menuStyle(.borderlessButton).fixedSize()
-                .help(L.text("切换这个会话的\(c.name)，立即生效"))
+            } label: {
+                Text(verbatim: c.label).font(.caption)
             }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help(L.text("切换这个会话的\(c.name)，立即生效"))
         }
     }
 

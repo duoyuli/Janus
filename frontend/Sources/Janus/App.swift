@@ -166,8 +166,9 @@ struct JanusCommands: Commands {
         CommandGroup(before: .sidebar) {
             Button(L.text("工作台")) { run?.show(.board) }.keyboardShortcut("1").disabled(!onGoal)
             Button(L.text("审计与回放")) { run?.show(.audit) }.keyboardShortcut("2").disabled(!onGoal)
-            Button(L.text("团队与权限")) { run?.show(.team) }.keyboardShortcut("3").disabled(!onGoal)
-            Button(L.text("返回工作台")) { run?.show(.board) }.keyboardShortcut("[").disabled(!onGoal || !(run?.page.isDetail ?? false))
+            // Back from a task's or an agent's page, or from a collaborator's session in the group's place.
+            Button(L.text("返回工作台")) { if run?.focus != nil && !(run?.page.isDetail ?? false) { run?.focus = nil } else { run?.show(.board) } }
+                .keyboardShortcut("[").disabled(!onGoal || !((run?.page.isDetail ?? false) || run?.focus != nil))
             Divider()
             Button(L.text("刷新")) { Task { await model.refresh() } }.keyboardShortcut("r").disabled(store == nil)
             Divider()

@@ -314,7 +314,7 @@ def setup_run(ctx, c):
       f"应用：名称旁的共享资料写着它的长度，团队记忆写着还没有笔记（{st['home']['brief']}，{st['home']['memory']}）")
     ctx.ui(c, run_id, lambda r, s: r["status"] == "delivered" and {t["id"]: t["status"] for t in r["tasks"]} == {"T1": "succeeded", "V1": "succeeded"}
            and next(t for t in r["tasks"] if t["id"] == "V1")["verdict"] == "approved",
-           "Run 已交付，T1、V1 已完成，V1 判定通过", pages=("board", "team", "audit", "task:T1", "task:V1", "agent:lead"))
+           "Run 已交付，T1、V1 已完成，V1 判定通过", pages=("board", "audit", "task:T1", "task:V1", "agent:lead"))
 
 
 def _drawn(ctx, name):

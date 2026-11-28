@@ -86,26 +86,30 @@ enum Snapshots {
             guard let r = store.run else { return }
             switch kv.first {
             case "audit": r.page = .audit
-            case "team": r.page = .team
             case "task": r.page = .task(kv.last ?? "")
             case "agent": r.page = .agent(kv.last ?? "")
             case "replay": r.replay = Int(kv.last ?? "") ?? 1; r.page = .board
             default: r.page = .board; r.replay = nil
             }
-        // The group's side panel (`side members|tasks|files|topic:T1|work:T1`), whom its composer
-        // sends to (`to agent:lead|task:T1`), and 「@你」 (`mention`), as the person clicks them.
+        // The group's side panel (`side tasks|files|topic:T1`) and 「@你」 (`mention`),
+        // as the person clicks them.
         case "side":
             guard let r = store.run else { return }
             switch kv.first {
-            case "tasks": r.side = .tasks
             case "files": r.side = .files
-            case "topic": r.side = .topic(kv.last ?? "", work: false)
-            case "work": r.side = .topic(kv.last ?? "", work: true)
-            default: r.side = .members
+            case "topic": r.side = .topic(kv.last ?? "")
+            default: r.side = .tasks
             }
             r.sideShown = true
-        case "to":
-            store.run?.composeTo = SessionTarget(label: arg) ?? .agent("lead")
+        // A collaborator's session in the group's place (`focus T2`), or the group again (`focus`).
+        case "focus":
+            guard let r = store.run else { return }
+            r.focus = arg.isEmpty ? nil : arg
+            if let id = r.focus { r.side = .topic(id) }
+        // The goal's popover (`goal`), and a new goal sent from it (`goal 只加除法`).
+        case "goal":
+            guard let r = store.run else { return }
+            if arg.isEmpty { r.goalOpen = true } else { await r.act(.goal(arg)) }
         case "mention":
             guard let r = store.run, !r.shown.feed.mentions.isEmpty else { return }
             let ids = r.shown.feed.mentions
@@ -353,15 +357,16 @@ enum Snapshots {
                         return Self.post(p)
                     }),
                     "topics": .object(r.shown.feed.topics.mapValues { JSON.array($0.map(Self.post)) }),
-                    "typing": JSON.array(r.shown.feed.typing.map { ["agent": JSON($0.agent), "task": JSON($0.task), "text": JSON($0.text)] }),
                     "mentions": JSON(r.shown.feed.mentions.count),
                     "side": JSON(String(describing: r.side)),
-                    "composeTo": JSON(r.composeTo.label),
+                    "focus": r.focus.map(JSON.init) ?? .null,
+                    "goalNow": r.shown.run.goalNow.map(JSON.init) ?? .null,
+                    "goalOpen": JSON(r.goalOpen),
                     "chat": JSON(r.isChat), "dream": JSON(r.isDream),
                     "proposal": proposal,
                     "proposalShown": .bool(r.proposal != nil),
-                    // The side panel's 交付物 under 文件 (the 文档 menu's deliverables).
-                    "deliverables": JSON.array(r.documents.filter { $0.source == .deliverable }.map { JSON($0.path) }),
+                    // The side panel's 交付物 under 文件.
+                    "deliverables": JSON.array(r.shown.page.delivered.map { JSON($0.path) }),
                     // A consolidation's outcome as its page shows it.
                     "consolidated": s.consolidated,
                     // A Loop's page as shown: its Loop, the count in its header and the dispatched runs listed.

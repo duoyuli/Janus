@@ -77,4 +77,4 @@ def failures(ctx, c):
     ctx.ui(c, run.id, lambda r, s: {x["id"]: x["status"] for x in r["tasks"]} == {
         "T1": "succeeded", "T2": "succeeded", "T3": "succeeded", "T4": "skipped_by_decision", "T5": "skipped_by_decision",
         "T6": "succeeded", "V6": "succeeded", "D6": "succeeded", "T7": "failed"} and next(x for x in r["tasks"] if x["id"] == "V6")["verdict"] == "approved",
-        "每个任务的状态与服务一致，V6 复审后显示通过", pages=("board", "fold all open", "task:T3", "task:T6", "task:V6", "team"))
+        "每个任务的状态与服务一致，V6 复审后显示通过", pages=("board", "fold all open", "task:T3", "task:T6", "task:V6"))

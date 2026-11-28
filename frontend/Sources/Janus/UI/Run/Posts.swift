@@ -41,7 +41,7 @@ struct PostRow: View {
         let w = run.who(post.by)
         let size: CGFloat = inTopic ? 24 : 28
         return HStack(alignment: .top, spacing: 10) {
-            Avatar(initials: w.initials, color: w.color, size: size, role: w.role)
+            Avatar(initials: w.initials, color: w.color, size: size, role: w.role).memberHover(w)
             VStack(alignment: .leading, spacing: 5) {
                 head(w)
                 content
@@ -60,7 +60,7 @@ struct PostRow: View {
     /// Who, their role in the run, when, what kind of post, and the topic it came from.
     private func head(_ w: RunModel.Who) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(w.name).font(.callout.weight(.semibold))
+            Text(w.name).font(.callout.weight(.semibold)).memberHover(w)
             if w.lead { Tag(text: L.text("负责人"), tone: .blue) }
             if post.by == "janus" { Tag(text: L.text("系统"), tone: .violet) }
             Text(verbatim: L.clock(post.ts)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
@@ -204,7 +204,7 @@ struct PostRow: View {
 
     private func open(_ task: String?) {
         guard let task, st.tasks[task] != nil else { return }
-        run.side = .topic(task, work: false)
+        run.side = .topic(task)
         run.sideShown = true
     }
 }
