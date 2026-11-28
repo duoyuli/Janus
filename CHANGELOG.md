@@ -4,6 +4,42 @@ Janus 的版本按日期命名，新版本写在最上面，每节列出这一�
 
 Janus versions are named by date, newest first. Each section lists the changes of that version: what people can see, and bug fixes, performance and stability improvements (internal ones included), in Chinese and then in English. Write the section for a version in `CHANGELOG.md` before releasing it: the `Release` workflow uses that section as the GitHub Release notes and fails when there is no `## <version>` section. A release candidate (RC) gets a section too, titled with its version (`## 2026.11.27-rc.1`); when its changes ship in a stable version, merge those RC sections into the stable one. See [CI and releases](docs/operations/20261101-ci_release.md#release) for the format and the release steps.
 
+## 2026.11.27.4-rc.2
+
+- 任务页按试用意见再改一轮（Mac 应用）：
+  - 目标：群标题下点「目标」，页面中间弹出目标面板，整段目标直接在里面改，改完「发给负责人」，负责人这一轮结束后按新目标推进；之后面板写「现在的目标」，最初的目标还能展开看。
+  - 组员的工作记录在左边的对话区打开：右栏点一个子任务看它的话题，话题顶部点「看工作记录」，就在群的位置完整地看它每一步、插话或接管；话题留在右边，「‹ 群聊」或 ⌘[ 回去。右栏不再有「工作记录」页，话题顶部也理成三行。
+  - 进行中的大任务，页面不再跟着每个事件重排：同一批事件只读一次服务端的视图，两次至少相隔 0.3 秒，上一次读完才读下一次；以前每批事件还会先多排一遍，读到一半被取消的视图服务端也白算了。工具调用的完整输入和输出只在展开时才处理。
+  - 修复：大任务的对话滚动时跳屏、闪屏，滑得快就白屏。对话以前只建看得到的几行，其余按估算的高度排，行的高矮差得多时一边滚一边改高度；现在 400 行以内的对话整段建好，滚动时高度不变，一帧从约 150 毫秒降到约 25 毫秒，打开大任务时多花零点几秒。
+  - 修复：在群里滚动卡顿、拖动滚动条时出现大片空白。上一版为了「@你」能跳到消息，让滚动时每一帧都重新排一遍整个对话，现在只在点「@你」时才找那条消息；进行中的任务每来一批事件就要重新排一遍对话，现在你滚动期间先不排，停下后一次补上。
+  - 修复：右栏里会话的控制项（模型、推理强度、模式等）很多时，右栏被撑宽、超出窗口，内容显示不全，还盖住了群标题的按钮。现在输入框下面那一行放不下时自动换行，右栏不会再超出。
+  - 去掉群底部「谁正在跑什么命令」那一行；谁在忙看成员头像的状态点。
+  - 群的输入框只发给负责人，去掉「发给 …」：上面是负责人的会话，要直接找组员，展开它的工作记录在那里说。
+  - 「团队与权限」页去掉，右栏也不再有「成员」页：鼠标在数字员工的头像或名字上停一下（子任务列表、群消息、群标题），就弹出它的卡片：职责、Agent 和权限。工具栏只剩「工作台」和「审计与回放」（⌘1 / ⌘2）。
+  - 用量提醒不再在标题下占一整行，改成用量那一行里的一个「用量提醒」，点开在用量明细里看。
+  - 工具栏去掉「文档」和「分享」两个菜单；导出事件日志（⇧⌘E）和复制交付摘要（⇧⌘C）还在菜单栏，交付物和产物在右栏「文件」页。
+
+- Token 用量提醒的默认阈值从 50 万提高到 1 亿；单个任务占比的提醒也要 Run 到 1 亿 token 才提。
+
+- 内部：新增 Run 操作 `goal`，服务端把它写成负责人的 `/goal` 命令；视图新增 `run.goalNow`（用户最后给负责人的目标），`feed` 去掉 `typing`。产品端到端测试 `devices` 场景比较浏览器和本机读到的收件箱时，别的场景会在两次读取之间加进新的事项，偶尔失败；改为比较同一时刻的读取。
+
+- Another round on the run page from trying it (Mac app):
+  - The goal: click "Goal" under the group's title and a goal panel opens in the middle of the page, with the whole goal ready to edit; "Send to Lead" and the lead works toward the new goal once its turn ends. The panel then says "Current goal", with the first goal a click away.
+  - A collaborator's work log opens in the conversation on the left: click a subtask on the right for its topic, then "View Work Log" at its top to follow each step at full width, cut in or take over; the topic stays on the right, and "‹ Group Chat" or ⌘[ goes back. The side panel no longer has a Work Log page, and the topic's top is three tidy lines.
+  - A big run at work no longer lays the page out again for each event: a burst of events reads the server's view once, at least 0.3 s after the last read and only once it came back; before, each burst also laid the page out once more first, and the server worked out views for reads that were cancelled. A tool call's whole input and output are worked out only when it is opened.
+  - Fixed: in a big run the conversation jumped and flickered while scrolling, and went blank when scrolled fast. It used to build only the rows in view and place the rest by estimated heights, which changed as it scrolled when rows differ much in height; a conversation of up to 400 rows is now built whole, keeps its height while scrolling, and a frame takes about 25 ms instead of about 150 ms. Opening a big run takes a fraction of a second longer.
+  - Fixed: scrolling the group stuttered, and dragging the scroll bar showed large blank areas. The previous version, so that "@You" could jump to a post, had the whole conversation laid out again on every frame of a scroll; it now looks for the post only when "@You" is clicked. A run at work also laid the conversation out again with each burst of events; while you scroll, that now waits and catches up once you stop.
+  - Fixed: with many session controls (model, effort, mode …) the side panel was pushed wider than the window, its content cut off and the group's header buttons covered. The row under the composer now wraps when it does not fit, and the side panel stays inside the window.
+  - The line at the bottom of the group saying who is running which command is gone; the status dots on the members' avatars say who is busy.
+  - The group's composer only sends to the lead, without "Send to …": the conversation above is the lead's. To talk to a collaborator, expand its work log and write there.
+  - The "Team & Permissions" page is gone, and so is the side panel's Members page: rest the pointer a moment on a digital employee's picture or name (in the subtask list, the group's posts or its header) for a card with its responsibility, agent and permissions. The toolbar has Workbench and Audit & Replay (⌘1 / ⌘2).
+  - The usage reminder no longer takes a whole line under the title: it is a "Usage reminder" mark in the usage line, read in the usage details.
+  - The toolbar drops the Documents and Share menus; Export Event Log (⇧⌘E) and Copy Delivery Summary (⇧⌘C) stay in the menu bar, and deliverables and artifacts are on the side panel's Files page.
+
+- Token usage reminders start at 100 million tokens by default instead of 500,000; the one-task share reminder also waits for a run of 100 million.
+
+- Internal: a new run action `goal`, which the server sends to the lead as its `/goal` command; the view has `run.goalNow` (the latest goal the person gave the lead), and `feed` drops `typing`. The product end-to-end `devices` scenario compared the inbox a browser and the local app read while other scenarios added items between the two reads, and failed now and then; it now compares reads of the same moment.
+
 ## 2026.11.27.4-rc.1
 
 - Mac 应用的任务页（工作台）改成一个群：
