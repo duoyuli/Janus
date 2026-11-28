@@ -81,15 +81,15 @@ The delivery puts the lead agent's conclusion first, then counts what was run an
 
 The lead agent settles technical choices and trade-offs itself. Approvals, decisions the lead agent hands to you, and deliveries waiting for acceptance reach your inbox, from every workspace. Choices are answered in place, what nobody is blocked on can wait until later, and anything can be ignored.
 
-Each run is a group chat. How the lead agent hands out work, who starts what, what comes back, what gets reworked and what gets stuck all appear in the group as they happen; the back and forth between a collaborator and the lead agent stays in that subtask's topic. What needs you mentions you in the group, and you handle it there. You can open any collaborator's work log at any time to steer it or take over. It shows the agent's plan, its thinking, each tool call and how much of its context is used.
+Each run is a group chat. How the lead agent hands out work, who starts what, what comes back, what gets reworked and what gets stuck all appear in the group as they happen; the back and forth between a collaborator and the lead agent stays in that subtask's topic. What needs you mentions you in the group, and you handle it there. You can open any collaborator's work log full width at any time to steer it or take over. It shows the agent's plan, its thinking, each tool call and how much of its context is used.
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/session-en-dark.png">
-    <img src="docs/assets/screenshots/session-en-light.png" width="880" alt="A run's group in Janus: the developer has handed in two subtasks, and the bottom of the group says who is running what; beside it, the work log of the QA engineer doing an independent verification, with its plan two thirds done, a test run in progress, and buttons to steer or take over">
+    <img src="docs/assets/screenshots/session-en-light.png" width="880" alt="A run in Janus with the QA engineer's work log open where the group was: its plan two thirds done, a test run in progress, and buttons to steer or take over; beside it, the subtask's topic with what the lead agent asked for and its acceptance criteria">
   </picture>
 </p>
-<p align="center"><sub>A run's group, with a collaborator agent's work log beside it: an independent verification at work. Steer it, or take over.</sub></p>
+<p align="center"><sub>A collaborator agent's work log, opened from its topic: an independent verification at work. Steer it, or take over.</sub></p>
 
 ### From a run to a Loop
 

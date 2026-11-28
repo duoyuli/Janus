@@ -453,7 +453,7 @@ def stage(lang, server_bin, app_bin, node, raw):
         wait(lambda: done(main_run, "T2"), "T2 完成", 180)
         wait(lambda: {e.get("task") for e in events(main_run) if e["type"] == "tool.started"} >= {"T3", "V1"}, "T3 和 V1 在干活", 120)
         time.sleep(2)
-        shoot("session", f"open run:{main_run}", "page board", "side work:V1")
+        shoot("session", f"open run:{main_run}", "page board", "focus V1")
         fake.touch("hold-T3")
         fake.touch("hold-V1")
         wait(lambda: done(main_run, "T3", "V1"), "T3 和 V1 完成", 120)
@@ -467,7 +467,7 @@ def stage(lang, server_bin, app_bin, node, raw):
                 lead(made["run"], "dispatch", {"goal": t["dispatch"], "key": "github:acme/ledger#415", "source_url": "https://github.com/acme/ledger/issues/415"})
         time.sleep(3)
 
-        shoot("delivery", f"open run:{main_run}", "page board", "side tasks", "mention")
+        shoot("delivery", f"open run:{main_run}", "page board", "focus", "side tasks", "mention")
         shoot("workspace", "open home:ledger")
         shoot("inbox", "open inbox")
     finally:
@@ -481,6 +481,11 @@ def publish(raw, out, lang):
     for page in ("inbox", "delivery", "session", "workspace"):
         for look in ("light", "dark"):
             name = f"{page}-{lang}-{look}.png"
+            # A capture of the window that came back tiny (seen once: 98×66) would be published as
+            # a broken picture: stop instead, and take the pictures again.
+            size = subprocess.run(["magick", "identify", "-format", "%w", os.path.join(raw, name)], capture_output=True, text=True).stdout.strip()
+            if not size.isdigit() or int(size) < 1000:
+                raise Failure(f"{name} 只有 {size or '?'} 像素宽，窗口没有截下来；重跑 just screenshots")
             cmd = ["magick", os.path.join(raw, name), "-profile", SRGB]
             rows = CUT.get((page, lang))
             if rows:
